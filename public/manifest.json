@@ -1,0 +1,16 @@
+{
+  "name": "3 Pillar Management - Presensi Staf",
+  "short_name": "3Pillar Presensi",
+  "description": "Aplikasi PWA Presensi Staf LazyBloom 3 Pillar Management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F3F4F6",
+  "theme_color": "#F97316",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png"
+    }
+  ]
+}

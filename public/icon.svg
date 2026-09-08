@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FB923C" />
+      <stop offset="100%" stop-color="#EA580C" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#F3F4F6"/>
+  <circle cx="256" cy="256" r="180" fill="url(#orangeGrad)"/>
+  <!-- Curly floral symbol like in LazyBloom logo -->
+  <path d="M256 160 C230 160 210 180 210 206 C210 232 232 245 256 256 C280 267 302 280 302 306 C302 332 282 352 256 352 C230 352 210 332 210 306" stroke="#FFFFFF" stroke-width="24" stroke-linecap="round" fill="none"/>
+  <path d="M160 256 C160 230 180 210 206 210 C232 210 245 232 256 256 C267 280 280 302 306 302 C332 302 352 282 352 256 C352 230 332 210 306 210" stroke="#FFFFFF" stroke-width="24" stroke-linecap="round" fill="none"/>
+</svg>
