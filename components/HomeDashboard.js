@@ -215,18 +215,18 @@ export default function HomeDashboard() {
         <div className="mt-1.5 mb-1 flex flex-col items-center justify-center">
           <div
             className={`px-3.5 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1.5 shadow-sm ${
-              outlet?.id === 'deru-ombak'
+              outlet?.id === 'deru-ombak' || outlet?.id === 'deru_ombak'
                 ? 'bg-emerald-600'
-                : outlet?.id === 'sea-cafe'
+                : outlet?.id === 'sea-cafe' || outlet?.id === 'sea_cafe'
                 ? 'bg-sky-600'
                 : 'bg-orange-500'
             }`}
           >
             <span className="w-2 h-2 rounded-full bg-white shadow-xs animate-pulse" />
-            <span>Kategori Outlet: {outlet?.name || 'LazyBloom'}</span>
+            <span>{outlet?.name || 'Deru Ombak'}</span>
           </div>
           <span className="text-[11px] font-medium text-slate-500 mt-1">
-            {outlet?.description || 'Specialty Coffee & Pastry'}
+            {outlet?.description || 'beachfront Coffe & Eatery'}
           </span>
         </div>
 
@@ -521,7 +521,7 @@ export default function HomeDashboard() {
               className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 active:scale-98 rounded-2xl text-xs font-bold text-white shadow-md shadow-slate-900/15 transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <UserCog className="w-4 h-4 text-orange-400" />
-              <span>Mode Admin (Leader / Finance)</span>
+              <span>Mode Admin</span>
             </button>
           </div>
         </div>

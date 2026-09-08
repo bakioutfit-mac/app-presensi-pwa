@@ -176,7 +176,7 @@ export default function AdminPinModal({ isOpen, onClose }) {
           </form>
 
           <p className="text-[10px] text-slate-400 text-center leading-relaxed">
-            Perubahan PIN admin dapat diatur melalui Database Editor Supabase.
+            Perubahan PIN Hubungi Fkrlbhq
           </p>
         </div>
       </div>

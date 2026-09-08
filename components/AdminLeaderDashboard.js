@@ -412,7 +412,7 @@ export default function AdminLeaderDashboard({ onBack }) {
               Atur &amp; Tugaskan Jadwal Shift Staf
             </h4>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Tentukan tanggal dan shift resmi untuk karyawan 3 cabang
+              Tentukan tanggal dan shift untuk jadwal shift
             </p>
           </div>
 
@@ -771,7 +771,7 @@ export default function AdminLeaderDashboard({ onBack }) {
               Pendaftaran Karyawan Baru
             </h4>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Daftarkan staf baru langsung ke database 3 cabang outlet
+              Daftarkan staf baru langsung ke database
             </p>
           </div>
 

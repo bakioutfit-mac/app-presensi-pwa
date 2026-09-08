@@ -16,6 +16,7 @@ import {
   Building2,
   DollarSign,
   LocateFixed,
+  Clock,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -210,19 +211,20 @@ export default function AdminFinanceDashboard({ onBack }) {
   };
 
   // ================= 2. PENGATURAN TITIK GPS 3 OUTLET =================
-  const [gpsForm, setGpsForm] = useState(
-    outlets.reduce((acc, o) => {
+  const safeOutlets = Array.isArray(outlets) && outlets.length > 0 ? outlets : [];
+  const [gpsForm, setGpsForm] = useState(() => {
+    return safeOutlets.reduce((acc, o) => {
       acc[o.id] = {
-        lat: o.coords.lat,
-        lng: o.coords.lng,
-        radiusMeters: o.coords.radiusMeters || 50,
-        address: o.address,
+        lat: o.coords?.lat ?? o.latitude ?? -6.2088,
+        lng: o.coords?.lng ?? o.longitude ?? 106.8456,
+        radiusMeters: o.coords?.radiusMeters ?? o.radius_meters ?? 50,
+        address: o.address || '',
       };
       return acc;
-    }, {})
-  );
+    }, {});
+  });
 
-  const [activeGpsOutlet, setActiveGpsOutlet] = useState('lazybloom');
+  const [activeGpsOutlet, setActiveGpsOutlet] = useState(() => safeOutlets[0]?.id || 'lazybloom');
   const [gpsMsg, setGpsMsg] = useState({ type: '', text: '' });
   const [detectingGps, setDetectingGps] = useState(false);
 
@@ -850,7 +852,7 @@ export default function AdminFinanceDashboard({ onBack }) {
 
           {/* Pilihan 3 Outlet untuk Dikonfigurasi */}
           <div className="grid grid-cols-3 gap-1.5">
-            {outlets.map((outlet) => {
+            {(outlets || []).map((outlet) => {
               const isSelected = activeGpsOutlet === outlet.id;
               return (
                 <button
@@ -866,7 +868,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                   <Building2 className="w-4 h-4 mb-1" />
                   <span className="text-xs">{outlet.name}</span>
                   <span className="text-[9px] opacity-80 mt-0.5">
-                    {outlet.coords.radiusMeters || 50}m
+                    {outlet.coords?.radiusMeters || 50}m
                   </span>
                 </button>
               );
