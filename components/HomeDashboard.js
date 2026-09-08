@@ -27,7 +27,7 @@ import AdminLeaderDashboard from './AdminLeaderDashboard';
 import AdminFinanceDashboard from './AdminFinanceDashboard';
 import BrandLogo from './BrandLogo';
 
-// Resto Coordinates (LazyBloom Store Location default)
+// Resto Coordinates fallback
 const RESTO_COORDS = {
   lat: -6.2088,
   lng: 106.8456,
@@ -62,7 +62,7 @@ export default function HomeDashboard() {
   // Live Timer
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  // Geofencing state (with simulation toggle)
+  // Geofencing state
   const [isInRadius, setIsInRadius] = useState(true);
   const [currentDistance, setCurrentDistance] = useState(15); // in meters
   const [userCoords, setUserCoords] = useState({ lat: -6.2088, lng: 106.8456 });
@@ -102,44 +102,54 @@ export default function HomeDashboard() {
           setIsInRadius(distance <= targetCoords.radiusMeters);
         },
         (err) => {
-          console.log('Using simulated location:', err.message);
+          console.warn('Geolocation access warning:', err.message);
+          setIsInRadius(true); // Fallback to allowed for testing
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
       );
 
       return () => navigator.geolocation.clearWatch(watchId);
     }
-  }, []);
+  }, [outlet]);
 
-  // Timer Calculation (Seconds since check_in_time)
+  // Live Timer Interval
   useEffect(() => {
-    const updateTimer = () => {
-      if (todayAttendance?.check_in_time) {
-        const checkInMs = new Date(todayAttendance.check_in_time).getTime();
-        const endMs = todayAttendance.check_out_time
-          ? new Date(todayAttendance.check_out_time).getTime()
-          : Date.now();
-        const diff = Math.max(0, Math.floor((endMs - checkInMs) / 1000));
-        setElapsedSeconds(diff);
-      } else {
-        setElapsedSeconds(0);
-      }
-    };
+    let interval = null;
 
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
+    if (todayAttendance?.check_in_time && !todayAttendance?.check_out_time) {
+      const checkInDate = new Date(todayAttendance.check_in_time).getTime();
+
+      const updateTimer = () => {
+        const now = new Date().getTime();
+        const diff = Math.max(0, Math.floor((now - checkInDate) / 1000));
+        setElapsedSeconds(diff);
+      };
+
+      updateTimer();
+      interval = setInterval(updateTimer, 1000);
+    } else if (todayAttendance?.check_out_time && todayAttendance?.check_in_time) {
+      const checkInDate = new Date(todayAttendance.check_in_time).getTime();
+      const checkOutDate = new Date(todayAttendance.check_out_time).getTime();
+      const diff = Math.max(0, Math.floor((checkOutDate - checkInDate) / 1000));
+      setElapsedSeconds(diff);
+    } else {
+      setElapsedSeconds(0);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [todayAttendance]);
 
-  // Format Elapsed Time 00 : 00 : 00
-  const formatTimer = (totalSecs) => {
-    const hours = String(Math.floor(totalSecs / 3600)).padStart(2, '0');
-    const minutes = String(Math.floor((totalSecs % 3600) / 60)).padStart(2, '0');
-    const seconds = String(totalSecs % 60).padStart(2, '0');
-    return `${hours} : ${minutes} : ${seconds}`;
+  // Format Timer HH:MM:SS
+  const formatTimer = (seconds) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  // Working shift target (e.g. 8 hours = 28800 seconds)
+  // 8 Hours target = 28800 seconds
   const shiftTargetSecs = 8 * 3600;
   const progressPercent = Math.min(100, Math.round((elapsedSeconds / shiftTargetSecs) * 100));
 
@@ -167,7 +177,7 @@ export default function HomeDashboard() {
   // If Admin Leader Mode is active
   if (adminRole === 'leader') {
     return (
-      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6">
+      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
         <AdminLeaderDashboard onBack={() => setAdminRole(null)} />
       </div>
     );
@@ -176,74 +186,78 @@ export default function HomeDashboard() {
   // If Admin Finance Mode is active
   if (adminRole === 'finance') {
     return (
-      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6">
+      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
         <AdminFinanceDashboard onBack={() => setAdminRole(null)} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen max-w-[430px] mx-auto px-4 py-5 flex flex-col pb-12">
+    <div className="min-h-screen max-w-[430px] mx-auto px-4 py-5 flex flex-col pb-12 bg-slate-50/60">
       {/* Brand Header */}
       <div className="mb-4 text-center select-none">
         <BrandLogo variant="header" size="md" />
       </div>
 
-      {/* Main Profile Greeting Card (Screenshot 3) */}
-      <div className="relative bg-[#CACFD6] rounded-[32px] border-2 border-[#F97316] shadow-xl pt-5 pb-10 px-5 text-center mb-6">
+      {/* Main Profile Greeting Card */}
+      <div className="relative bg-white rounded-[32px] border border-slate-100 shadow-xl shadow-slate-200/70 pt-6 pb-11 px-6 text-center mb-6 overflow-visible">
         {/* Top Flower Logo Badge */}
-        <div className="mb-2.5">
+        <div className="mb-2">
           <BrandLogo variant="badge" size="md" />
         </div>
 
         {/* Staff Greeting & Assigned Outlet Category */}
-        <h2 className="text-lg font-extrabold text-[#1E293B]">
-          Halo, {user?.full_name || 'Fikril Bay'}
+        <h2 className="text-lg font-black text-slate-800 tracking-tight">
+          Halo, {user?.full_name || 'Staf Presensi'}
         </h2>
 
         {/* Dedicated Outlet Category Badge */}
         <div className="mt-1.5 mb-1 flex flex-col items-center justify-center">
           <div
-            className={`px-3.5 py-1 rounded-full text-xs font-black border-2 flex items-center gap-1.5 shadow-xs ${
-              outlet?.badgeBg || 'bg-orange-500'
-            } text-white ${outlet?.badgeBorder || 'border-orange-500'}`}
+            className={`px-3.5 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1.5 shadow-sm ${
+              outlet?.id === 'deru-ombak'
+                ? 'bg-emerald-600'
+                : outlet?.id === 'sea-cafe'
+                ? 'bg-sky-600'
+                : 'bg-orange-500'
+            }`}
           >
             <span className="w-2 h-2 rounded-full bg-white shadow-xs animate-pulse" />
             <span>Kategori Outlet: {outlet?.name || 'LazyBloom'}</span>
           </div>
-          <span className="text-[10px] font-medium text-gray-600 mt-0.5">
+          <span className="text-[11px] font-medium text-slate-500 mt-1">
             {outlet?.description || 'Specialty Coffee & Pastry'}
           </span>
         </div>
 
-        <p className="text-[11px] text-gray-500 mt-0.5">{getFormattedDate()}</p>
+        <p className="text-[11px] text-slate-400 mt-0.5 font-medium">{getFormattedDate()}</p>
 
         {/* Top Control Icons (Settings Left, Logout Right) */}
-        <div className="absolute top-1/2 left-6 -translate-y-1">
+        <div className="absolute top-6 left-6">
           <button
             type="button"
             onClick={() => setProfileOpen(true)}
-            className="p-2 rounded-full text-white/90 bg-[#A8B0B9] hover:bg-white hover:text-gray-800 shadow-md transition"
+            className="p-2.5 rounded-full text-slate-600 bg-slate-100 hover:bg-slate-200 shadow-xs transition"
             title="Profile Settings"
           >
-            <Settings className="w-5 h-5 text-white hover:text-gray-800 transition" />
+            <Settings className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="absolute top-1/2 right-6 -translate-y-1">
+        <div className="absolute top-6 right-6">
           <button
             type="button"
             onClick={logout}
-            className="p-2 rounded-full text-white/90 bg-[#A8B0B9] hover:bg-white hover:text-gray-800 shadow-md transition"
+            className="p-2.5 rounded-full text-slate-600 bg-slate-100 hover:bg-rose-100 hover:text-rose-600 shadow-xs transition"
             title="Keluar"
           >
-            <LogOut className="w-5 h-5 text-white hover:text-gray-800 transition" />
+            <LogOut className="w-4 h-4" />
           </button>
         </div>
 
         {/* Overlapping Bottom Avatar */}
         <div className="absolute left-1/2 -bottom-10 -translate-x-1/2">
-          <div className="w-20 h-20 rounded-full border-4 border-[#CACFD6] bg-[#9CA3AF] flex items-center justify-center shadow-lg overflow-hidden">
+          <div className="w-20 h-20 rounded-full border-4 border-white bg-slate-200 shadow-md flex items-center justify-center overflow-hidden">
             {user?.avatar_url ? (
               <img
                 src={user.avatar_url}
@@ -251,23 +265,23 @@ export default function HomeDashboard() {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <User className="w-12 h-12 text-white/90" />
+              <User className="w-10 h-10 text-slate-400" />
             )}
           </div>
         </div>
       </div>
 
-      {/* Navigation Tabs (Row of 4 circular buttons, Screenshot 3) */}
+      {/* Navigation Tabs (Row of 4 circular buttons) */}
       <div className="mt-4 mb-4">
-        <div className="bg-[#B8BFC8] rounded-full p-2 flex items-center justify-around shadow-inner border border-white/40">
+        <div className="bg-white rounded-2xl p-2 flex items-center justify-around shadow-sm border border-slate-200/80">
           {/* Tab 1: Presensi */}
           <button
             type="button"
             onClick={() => setActiveTab('presensi')}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-sm ${
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
               activeTab === 'presensi'
-                ? 'bg-white text-[#2563EB] ring-2 ring-[#2563EB]'
-                : 'bg-white/90 text-gray-600 hover:bg-white'
+                ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 scale-105'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
             }`}
             title="Presensi"
           >
@@ -278,10 +292,10 @@ export default function HomeDashboard() {
           <button
             type="button"
             onClick={() => setActiveTab('shift')}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-sm ${
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
               activeTab === 'shift'
-                ? 'bg-white text-[#2563EB] ring-2 ring-[#2563EB]'
-                : 'bg-white/90 text-gray-600 hover:bg-white'
+                ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 scale-105'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
             }`}
             title="Jadwal Shift"
           >
@@ -292,10 +306,10 @@ export default function HomeDashboard() {
           <button
             type="button"
             onClick={() => setActiveTab('payslip')}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-sm ${
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
               activeTab === 'payslip'
-                ? 'bg-white text-[#2563EB] ring-2 ring-[#2563EB]'
-                : 'bg-white/90 text-gray-600 hover:bg-white'
+                ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 scale-105'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
             }`}
             title="Slip Gaji"
           >
@@ -306,10 +320,10 @@ export default function HomeDashboard() {
           <button
             type="button"
             onClick={() => setActiveTab('history')}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition shadow-sm ${
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
               activeTab === 'history'
-                ? 'bg-white text-[#2563EB] ring-2 ring-[#2563EB]'
-                : 'bg-white/90 text-gray-600 hover:bg-white'
+                ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 scale-105'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
             }`}
             title="Daftar Hadir"
           >
@@ -320,29 +334,29 @@ export default function HomeDashboard() {
         {/* Tab Labels */}
         <div className="grid grid-cols-4 text-center mt-1.5 px-2">
           <span
-            className={`text-[11px] font-bold ${
-              activeTab === 'presensi' ? 'text-[#1E293B]' : 'text-gray-500'
+            className={`text-[10px] font-bold tracking-tight ${
+              activeTab === 'presensi' ? 'text-blue-600' : 'text-slate-400'
             }`}
           >
             Presensi
           </span>
           <span
-            className={`text-[11px] font-bold ${
-              activeTab === 'shift' ? 'text-[#1E293B]' : 'text-gray-500'
+            className={`text-[10px] font-bold tracking-tight ${
+              activeTab === 'shift' ? 'text-blue-600' : 'text-slate-400'
             }`}
           >
             Jadwal Shift
           </span>
           <span
-            className={`text-[11px] font-bold ${
-              activeTab === 'payslip' ? 'text-[#1E293B]' : 'text-gray-500'
+            className={`text-[10px] font-bold tracking-tight ${
+              activeTab === 'payslip' ? 'text-blue-600' : 'text-slate-400'
             }`}
           >
             Slip Gaji
           </span>
           <span
-            className={`text-[11px] font-bold ${
-              activeTab === 'history' ? 'text-[#1E293B]' : 'text-gray-500'
+            className={`text-[10px] font-bold tracking-tight ${
+              activeTab === 'history' ? 'text-blue-600' : 'text-slate-400'
             }`}
           >
             Daftar Hadir
@@ -354,16 +368,16 @@ export default function HomeDashboard() {
 
       {/* TAB 1: PRESENSI UTAMA */}
       {activeTab === 'presensi' && (
-        <div className="space-y-4">
+        <div className="space-y-4 animate-in fade-in duration-200">
           {/* Active Leave Notification if any */}
           {isLeaveDisabled && (
-            <div className="p-3 bg-amber-100 border border-amber-300 rounded-2xl text-xs text-amber-900 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-700" />
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
               <div>
                 <p className="font-bold">
                   Status Izin Aktif ({activeLeave.leave_type})
                 </p>
-                <p className="text-[11px] text-amber-800">
+                <p className="text-[11px] text-amber-800 leading-relaxed mt-0.5">
                   {activeLeave.leave_type === 'Izin Terlambat'
                     ? `Izin terlambat > 30 menit (${activeLeave.late_duration_minutes} mnt). Tombol presensi dinonaktifkan.`
                     : 'Anda sedang dalam status izin sakit/cuti. Tombol presensi dinonaktifkan.'}
@@ -372,35 +386,35 @@ export default function HomeDashboard() {
             </div>
           )}
 
-          {/* Work Duration Card (Screenshot 3) */}
-          <div className="bg-[#CACFD6] rounded-[28px] border-2 border-[#F97316] p-5 text-center shadow-lg space-y-3">
-            <h3 className="text-xs font-bold text-[#2563EB]">
-              Sudah berapa lama kamu bekerja?
+          {/* Work Duration Card */}
+          <div className="bg-white rounded-[28px] border border-slate-100 p-6 text-center shadow-lg shadow-slate-200/60 space-y-3">
+            <h3 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+              Durasi Waktu Kerja Hari Ini
             </h3>
 
             {/* Live Digital Timer */}
-            <div className="text-3xl sm:text-4xl font-black text-[#1E3A8A] tracking-wider font-mono">
+            <div className="text-4xl font-black text-slate-900 tracking-wider font-mono">
               {formatTimer(elapsedSeconds)}
             </div>
 
-            <p className="text-[11px] font-medium text-gray-700">
+            <p className="text-xs font-medium text-slate-500">
               {!todayAttendance?.check_in_time
                 ? 'Belum mulai bekerja hari ini'
                 : todayAttendance?.check_out_time
-                ? 'Sudah selesai bekerja hari ini'
-                : 'Sedang berlangsung...'}
+                ? 'Selesai bekerja hari ini'
+                : 'Jam kerja sedang berjalan...'}
             </p>
 
-            {/* Two-tone Progress Bar */}
-            <div className="w-full bg-[#E5D5C5] h-3.5 rounded-full overflow-hidden p-0.5 shadow-inner">
+            {/* Progress Bar */}
+            <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden p-0.5 border border-slate-200/60">
               <div
-                className="bg-[#F97316] h-full rounded-full transition-all duration-1000 ease-out"
+                className="bg-gradient-to-r from-[#F97316] to-[#EA580C] h-full rounded-full transition-all duration-1000 ease-out shadow-xs"
                 style={{ width: `${todayAttendance?.check_in_time ? Math.max(8, progressPercent) : 0}%` }}
               />
             </div>
 
             {/* Status Dot */}
-            <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-800 pt-1">
+            <div className="flex items-center justify-center gap-2 text-xs font-semibold text-slate-700 pt-1">
               {!todayAttendance?.check_in_time ? (
                 <>
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm" />
@@ -414,13 +428,13 @@ export default function HomeDashboard() {
               ) : (
                 <>
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-sm" />
-                  <span>Sedang Bekerja (Masuk: {new Date(todayAttendance.check_in_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})</span>
+                  <span>Bekerja Aktif (Masuk: {new Date(todayAttendance.check_in_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})</span>
                 </>
               )}
             </div>
           </div>
 
-          {/* Action Buttons: Presensi Masuk & Presensi Pulang (Screenshot 3) */}
+          {/* Action Buttons: Presensi Masuk & Presensi Pulang */}
           <div className="grid grid-cols-2 gap-3">
             {/* Presensi Masuk Button */}
             <button
@@ -431,10 +445,10 @@ export default function HomeDashboard() {
                 !!todayAttendance?.check_in_time ||
                 !isInRadius
               }
-              className={`py-3.5 px-2 rounded-2xl text-xs font-bold border-2 transition shadow-xs flex items-center justify-center gap-1.5 ${
+              className={`py-3.5 px-3 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2 ${
                 !todayAttendance?.check_in_time && !isLeaveDisabled && isInRadius
-                  ? 'border-emerald-500 bg-[#B8C0C8] text-[#1E293B] hover:bg-[#a8b0b8] active:scale-98'
-                  : 'border-emerald-300 bg-gray-200 text-gray-400 opacity-60 cursor-not-allowed'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md shadow-emerald-600/25 active:scale-98 cursor-pointer'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
               }`}
             >
               <span>Presensi Masuk</span>
@@ -450,75 +464,63 @@ export default function HomeDashboard() {
                 !!todayAttendance?.check_out_time ||
                 !isInRadius
               }
-              className={`py-3.5 px-2 rounded-2xl text-xs font-bold border-2 transition shadow-xs flex items-center justify-center gap-1.5 ${
+              className={`py-3.5 px-3 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2 ${
                 todayAttendance?.check_in_time &&
                 !todayAttendance?.check_out_time &&
                 !isLeaveDisabled &&
                 isInRadius
-                  ? 'border-[#F97316] bg-[#B8C0C8] text-[#1E293B] hover:bg-[#a8b0b8] active:scale-98'
-                  : 'border-gray-300 bg-gray-200 text-gray-400 opacity-60 cursor-not-allowed'
+                  ? 'bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white shadow-md shadow-orange-500/25 active:scale-98 cursor-pointer'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
               }`}
             >
               <span>Presensi Pulang</span>
             </button>
           </div>
 
-          {/* Geolocation Status Indicator (Screenshot 3) */}
-          <div className="flex flex-col items-center justify-center gap-1 text-center">
-            <div className="flex items-center gap-1.5 text-xs font-bold">
-              <MapPin
-                className={`w-3.5 h-3.5 shrink-0 ${
-                  isInRadius ? 'text-emerald-600' : 'text-red-500'
+          {/* Geolocation Status Indicator (Clean Pill) */}
+          <div className="flex flex-col items-center justify-center gap-1.5 text-center pt-1">
+            <div
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border transition ${
+                isInRadius
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-rose-50 text-rose-700 border-rose-200'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isInRadius ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
                 }`}
               />
-              {isInRadius ? (
-                <span className="text-emerald-700">
-                  Kamu berada di dalam Radius {outlet?.name || 'Outlet'} ({currentDistance}m)
-                </span>
-              ) : (
-                <span className="text-red-600">
-                  Kamu berada di luar Radius {outlet?.name || 'Outlet'} ({currentDistance}m)
-                </span>
-              )}
-
-              {/* Simulation toggle button for testing */}
-              <button
-                type="button"
-                onClick={() => {
-                  const nextState = !isInRadius;
-                  setIsInRadius(nextState);
-                  setCurrentDistance(nextState ? 12 : 500);
-                }}
-                className="ml-2 text-[10px] underline text-gray-500 hover:text-gray-800"
-                title="Ubah simulasi radius GPS untuk keperluan testing"
-              >
-                [Ubah GPS Demo]
-              </button>
+              <span>
+                {isInRadius
+                  ? `Dalam Radius Presensi (${currentDistance}m)`
+                  : `Di Luar Radius Outlet (${currentDistance}m)`}
+              </span>
             </div>
-            <p className="text-[10px] text-gray-500">
-              Titik Absen: {outlet?.address || 'Outlet Area'} (Radius 50m)
+            <p className="text-[11px] text-slate-400">
+              Titik Absen: {outlet?.name || 'Outlet Area'} (Radius Maksimal {outlet?.coords?.radiusMeters || 50}m)
             </p>
           </div>
 
-          {/* Bottom Action Buttons: Ajukan Izin & Mode Admin (Screenshot 3) */}
-          <div className="space-y-2.5 pt-1">
+          {/* Bottom Action Buttons: Ajukan Izin & Mode Admin */}
+          <div className="space-y-2.5 pt-2">
             {/* Ajukan Izin / Sakit */}
             <button
               type="button"
               onClick={() => setLeaveModalOpen(true)}
-              className="w-full py-3 bg-[#CACFD6] hover:bg-[#bcc2ca] active:scale-98 border-2 border-[#F97316] rounded-2xl text-xs font-bold text-[#1E293B] shadow-sm transition flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-white hover:bg-slate-50 active:scale-98 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 shadow-sm transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <FileCheck className="w-4 h-4 text-[#2563EB]" />
-              <span>Ajukan Izin/Sakit</span>
+              <span>Ajukan Izin / Cuti / Sakit</span>
             </button>
 
             {/* Mode Admin (Memerlukan Verifikasi PIN Admin) */}
             <button
               type="button"
               onClick={() => setAdminPinModalOpen(true)}
-              className="w-full py-3 bg-[#CACFD6] hover:bg-[#bcc2ca] active:scale-98 border-2 border-[#F97316] rounded-2xl text-xs font-bold text-[#1E293B] shadow-sm transition flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 active:scale-98 rounded-2xl text-xs font-bold text-white shadow-md shadow-slate-900/15 transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <UserCog className="w-4 h-4 text-[#2563EB]" />
+              <UserCog className="w-4 h-4 text-orange-400" />
               <span>Mode Admin (Leader / Finance)</span>
             </button>
           </div>

@@ -200,24 +200,25 @@ export default function AdminFinanceDashboard({ onBack }) {
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Header Bar */}
-      <div className="bg-[#CACFD6] rounded-2xl p-4 border border-white/60 shadow-xs flex items-center justify-between">
+      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="p-1.5 rounded-full bg-white/80 hover:bg-white text-gray-700 shadow-xs transition"
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 shadow-xs transition"
+            title="Kembali ke Beranda Staf"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h3 className="text-xs font-black text-[#1E293B] flex items-center gap-1.5">
+            <h3 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
               <DollarSign className="w-4 h-4 text-[#2563EB]" />
               <span>Dashboard Admin Finance</span>
-              <span className="text-[9px] bg-[#2563EB] text-white px-2 py-0.2 rounded-full font-extrabold">
+              <span className="text-[9px] bg-[#2563EB] text-white px-2 py-0.5 rounded-full font-black">
                 Keuangan &amp; GPS
               </span>
             </h3>
-            <p className="text-[10px] text-gray-600">
+            <p className="text-[10px] text-slate-500">
               Kelola gaji 3 outlet &amp; atur koordinat latitude/longitude
             </p>
           </div>
@@ -225,43 +226,43 @@ export default function AdminFinanceDashboard({ onBack }) {
       </div>
 
       {/* Sub-Tabs */}
-      <div className="grid grid-cols-3 gap-1.5 bg-[#B8BFC8] p-1 rounded-2xl">
+      <div className="grid grid-cols-3 gap-1.5 bg-slate-200/70 p-1.5 rounded-2xl">
         <button
           type="button"
           onClick={() => setFinanceTab('payroll')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-0.5 ${
+          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             financeTab === 'payroll'
-              ? 'bg-white text-[#2563EB] shadow-xs'
-              : 'text-gray-700 hover:text-gray-950'
+              ? 'bg-white text-[#2563EB] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Banknote className="w-3.5 h-3.5" />
+          <Banknote className="w-4 h-4" />
           <span>Gaji 3 Outlet</span>
         </button>
 
         <button
           type="button"
           onClick={() => setFinanceTab('gpsConfig')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-0.5 ${
+          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             financeTab === 'gpsConfig'
-              ? 'bg-white text-[#2563EB] shadow-xs'
-              : 'text-gray-700 hover:text-gray-950'
+              ? 'bg-white text-[#2563EB] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <MapPin className="w-3.5 h-3.5" />
+          <MapPin className="w-4 h-4" />
           <span>Titik GPS Outlet</span>
         </button>
 
         <button
           type="button"
           onClick={() => setFinanceTab('tableEditor')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-0.5 ${
+          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             financeTab === 'tableEditor'
-              ? 'bg-white text-[#2563EB] shadow-xs'
-              : 'text-gray-700 hover:text-gray-950'
+              ? 'bg-white text-[#2563EB] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Database className="w-3.5 h-3.5" />
+          <Database className="w-4 h-4" />
           <span>Tabel Editor</span>
         </button>
       </div>

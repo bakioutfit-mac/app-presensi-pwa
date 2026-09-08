@@ -206,24 +206,25 @@ export default function AdminLeaderDashboard({ onBack }) {
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Header Bar */}
-      <div className="bg-[#CACFD6] rounded-2xl p-4 border border-white/60 shadow-xs flex items-center justify-between">
+      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="p-1.5 rounded-full bg-white/80 hover:bg-white text-gray-700 shadow-xs transition"
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 shadow-xs transition"
+            title="Kembali ke Beranda Staf"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h3 className="text-xs font-black text-[#1E293B] flex items-center gap-1.5">
+            <h3 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
               <Crown className="w-4 h-4 text-[#EA580C]" />
               <span>Dashboard Admin Leader</span>
-              <span className="text-[9px] bg-[#EA580C] text-white px-2 py-0.2 rounded-full font-extrabold">
+              <span className="text-[9px] bg-[#EA580C] text-white px-2 py-0.5 rounded-full font-black">
                 Operasional
               </span>
             </h3>
-            <p className="text-[10px] text-gray-600">
+            <p className="text-[10px] text-slate-500">
               Kelola shift kerja, monitoring absensi &amp; pendaftaran staf
             </p>
           </div>
@@ -231,56 +232,56 @@ export default function AdminLeaderDashboard({ onBack }) {
       </div>
 
       {/* Sub-Tabs */}
-      <div className="grid grid-cols-4 gap-1 bg-[#B8BFC8] p-1 rounded-2xl">
+      <div className="grid grid-cols-4 gap-1.5 bg-slate-200/70 p-1.5 rounded-2xl">
         <button
           type="button"
           onClick={() => setAdminTab('assignment')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-0.5 ${
+          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             adminTab === 'assignment'
-              ? 'bg-white text-[#EA580C] shadow-xs'
-              : 'text-gray-700 hover:text-gray-950'
+              ? 'bg-white text-[#EA580C] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Calendar className="w-3.5 h-3.5" />
+          <Calendar className="w-4 h-4" />
           <span>Shift</span>
         </button>
 
         <button
           type="button"
           onClick={() => setAdminTab('monitoring')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-0.5 ${
+          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             adminTab === 'monitoring'
-              ? 'bg-white text-[#EA580C] shadow-xs'
-              : 'text-gray-700 hover:text-gray-950'
+              ? 'bg-white text-[#EA580C] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Activity className="w-3.5 h-3.5" />
+          <Activity className="w-4 h-4" />
           <span>Monitoring</span>
         </button>
 
         <button
           type="button"
           onClick={() => setAdminTab('addStaff')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-0.5 ${
+          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             adminTab === 'addStaff'
-              ? 'bg-white text-[#EA580C] shadow-xs'
-              : 'text-gray-700 hover:text-gray-950'
+              ? 'bg-white text-[#EA580C] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <UserPlus className="w-3.5 h-3.5" />
+          <UserPlus className="w-4 h-4" />
           <span>Tambah Staf</span>
         </button>
 
         <button
           type="button"
           onClick={() => setAdminTab('tableEditor')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-0.5 ${
+          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             adminTab === 'tableEditor'
-              ? 'bg-white text-[#2563EB] shadow-xs'
-              : 'text-gray-700 hover:text-gray-950'
+              ? 'bg-white text-[#2563EB] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <Database className="w-3.5 h-3.5" />
+          <Database className="w-4 h-4" />
           <span>Tabel Editor</span>
         </button>
       </div>
