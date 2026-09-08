@@ -10,14 +10,14 @@ export default function ShiftScheduleTab() {
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Generate 7 days schedule starting today
+  // Generate 7 days schedule starting today with 4 official outlet shifts
   const defaultShifts = [
     {
       id: '1',
       shift_date: '2026-09-07',
       day_name: 'Senin',
-      shift_name: 'Shift Pagi',
-      time: '08:00 - 16:00',
+      shift_name: 'Shift Weekday',
+      time: '12:00 - 21:00',
       status: 'Bertugas',
       is_today: true,
     },
@@ -25,8 +25,8 @@ export default function ShiftScheduleTab() {
       id: '2',
       shift_date: '2026-09-08',
       day_name: 'Selasa',
-      shift_name: 'Shift Pagi',
-      time: '08:00 - 16:00',
+      shift_name: 'Shift Weekday',
+      time: '12:00 - 21:00',
       status: 'Mendatang',
       is_today: false,
     },
@@ -34,8 +34,8 @@ export default function ShiftScheduleTab() {
       id: '3',
       shift_date: '2026-09-09',
       day_name: 'Rabu',
-      shift_name: 'Shift Siang',
-      time: '14:00 - 22:00',
+      shift_name: 'Shift Middle',
+      time: '11:00 - 20:00',
       status: 'Mendatang',
       is_today: false,
     },
@@ -43,8 +43,8 @@ export default function ShiftScheduleTab() {
       id: '4',
       shift_date: '2026-09-10',
       day_name: 'Kamis',
-      shift_name: 'Shift Siang',
-      time: '14:00 - 22:00',
+      shift_name: 'Shift Middle',
+      time: '11:00 - 20:00',
       status: 'Mendatang',
       is_today: false,
     },
@@ -52,8 +52,8 @@ export default function ShiftScheduleTab() {
       id: '5',
       shift_date: '2026-09-11',
       day_name: 'Jumat',
-      shift_name: 'Shift Pagi',
-      time: '08:00 - 16:00',
+      shift_name: 'Shift Weekday',
+      time: '12:00 - 21:00',
       status: 'Mendatang',
       is_today: false,
     },
@@ -61,8 +61,8 @@ export default function ShiftScheduleTab() {
       id: '6',
       shift_date: '2026-09-12',
       day_name: 'Sabtu',
-      shift_name: 'Shift Pagi',
-      time: '08:00 - 16:00',
+      shift_name: 'Shift Weekend 1',
+      time: '09:00 - 18:00',
       status: 'Mendatang',
       is_today: false,
     },
@@ -104,85 +104,85 @@ export default function ShiftScheduleTab() {
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Schedule Header Card */}
-      <div className="bg-[#CACFD6] rounded-2xl p-4 border border-white/60 shadow-xs">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CalendarIcon className="w-5 h-5 text-[#2563EB]" />
-            <div>
-              <h3 className="text-xs font-bold text-[#1E293B]">
-                Jadwal Shift Minggu Ini
-              </h3>
-              <p className="text-[10px] text-gray-600">
-                LazyBloom - September 2026
-              </p>
-            </div>
+      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#2563EB]">
+            <CalendarIcon className="w-5 h-5" />
           </div>
-          <span className="text-[10px] font-bold bg-[#F97316] text-white px-2 py-0.5 rounded-full">
-            {user?.position || 'Barista Senior'}
-          </span>
+          <div>
+            <h3 className="text-xs font-black text-slate-900">
+              Jadwal Shift Minggu Ini
+            </h3>
+            <p className="text-[10px] text-slate-500">
+              {user?.branch || 'LazyBloom'} • September 2026
+            </p>
+          </div>
         </div>
+        <span className="text-[10px] font-black bg-[#2563EB] text-white px-2.5 py-1 rounded-full shadow-xs">
+          {user?.position || 'Barista Senior'}
+        </span>
       </div>
 
       {/* Shifts List */}
       <div className="space-y-2.5">
         {shifts.map((s, idx) => {
-          const isOff = s.shift_name.includes('Off') || s.shift_name.includes('Libur');
+          const isOff = (s.shift_name || '').includes('Off') || (s.shift_name || '').includes('Libur');
           return (
             <div
               key={s.id || idx}
               className={`p-3.5 rounded-2xl border transition flex items-center justify-between ${
                 s.is_today
-                  ? 'bg-orange-50/90 border-[#F97316] shadow-sm'
-                  : 'bg-white/80 border-gray-200 hover:bg-white'
+                  ? 'bg-blue-50/70 border-blue-300 shadow-sm'
+                  : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-xs'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center font-bold shrink-0 ${
+                  className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center font-black shrink-0 ${
                     s.is_today
-                      ? 'bg-[#F97316] text-white'
+                      ? 'bg-[#2563EB] text-white shadow-xs'
                       : isOff
-                      ? 'bg-gray-200 text-gray-500'
-                      : 'bg-blue-100 text-[#2563EB]'
+                      ? 'bg-slate-100 text-slate-400'
+                      : 'bg-slate-100 text-[#2563EB]'
                   }`}
                 >
                   <span className="text-[10px] uppercase tracking-tighter">
-                    {s.day_name?.slice(0, 3) || 'HARI'}
+                    {s.day_name?.slice(0, 3) || 'HRI'}
                   </span>
-                  <span className="text-xs leading-none">
+                  <span className="text-xs leading-none mt-0.5">
                     {s.shift_date ? s.shift_date.split('-')[2] : idx + 7}
                   </span>
                 </div>
 
                 <div className="text-left">
                   <div className="flex items-center gap-1.5">
-                    <h4 className="text-xs font-bold text-gray-800">
+                    <h4 className="text-xs font-black text-slate-800">
                       {s.shift_name}
                     </h4>
                     {s.is_today && (
-                      <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-sm">
+                      <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.5 rounded-sm">
                         Hari Ini
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 text-[11px] text-gray-500 mt-0.5">
-                    <Clock className="w-3 h-3 text-gray-400" />
-                    <span>{s.time || `${s.start_time || '08:00'} - ${s.end_time || '16:00'}`}</span>
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5 font-medium">
+                    <Clock className="w-3 h-3 text-slate-400" />
+                    <span>{s.time || `${s.start_time || '12:00'} - ${s.end_time || '21:00'}`}</span>
                   </div>
                 </div>
               </div>
 
               <div>
                 <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  className={`text-[10px] font-black px-2.5 py-1 rounded-full ${
                     isOff
-                      ? 'bg-gray-100 text-gray-500 border border-gray-300'
+                      ? 'bg-slate-100 text-slate-500 border border-slate-200'
                       : s.is_today
-                      ? 'bg-emerald-500 text-white shadow-xs'
+                      ? 'bg-emerald-600 text-white shadow-xs'
                       : 'bg-blue-50 text-[#2563EB] border border-blue-200'
                   }`}
                 >
-                  {isOff ? 'Libur' : s.is_today ? 'Aktif' : 'Terjadwal'}
+                  {isOff ? 'Libur' : s.is_today ? 'Bertugas' : 'Terjadwal'}
                 </span>
               </div>
             </div>

@@ -29,7 +29,7 @@ import { OUTLETS } from '@/lib/outlets';
 import { useAuth } from '@/context/AuthContext';
 
 export default function SupabaseTableEditor() {
-  const { adminPins, updateAdminPin, outlets, updateOutletCoords } = useAuth();
+  const { adminPins, updateAdminPin, outlets, updateOutletCoords, resetTodayAttendance } = useAuth();
 
   const [activeTable, setActiveTable] = useState('admin_settings');
   const [data, setData] = useState([]);
@@ -340,7 +340,15 @@ export default function SupabaseTableEditor() {
       console.log('Delete local fallback');
     }
     setData((prev) => prev.filter((r) => r.id !== id));
-    setMsg({ type: 'success', text: 'Baris berhasil dihapus!' });
+    if (activeTable === 'attendance') {
+      resetTodayAttendance();
+      setMsg({
+        type: 'success',
+        text: 'Data presensi berhasil dihapus! Tombol Presensi Masuk staf telah di-reset & terbuka kembali.',
+      });
+    } else {
+      setMsg({ type: 'success', text: 'Baris berhasil dihapus!' });
+    }
   };
 
   // Handle Tambah Baris Baru

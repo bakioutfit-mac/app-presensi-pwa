@@ -27,11 +27,16 @@ export default function PayslipTab() {
       payment_date: '31 Agustus 2026',
       is_released: true,
       basic_salary: 3500000,
-      attendance_allowance: 500000,
-      transport_allowance: 300000,
-      overtime_pay: 250000,
-      deductions: 100000,
-      net_salary: 4450000,
+      child_allowance: 200000,
+      spouse_allowance: 300000,
+      position_allowance: 500000,
+      meal_allowance: 400000,
+      overtime_pay: 150000,
+      meal_deduction: 50000,
+      attendance_deduction: 0,
+      discipline_deduction: 10000,
+      cash_bon: 100000,
+      net_salary: 4790000,
     },
     {
       id: 'slip-002',
@@ -40,11 +45,16 @@ export default function PayslipTab() {
       payment_date: '31 Juli 2026',
       is_released: true,
       basic_salary: 3500000,
-      attendance_allowance: 500000,
-      transport_allowance: 300000,
-      overtime_pay: 150000,
-      deductions: 50000,
-      net_salary: 4400000,
+      child_allowance: 200000,
+      spouse_allowance: 300000,
+      position_allowance: 500000,
+      meal_allowance: 400000,
+      overtime_pay: 100000,
+      meal_deduction: 50000,
+      attendance_deduction: 0,
+      discipline_deduction: 0,
+      cash_bon: 0,
+      net_salary: 4950000,
     },
     {
       id: 'slip-003',
@@ -53,11 +63,16 @@ export default function PayslipTab() {
       payment_date: 'Dalam Proses Payroll',
       is_released: false, // Bergembok
       basic_salary: 3500000,
-      attendance_allowance: 500000,
-      transport_allowance: 300000,
-      overtime_pay: 0,
-      deductions: 0,
-      net_salary: 4300000,
+      child_allowance: 200000,
+      spouse_allowance: 300000,
+      position_allowance: 500000,
+      meal_allowance: 400000,
+      overtime_pay: 150000,
+      meal_deduction: 50000,
+      attendance_deduction: 0,
+      discipline_deduction: 10000,
+      cash_bon: 0,
+      net_salary: 4890000,
     },
   ];
 
@@ -73,12 +88,11 @@ export default function PayslipTab() {
 
         if (!error && data && data.length > 0) {
           setPayslips(data);
-          // Automatically open latest released payslip
           const latestReleased = data.find((p) => p.is_released);
           if (latestReleased) setOpenId(latestReleased.id);
         } else {
           setPayslips(defaultPayslips);
-          setOpenId('slip-001'); // Auto-open latest released
+          setOpenId('slip-001');
         }
       } catch (err) {
         setPayslips(defaultPayslips);
@@ -101,28 +115,30 @@ export default function PayslipTab() {
     }).format(val || 0);
   };
 
-  const handlePrint = (slip) => {
+  const handlePrint = () => {
     window.print();
   };
 
   return (
     <div className="space-y-3.5 animate-in fade-in duration-200">
       {/* Header Info Card */}
-      <div className="bg-[#CACFD6] rounded-2xl p-4 border border-white/60 shadow-xs flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Banknote className="w-5 h-5 text-[#2563EB]" />
+      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#2563EB]">
+            <Banknote className="w-5 h-5" />
+          </div>
           <div>
-            <h3 className="text-xs font-bold text-[#1E293B]">
+            <h3 className="text-xs font-black text-slate-900">
               Daftar Slip Gaji Karyawan
             </h3>
-            <p className="text-[10px] text-gray-600">
-              Informasi gaji dan tunjangan transparan
+            <p className="text-[10px] text-slate-500">
+              10 Komponen Penggajian Outlet Resmi
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Terverifikasi</span>
+        <div className="flex items-center gap-1.5 text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full shadow-xs">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Resmi Terbit</span>
         </div>
       </div>
 
@@ -132,15 +148,29 @@ export default function PayslipTab() {
           const isOpen = openId === slip.id;
           const isReleased = slip.is_released;
 
+          const totalIncome =
+            (Number(slip.basic_salary) || 0) +
+            (Number(slip.child_allowance) || 0) +
+            (Number(slip.spouse_allowance) || 0) +
+            (Number(slip.position_allowance) || 0) +
+            (Number(slip.meal_allowance) || 0) +
+            (Number(slip.overtime_pay) || 0);
+
+          const totalDeductions =
+            (Number(slip.meal_deduction) || 0) +
+            (Number(slip.attendance_deduction) || 0) +
+            (Number(slip.discipline_deduction) || 0) +
+            (Number(slip.cash_bon) || 0);
+
           return (
             <div
               key={slip.id}
               className={`rounded-2xl border transition-all overflow-hidden ${
                 isOpen
-                  ? 'border-[#F97316] bg-white shadow-md'
+                  ? 'border-blue-400 bg-white shadow-md'
                   : !isReleased
-                  ? 'border-gray-300 bg-gray-100/80 opacity-80'
-                  : 'border-gray-200 bg-white/90 hover:border-gray-300'
+                  ? 'border-slate-200 bg-slate-100/70 opacity-80'
+                  : 'border-slate-200 bg-white/90 hover:border-slate-300 shadow-xs'
               }`}
             >
               {/* Accordion Header */}
@@ -148,21 +178,21 @@ export default function PayslipTab() {
                 type="button"
                 onClick={() => toggleAccordion(slip.id, isReleased)}
                 className={`w-full p-4 flex items-center justify-between text-left transition ${
-                  !isReleased ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'
+                  !isReleased ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50/50'
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <div
                     className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                       !isReleased
-                        ? 'bg-gray-200 text-gray-400'
+                        ? 'bg-slate-200 text-slate-400'
                         : isOpen
-                        ? 'bg-[#F97316] text-white shadow-sm'
-                        : 'bg-orange-100 text-[#EA580C]'
+                        ? 'bg-[#2563EB] text-white shadow-xs'
+                        : 'bg-blue-100 text-[#2563EB]'
                     }`}
                   >
                     {!isReleased ? (
-                      <Lock className="w-5 h-5 text-gray-500" />
+                      <Lock className="w-5 h-5 text-slate-400" />
                     ) : (
                       <Banknote className="w-5 h-5" />
                     )}
@@ -170,18 +200,18 @@ export default function PayslipTab() {
 
                   <div>
                     <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-bold text-gray-800">
+                      <h4 className="text-xs font-black text-slate-900">
                         Periode: {slip.period}
                       </h4>
                       {isReleased && slip.id === 'slip-001' && (
-                        <span className="text-[9px] bg-orange-100 text-[#EA580C] font-extrabold px-1.5 py-0.2 rounded-sm">
+                        <span className="text-[9px] bg-blue-100 text-blue-800 font-black px-1.5 py-0.5 rounded-sm">
                           Terbaru
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-gray-500 mt-0.5">
+                    <p className="text-[11px] text-slate-500 mt-0.5 font-medium">
                       {isReleased
-                        ? `Gaji Bersih: ${formatRupiah(slip.net_salary)}`
+                        ? `Gaji Bersih (THP): ${formatRupiah(slip.net_salary)}`
                         : 'Menunggu rilis dari pihak finance'}
                     </p>
                   </div>
@@ -189,93 +219,133 @@ export default function PayslipTab() {
 
                 <div className="flex items-center gap-2">
                   {!isReleased ? (
-                    <span className="flex items-center gap-1 text-[10px] font-bold bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">
+                    <span className="flex items-center gap-1 text-[10px] font-bold bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">
                       <Lock className="w-3 h-3" />
                       <span>Terkunci</span>
                     </span>
                   ) : isOpen ? (
-                    <ChevronUp className="w-5 h-5 text-[#F97316]" />
+                    <ChevronUp className="w-5 h-5 text-[#2563EB]" />
                   ) : (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-slate-400" />
                   )}
                 </div>
               </button>
 
-              {/* Accordion Body / Breakdown */}
+              {/* Accordion Body / 10-Component Breakdown */}
               {isOpen && isReleased && (
-                <div className="p-4 pt-1 border-t border-gray-100 space-y-3 bg-gradient-to-b from-white to-gray-50/50">
-                  <div className="flex items-center justify-between text-[11px] text-gray-500 pb-2 border-b border-dashed border-gray-200">
+                <div className="p-4 pt-2 border-t border-slate-100 space-y-3.5 bg-gradient-to-b from-white to-slate-50/50">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pb-2 border-b border-dashed border-slate-200">
                     <span className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
                       {slip.period_range || slip.period}
                     </span>
                     <span>Tgl Transfer: {slip.payment_date || '31 Agustus 2026'}</span>
                   </div>
 
-                  {/* Pendapatan */}
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-extrabold uppercase text-[#2563EB] tracking-wider">
-                      Penghasilan
-                    </p>
-                    <div className="flex justify-between text-xs text-gray-700">
+                  {/* 1. Komponen Pendapatan (6) */}
+                  <div className="space-y-1.5 p-3 bg-blue-50/40 border border-blue-100 rounded-xl">
+                    <div className="flex justify-between items-center pb-1 border-b border-blue-100/60">
+                      <span className="text-[10px] font-black uppercase text-[#2563EB] tracking-wider">
+                        1. Penghasilan / Pendapatan
+                      </span>
+                      <span className="text-[10px] font-bold text-[#2563EB]">
+                        Subtotal: {formatRupiah(totalIncome)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-xs text-slate-700 pt-1">
                       <span>Gaji Pokok</span>
                       <span className="font-semibold">{formatRupiah(slip.basic_salary)}</span>
                     </div>
-                    <div className="flex justify-between text-xs text-gray-700">
-                      <span>Tunjangan Kehadiran</span>
-                      <span className="font-semibold">{formatRupiah(slip.attendance_allowance)}</span>
+                    <div className="flex justify-between text-xs text-slate-700">
+                      <span>Tunjangan Anak</span>
+                      <span className="font-semibold">{formatRupiah(slip.child_allowance)}</span>
                     </div>
-                    <div className="flex justify-between text-xs text-gray-700">
-                      <span>Tunjangan Transport</span>
-                      <span className="font-semibold">{formatRupiah(slip.transport_allowance)}</span>
+                    <div className="flex justify-between text-xs text-slate-700">
+                      <span>Tunjangan Istri</span>
+                      <span className="font-semibold">{formatRupiah(slip.spouse_allowance)}</span>
                     </div>
-                    {slip.overtime_pay > 0 && (
-                      <div className="flex justify-between text-xs text-gray-700">
-                        <span>Uang Lembur (Overtime)</span>
-                        <span className="font-semibold text-emerald-600">
-                          +{formatRupiah(slip.overtime_pay)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Potongan */}
-                  <div className="space-y-1.5 pt-1">
-                    <p className="text-[10px] font-extrabold uppercase text-rose-600 tracking-wider">
-                      Potongan
-                    </p>
-                    <div className="flex justify-between text-xs text-gray-700">
-                      <span>BPJS &amp; Keterlambatan</span>
-                      <span className="font-semibold text-rose-600">
-                        -{formatRupiah(slip.deductions)}
+                    <div className="flex justify-between text-xs text-slate-700">
+                      <span>Tunjangan Jabatan</span>
+                      <span className="font-semibold">{formatRupiah(slip.position_allowance)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-700">
+                      <span>Tunjangan Makan</span>
+                      <span className="font-semibold">{formatRupiah(slip.meal_allowance)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-700">
+                      <span>Uang Lembur</span>
+                      <span className="font-semibold text-emerald-600">
+                        +{formatRupiah(slip.overtime_pay)}
                       </span>
                     </div>
                   </div>
 
+                  {/* 2. Komponen Potongan (4) */}
+                  <div className="space-y-1.5 p-3 bg-rose-50/40 border border-rose-100 rounded-xl">
+                    <div className="flex justify-between items-center pb-1 border-b border-rose-100/60">
+                      <span className="text-[10px] font-black uppercase text-rose-600 tracking-wider">
+                        2. Potongan
+                      </span>
+                      <span className="text-[10px] font-bold text-rose-600">
+                        Subtotal: -{formatRupiah(totalDeductions)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-xs text-slate-700 pt-1">
+                      <span>Potongan Makan</span>
+                      <span className="font-semibold text-rose-600">-{formatRupiah(slip.meal_deduction)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-700">
+                      <span>Potongan Kehadiran</span>
+                      <span className="font-semibold text-rose-600">-{formatRupiah(slip.attendance_deduction)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-700">
+                      <span className="flex items-center gap-1">
+                        <span>Potongan Kedisiplinan</span>
+                        {slip.discipline_deduction > 0 && (
+                          <span className="text-[9px] bg-rose-100 text-rose-700 px-1 py-0.2 rounded font-bold">
+                            Denda Terlambat
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-semibold text-rose-600">-{formatRupiah(slip.discipline_deduction)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-700">
+                      <span>Cash Bon</span>
+                      <span className="font-semibold text-rose-600">-{formatRupiah(slip.cash_bon)}</span>
+                    </div>
+                  </div>
+
                   {/* Total Net Salary */}
-                  <div className="pt-2 border-t border-gray-200 flex justify-between items-center">
-                    <span className="font-extrabold text-xs text-gray-900">
-                      Total Gaji Bersih (Take Home Pay)
-                    </span>
-                    <span className="font-black text-sm text-[#F97316]">
+                  <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl flex justify-between items-center">
+                    <div>
+                      <span className="font-black text-xs text-slate-900 block">
+                        Total Gaji Bersih (Take Home Pay)
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        Total Pendapatan - Total Potongan
+                      </span>
+                    </div>
+                    <span className="font-black text-base text-[#2563EB]">
                       {formatRupiah(slip.net_salary)}
                     </span>
                   </div>
 
                   {/* Download / Print button */}
-                  <div className="pt-2 flex gap-2">
+                  <div className="pt-1 flex gap-2">
                     <button
                       type="button"
-                      onClick={() => handlePrint(slip)}
-                      className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition"
+                      onClick={() => handlePrint()}
+                      className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition"
                     >
-                      <Printer className="w-3.5 h-3.5" />
+                      <Printer className="w-3.5 h-3.5 text-slate-600" />
                       <span>Cetak Slip</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => alert(`Unduhan slip gaji ${slip.period} sedang diproses...`)}
-                      className="flex-1 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition"
+                      onClick={() => alert(`Unduhan slip gaji periode ${slip.period} telah berhasil disiapkan!`)}
+                      className="flex-1 py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-black rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Unduh PDF</span>

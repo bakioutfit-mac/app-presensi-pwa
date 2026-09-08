@@ -417,12 +417,60 @@ export function AuthProvider({ children }) {
     return { success: true, user: updatedUser };
   };
 
+  // Reset attendance state (dipanggil saat data presensi dihapus di tabel editor)
+  const resetTodayAttendance = () => {
+    setTodayAttendance(null);
+    localStorage.removeItem('pwa_today_attendance');
+  };
+
+  // State pengajuan lembur dari Admin Leader ke Admin Finance
+  const [overtimeRequests, setOvertimeRequests] = useState([
+    {
+      id: 'ot-1',
+      employee_id: 'demo-emp-001',
+      employee_name: 'Fikril Bay',
+      branch: 'LazyBloom',
+      date: new Date().toISOString().split('T')[0],
+      hours: 2,
+      reason: 'Event Ramai & Closing Store',
+      nominal: 50000,
+      status: 'Diajukan Leader',
+    },
+  ]);
+
+  const submitOvertimeRequest = async (otData) => {
+    const newOt = {
+      id: `ot-${Date.now()}`,
+      created_at: new Date().toISOString(),
+      status: 'Diajukan Leader',
+      nominal: 0,
+      ...otData,
+    };
+    setOvertimeRequests((prev) => [newOt, ...prev]);
+
+    try {
+      await supabase.from('overtimes').insert(newOt);
+    } catch (e) {
+      console.warn('Supabase overtime insert fallback:', e);
+    }
+    return { success: true, data: newOt };
+  };
+
+  const updateOvertimeNominal = (otId, nominalAmount) => {
+    setOvertimeRequests((prev) =>
+      prev.map((item) =>
+        item.id === otId ? { ...item, nominal: Number(nominalAmount || 0), status: 'Disetujui Finance' } : item
+      )
+    );
+  };
+
   // Record attendance check-in / check-out
-  const recordAttendance = async ({ type, photoUrl, coords, outletName }) => {
+  const recordAttendance = async ({ type, photoUrl, coords, outletName, scheduledShift }) => {
     if (!user) return { success: false, error: 'Belum login.' };
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const nowIso = new Date().toISOString();
+    const now = new Date();
+    const nowIso = now.toISOString();
 
     let updatedRecord = todayAttendance ? { ...todayAttendance } : {
       employee_id: user.id,
@@ -432,13 +480,48 @@ export function AuthProvider({ children }) {
     };
 
     if (type === 'checkin') {
+      // Hitung keterlambatan berdasarkan jam shift (Toleransi 10 menit, Denda Flat Rp 10.000)
+      let isLate = false;
+      let lateMins = 0;
+      let disciplinePenalty = 0;
+
+      // Parsing target shift time (default jika shift weekday 12:00, weekend1 09:00, weekend2 13:00, middle 11:00)
+      let shiftStartHour = 12;
+      let shiftStartMin = 0;
+
+      const shiftStr = (scheduledShift || 'Shift Weekday (12:00 - 21:00)').toLowerCase();
+      if (shiftStr.includes('09:00') || shiftStr.includes('weekend 1')) {
+        shiftStartHour = 9;
+      } else if (shiftStr.includes('13:00') || shiftStr.includes('weekend 2')) {
+        shiftStartHour = 13;
+      } else if (shiftStr.includes('11:00') || shiftStr.includes('middle')) {
+        shiftStartHour = 11;
+      } else if (shiftStr.includes('12:00') || shiftStr.includes('weekday')) {
+        shiftStartHour = 12;
+      }
+
+      const scheduledTime = new Date();
+      scheduledTime.setHours(shiftStartHour, shiftStartMin, 0, 0);
+
+      // Toleransi 10 menit
+      const graceTime = new Date(scheduledTime.getTime() + 10 * 60 * 1000);
+
+      if (now > graceTime) {
+        isLate = true;
+        lateMins = Math.max(11, Math.round((now.getTime() - scheduledTime.getTime()) / (60 * 1000)));
+        disciplinePenalty = 10000; // Flat Rp 10.000 sesuai kebijakan outlet
+      }
+
       updatedRecord = {
         ...updatedRecord,
         check_in_time: nowIso,
         check_in_photo: photoUrl,
         check_in_lat: coords?.lat,
         check_in_lng: coords?.lng,
-        status: 'Hadir',
+        status: isLate ? `Terlambat ${lateMins} Mnt` : 'Hadir Tepat Waktu',
+        is_late: isLate,
+        late_duration_minutes: lateMins,
+        discipline_penalty: disciplinePenalty,
         branch: outletName || user?.branch || 'LazyBloom',
       };
     } else {
@@ -519,6 +602,10 @@ export function AuthProvider({ children }) {
         recordAttendance,
         activeLeave,
         submitLeave,
+        resetTodayAttendance,
+        overtimeRequests,
+        submitOvertimeRequest,
+        updateOvertimeNominal,
         adminRole,
         setAdminRole,
         adminPins,

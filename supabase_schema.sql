@@ -93,21 +93,43 @@ CREATE TABLE IF NOT EXISTS public.shifts (
     UNIQUE(employee_id, shift_date)
 );
 
--- 8. TABEL PAYSLIPS (SLIP GAJI 3 OUTLET)
+-- 8. TABEL PAYSLIPS (SLIP GAJI 10 KOMPONEN RESMI OUTLET)
 CREATE TABLE IF NOT EXISTS public.payslips (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     employee_id UUID REFERENCES public.employees(id) ON DELETE CASCADE,
     period VARCHAR(50) NOT NULL, -- e.g. 'Agustus 2026', 'September 2026'
     period_start DATE,
     period_end DATE,
+    -- 6 Komponen Pendapatan:
     basic_salary NUMERIC NOT NULL DEFAULT 3500000,
-    attendance_allowance NUMERIC NOT NULL DEFAULT 500000,
-    transport_allowance NUMERIC NOT NULL DEFAULT 300000,
-    overtime_pay NUMERIC NOT NULL DEFAULT 200000,
-    deductions NUMERIC NOT NULL DEFAULT 100000,
-    net_salary NUMERIC NOT NULL DEFAULT 4400000,
-    is_released BOOLEAN NOT NULL DEFAULT false, -- true = bisa dibuka, false = bergembok
+    child_allowance NUMERIC NOT NULL DEFAULT 0,
+    spouse_allowance NUMERIC NOT NULL DEFAULT 0,
+    position_allowance NUMERIC NOT NULL DEFAULT 0,
+    meal_allowance NUMERIC NOT NULL DEFAULT 0,
+    overtime_pay NUMERIC NOT NULL DEFAULT 0,
+    -- 4 Komponen Potongan:
+    meal_deduction NUMERIC NOT NULL DEFAULT 0,
+    attendance_deduction NUMERIC NOT NULL DEFAULT 0,
+    discipline_deduction NUMERIC NOT NULL DEFAULT 0, -- Denda flat Rp 10.000 / kejadian terlambat (toleransi 10 menit)
+    cash_bon NUMERIC NOT NULL DEFAULT 0,
+    -- Gaji Bersih:
+    net_salary NUMERIC NOT NULL DEFAULT 3500000,
+    is_released BOOLEAN NOT NULL DEFAULT false, -- true = bisa dibuka staf, false = bergembok
     payment_date DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 9. TABEL OVERTIMES (PENGAJUAN LEMBUR STAF DARI LEADER KE FINANCE)
+CREATE TABLE IF NOT EXISTS public.overtimes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    employee_id UUID REFERENCES public.employees(id) ON DELETE CASCADE,
+    employee_name VARCHAR(150),
+    branch VARCHAR(100),
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    hours NUMERIC NOT NULL DEFAULT 1,
+    reason TEXT,
+    nominal NUMERIC DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'Diajukan Leader', -- 'Diajukan Leader', 'Disetujui Finance'
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -145,6 +167,7 @@ ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.leaves ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payslips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.overtimes ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow public all on admin_settings" ON public.admin_settings;
 CREATE POLICY "Allow public all on admin_settings" ON public.admin_settings FOR ALL USING (true) WITH CHECK (true);
@@ -166,6 +189,9 @@ CREATE POLICY "Allow public all on shifts" ON public.shifts FOR ALL USING (true)
 
 DROP POLICY IF EXISTS "Allow public all on payslips" ON public.payslips;
 CREATE POLICY "Allow public all on payslips" ON public.payslips FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on overtimes" ON public.overtimes;
+CREATE POLICY "Allow public all on overtimes" ON public.overtimes FOR ALL USING (true) WITH CHECK (true);
 
 -- =======================================================
 -- SEED DATA AWAL: ADMIN PIN & KOORDINAT 3 OUTLET
