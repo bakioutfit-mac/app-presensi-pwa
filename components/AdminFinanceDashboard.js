@@ -89,32 +89,62 @@ export default function AdminFinanceDashboard({ onBack }) {
         const pkgs = await fetchEmployeeSalaries();
         setEmployeeSalaries(pkgs || {});
 
-        // 3. Muat slip gaji yang pernah dibuat
+        // 3. Muat cache detail 10 komponen payslip
+        let detailsMap = {};
+        if (typeof window !== 'undefined') {
+          try {
+            detailsMap = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+          } catch (e) {}
+        }
+        try {
+          const { data: detailRow } = await supabase
+            .from('admin_settings')
+            .select('description')
+            .eq('role', 'payslips_detail')
+            .single();
+          if (detailRow && detailRow.description) {
+            const remoteDetails = JSON.parse(detailRow.description);
+            detailsMap = { ...detailsMap, ...remoteDetails };
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('pwa_payslips_detail', JSON.stringify(detailsMap));
+            }
+          }
+        } catch (e) {}
+
+        // 4. Muat slip gaji yang pernah dibuat dari Supabase
         const { data, error } = await supabase
           .from('payslips')
           .select('*, employees(full_name, branch)')
           .order('created_at', { ascending: false });
 
         if (!error && data && data.length > 0) {
-          const mapped = data.map((p) => ({
-            id: p.id,
-            employee_name: p.employees?.full_name || 'Staf',
-            branch: p.employees?.branch || 'LazyBloom',
-            period: p.period,
-            basic_salary: p.basic_salary,
-            child_allowance: p.child_allowance || 0,
-            spouse_allowance: p.spouse_allowance || 0,
-            position_allowance: p.position_allowance || 0,
-            meal_allowance: p.attendance_allowance || p.meal_allowance || 0,
-            overtime_pay: p.overtime_pay || 0,
-            meal_deduction: 0,
-            attendance_deduction: p.attendance_deduction || 0,
-            discipline_deduction: p.discipline_deduction || 0,
-            cash_bon: p.deductions || 0,
-            net_salary: p.net_salary,
-            is_released: p.is_released,
-          }));
+          const mapped = data.map((p) => {
+            const detail = detailsMap[p.id] || {};
+            return {
+              id: p.id,
+              employee_id: p.employee_id,
+              employee_name: p.employees?.full_name || detail.employee_name || 'Staf',
+              branch: p.employees?.branch || detail.branch || 'LazyBloom',
+              period: p.period,
+              basic_salary: detail.basic_salary ?? p.basic_salary,
+              child_allowance: detail.child_allowance ?? 0,
+              spouse_allowance: detail.spouse_allowance ?? 0,
+              position_allowance: detail.position_allowance ?? 0,
+              meal_allowance: detail.meal_allowance ?? p.attendance_allowance ?? 0,
+              overtime_pay: detail.overtime_pay ?? p.overtime_pay ?? 0,
+              meal_deduction: detail.meal_deduction ?? 0,
+              attendance_deduction: detail.attendance_deduction ?? 0,
+              discipline_deduction: detail.discipline_deduction ?? 0,
+              cash_bon: detail.cash_bon ?? p.deductions ?? 0,
+              net_salary: p.net_salary,
+              is_released: p.is_released,
+              created_at: p.created_at,
+            };
+          });
           setSalaryList(mapped);
+        } else if (Object.keys(detailsMap).length > 0) {
+          // Fallback dari local cache jika ada
+          setSalaryList(Object.values(detailsMap));
         }
       } catch (err) {
         console.warn('Fetch salaries error:', err);
@@ -200,47 +230,152 @@ export default function AdminFinanceDashboard({ onBack }) {
 
   const handleSaveSalary = async (e) => {
     e.preventDefault();
-    const net = calculateNetSalary(newSalary);
-    const item = {
-      id: `sal_${Date.now()}`,
-      ...newSalary,
-      net_salary: net,
-    };
 
-    try {
-      await supabase.from('payslips').insert({
-        period: newSalary.period,
-        basic_salary: newSalary.basic_salary,
-        child_allowance: newSalary.child_allowance,
-        spouse_allowance: newSalary.spouse_allowance,
-        position_allowance: newSalary.position_allowance,
-        meal_allowance: newSalary.meal_allowance,
-        overtime_pay: newSalary.overtime_pay,
-        meal_deduction: newSalary.meal_deduction,
-        attendance_deduction: newSalary.attendance_deduction,
-        discipline_deduction: newSalary.discipline_deduction,
-        cash_bon: newSalary.cash_bon,
-        net_salary: net,
-        is_released: newSalary.is_released,
-      });
-    } catch (e) {
-      console.warn('Payslip sync:', e);
+    // Cari objek karyawan terpilih
+    const targetEmployee = employeesList.find(
+      (emp) => emp.id === newSalary.employee_id || emp.full_name === newSalary.employee_name
+    );
+
+    if (!targetEmployee) {
+      setSalaryMsg({ type: 'error', text: 'Pilih nama karyawan terlebih dahulu.' });
+      return;
     }
 
-    setSalaryList([item, ...salaryList]);
+    const net = calculateNetSalary(newSalary);
+    const totalDeductions = calculateTotalDeductions(newSalary);
+    const totalAllowances =
+      Number(newSalary.child_allowance || 0) +
+      Number(newSalary.spouse_allowance || 0) +
+      Number(newSalary.position_allowance || 0);
+
+    let savedId = `sal_${Date.now()}`;
+    let remoteCreated = null;
+
+    try {
+      // 1. Simpan ke tabel payslips resmi di Supabase
+      const { data: inserted, error: insertErr } = await supabase
+        .from('payslips')
+        .insert({
+          employee_id: targetEmployee.id,
+          period: newSalary.period,
+          basic_salary: Number(newSalary.basic_salary || 0),
+          attendance_allowance: Number(newSalary.meal_allowance || 0),
+          transport_allowance: totalAllowances,
+          overtime_pay: Number(newSalary.overtime_pay || 0),
+          deductions: totalDeductions,
+          net_salary: net,
+          is_released: Boolean(newSalary.is_released),
+        })
+        .select('*, employees(full_name, branch)')
+        .single();
+
+      if (!insertErr && inserted) {
+        savedId = inserted.id;
+        remoteCreated = inserted.created_at;
+      } else if (insertErr) {
+        console.warn('Supabase payslips insert error:', insertErr);
+      }
+    } catch (err) {
+      console.warn('Payslip sync catch error:', err);
+    }
+
+    const item = {
+      id: savedId,
+      employee_id: targetEmployee.id,
+      employee_name: targetEmployee.full_name,
+      branch: targetEmployee.branch || newSalary.branch,
+      period: newSalary.period,
+      basic_salary: Number(newSalary.basic_salary || 0),
+      child_allowance: Number(newSalary.child_allowance || 0),
+      spouse_allowance: Number(newSalary.spouse_allowance || 0),
+      position_allowance: Number(newSalary.position_allowance || 0),
+      meal_allowance: Number(newSalary.meal_allowance || 0),
+      overtime_pay: Number(newSalary.overtime_pay || 0),
+      meal_deduction: Number(newSalary.meal_deduction || 0),
+      attendance_deduction: Number(newSalary.attendance_deduction || 0),
+      discipline_deduction: Number(newSalary.discipline_deduction || 0),
+      cash_bon: Number(newSalary.cash_bon || 0),
+      net_salary: net,
+      is_released: Boolean(newSalary.is_released),
+      created_at: remoteCreated || new Date().toISOString(),
+    };
+
+    // 2. Simpan rincian 10 komponen ke persistent cache (localStorage & cloud admin_settings)
+    try {
+      let savedDetails = {};
+      if (typeof window !== 'undefined') {
+        savedDetails = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+      }
+      savedDetails[savedId] = item;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pwa_payslips_detail', JSON.stringify(savedDetails));
+      }
+
+      await supabase.from('admin_settings').upsert(
+        {
+          role: 'payslips_detail',
+          pin: '000000',
+          name: 'Detail Komponen Payslips',
+          description: JSON.stringify(savedDetails),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'role' }
+      );
+    } catch (e) {
+      console.warn('Save persistent payslip details fallback:', e);
+    }
+
+    setSalaryList((prev) => [item, ...prev.filter((s) => s.id !== savedId)]);
     setIsAddingSalary(false);
     setSalaryMsg({
       type: 'success',
       text: `Slip gaji ${item.employee_name} (${item.period}) berhasil disimpan & dihitung bersih!`,
     });
-    setTimeout(() => setSalaryMsg({ type: '', text: '' }), 3500);
+    setTimeout(() => setSalaryMsg({ type: '', text: '' }), 4000);
   };
 
-  const toggleSalaryRelease = (id) => {
+  const handleToggleRelease = async (id) => {
+    const targetSlip = salaryList.find((s) => s.id === id);
+    if (!targetSlip) return;
+    const newStatus = !targetSlip.is_released;
+
     setSalaryList((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, is_released: !s.is_released } : s))
+      prev.map((s) => (s.id === id ? { ...s, is_released: newStatus } : s))
     );
+
+    // Update di Supabase tabel payslips
+    try {
+      await supabase.from('payslips').update({ is_released: newStatus }).eq('id', id);
+    } catch (e) {
+      console.warn('Update payslip release status error:', e);
+    }
+
+    // Update di persistent cache
+    try {
+      let savedDetails = {};
+      if (typeof window !== 'undefined') {
+        savedDetails = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+      }
+      if (savedDetails[id]) {
+        savedDetails[id].is_released = newStatus;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('pwa_payslips_detail', JSON.stringify(savedDetails));
+        }
+        await supabase.from('admin_settings').upsert(
+          {
+            role: 'payslips_detail',
+            pin: '000000',
+            name: 'Detail Komponen Payslips',
+            description: JSON.stringify(savedDetails),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'role' }
+        );
+      }
+    } catch (e) {}
   };
+
+  const toggleSalaryRelease = handleToggleRelease;
 
   // Finance input nominal lembur dari Leader
   const handleApproveOvertime = (otId, amount) => {

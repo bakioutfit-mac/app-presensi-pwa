@@ -30,8 +30,42 @@ export default function PayslipTab() {
           .order('created_at', { ascending: false });
 
         if (!error && data && data.length > 0) {
-          setPayslips(data);
-          const latestReleased = data.find((p) => p.is_released);
+          let detailsMap = {};
+          if (typeof window !== 'undefined') {
+            try {
+              detailsMap = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+            } catch (e) {}
+          }
+          try {
+            const { data: detailRow } = await supabase
+              .from('admin_settings')
+              .select('description')
+              .eq('role', 'payslips_detail')
+              .single();
+            if (detailRow && detailRow.description) {
+              const remoteDetails = JSON.parse(detailRow.description);
+              detailsMap = { ...detailsMap, ...remoteDetails };
+            }
+          } catch (e) {}
+
+          const mapped = data.map((p) => {
+            const detail = detailsMap[p.id] || {};
+            return {
+              ...p,
+              child_allowance: detail.child_allowance ?? 0,
+              spouse_allowance: detail.spouse_allowance ?? 0,
+              position_allowance: detail.position_allowance ?? 0,
+              meal_allowance: detail.meal_allowance ?? p.attendance_allowance ?? 0,
+              overtime_pay: detail.overtime_pay ?? p.overtime_pay ?? 0,
+              meal_deduction: detail.meal_deduction ?? 0,
+              attendance_deduction: detail.attendance_deduction ?? 0,
+              discipline_deduction: detail.discipline_deduction ?? 0,
+              cash_bon: detail.cash_bon ?? p.deductions ?? 0,
+            };
+          });
+
+          setPayslips(mapped);
+          const latestReleased = mapped.find((p) => p.is_released);
           if (latestReleased) setOpenId(latestReleased.id);
         } else {
           setPayslips([]);
