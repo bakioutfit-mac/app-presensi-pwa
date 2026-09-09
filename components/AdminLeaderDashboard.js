@@ -23,6 +23,7 @@ import {
   ChevronRight,
   UserCheck,
   Coffee,
+  Shirt,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -58,6 +59,7 @@ export default function AdminLeaderDashboard({ onBack }) {
 
   const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
   const [assignShift, setAssignShift] = useState(SHIFT_OPTIONS[0]);
+  const [assignDresscode, setAssignDresscode] = useState('Kaos Hitam');
   const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
 
@@ -145,6 +147,7 @@ export default function AdminLeaderDashboard({ onBack }) {
             name: staff.name,
             branch: staff.branch,
             shift_name: assigned.shift_name,
+            dresscode: assigned.notes || 'Seragam Standar',
             time:
               assigned.start_time && assigned.end_time
                 ? `${assigned.start_time.substring(0, 5)} - ${assigned.end_time.substring(0, 5)}`
@@ -161,6 +164,7 @@ export default function AdminLeaderDashboard({ onBack }) {
             name: staff.name,
             branch: staff.branch,
             shift_name: 'Shift Weekday (12:00 - 21:00)',
+            dresscode: 'Kaos Hitam Outlet',
             time: '12:00 - 21:00',
           });
         } else {
@@ -387,7 +391,7 @@ export default function AdminLeaderDashboard({ onBack }) {
               : assignShift.includes('21:00')
               ? '21:00:00'
               : null,
-            notes: `Ditugaskan oleh Admin Leader untuk ${staff.name}`,
+            notes: assignDresscode?.trim() || 'Seragam Standar',
           },
           { onConflict: 'employee_id, shift_date' }
         );
@@ -680,6 +684,24 @@ export default function AdminLeaderDashboard({ onBack }) {
                 </div>
               </div>
 
+              {/* Input Seragam Shift */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Shirt className="w-3.5 h-3.5 text-[#EA580C]" />
+                    <span>Seragam Shift:</span>
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-normal">Wajib dipakai staf</span>
+                </label>
+                <input
+                  type="text"
+                  value={assignDresscode}
+                  onChange={(e) => setAssignDresscode(e.target.value)}
+                  placeholder="Contoh: Kaos Hitam, Kemeja Putih, Bebas Rapi"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                />
+              </div>
+
               {/* Shift Rules Info Banner */}
               <div className="p-3 bg-orange-50/80 border border-orange-200 rounded-xl text-[11px] text-orange-900 leading-relaxed space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-[#EA580C]">
@@ -947,8 +969,15 @@ export default function AdminLeaderDashboard({ onBack }) {
                           </div>
                           <div>
                             <h6 className="text-xs font-bold text-slate-900">{staf.name}</h6>
-                            <div className="text-[9px] text-emerald-700 font-semibold">
-                              {staf.shift_name}
+                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                              <span className="text-[9px] text-emerald-700 font-semibold">
+                                {staf.shift_name}
+                              </span>
+                              {staf.dresscode && (
+                                <span className="text-[9px] text-slate-500 font-medium flex items-center gap-0.5">
+                                  • 👔 {staf.dresscode.replace(/^Seragam:\s*/i, '')}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>

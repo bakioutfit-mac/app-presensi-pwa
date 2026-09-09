@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, UserCheck } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, UserCheck, Shirt } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 
@@ -44,6 +44,7 @@ export default function ShiftScheduleTab() {
               day_name: dayName,
               shift_name: 'Shift Weekday',
               time: '12:00 - 21:00 WIB',
+              dresscode: assigned?.notes || 'Kaos Hitam Outlet',
               status: i === 0 ? 'Bertugas Hari Ini' : 'Shift Rutin',
               is_today: i === 0,
             });
@@ -57,6 +58,7 @@ export default function ShiftScheduleTab() {
                 day_name: dayName,
                 shift_name: assigned.shift_name,
                 time: isOff ? 'Libur' : (assigned.start_time ? `${assigned.start_time.slice(0, 5)} - ${assigned.end_time?.slice(0, 5)} WIB` : '09:00 - 18:00 WIB'),
+                dresscode: isOff ? null : (assigned.notes || 'Seragam Standar'),
                 status: isOff ? 'Libur' : i === 0 ? 'Bertugas Hari Ini' : 'Jadwal Leader',
                 is_today: i === 0,
               });
@@ -67,6 +69,7 @@ export default function ShiftScheduleTab() {
                 day_name: dayName,
                 shift_name: 'Menunggu Jadwal Leader',
                 time: 'Wajib Diset Leader (Jum-Min)',
+                dresscode: null,
                 status: 'Belum Diset',
                 is_today: i === 0,
               });
@@ -148,9 +151,17 @@ export default function ShiftScheduleTab() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5 font-medium">
-                    <Clock className="w-3 h-3 text-slate-400" />
-                    <span>{s.time || `${s.start_time || '12:00'} - ${s.end_time || '21:00'}`}</span>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 font-medium flex-wrap">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      <span>{s.time || `${s.start_time || '12:00'} - ${s.end_time || '21:00'}`}</span>
+                    </span>
+                    {s.dresscode && !isOff && (
+                      <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
+                        <Shirt className="w-3 h-3 text-blue-600" />
+                        <span>Seragam: {s.dresscode.replace(/^Seragam:\s*/i, '')}</span>
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
