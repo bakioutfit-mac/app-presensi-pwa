@@ -35,85 +35,60 @@ export default function AdminLeaderDashboard({ onBack }) {
 
   const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
   const [assignShift, setAssignShift] = useState(SHIFT_OPTIONS[0]);
-  const [staffList, setStaffList] = useState([
-    { id: '1', name: 'Fikril Bay', role: 'Barista Senior', branch: 'LazyBloom', selected: true },
-    { id: '2', name: 'Nadia Rahma', role: 'Kasir', branch: 'LazyBloom', selected: false },
-    { id: '3', name: 'Bagas Pratama', role: 'Head Kitchen', branch: 'Deru Ombak', selected: false },
-    { id: '4', name: 'Dimas Arya', role: 'Kitchen Crew', branch: 'Deru Ombak', selected: false },
-    { id: '5', name: 'Rian Bahari', role: 'Barista & Gelato', branch: 'Sea Cafe', selected: false },
-    { id: '6', name: 'Siti Aisyah', role: 'Floor Staff', branch: 'Sea Cafe', selected: false },
-  ]);
+  const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
 
   // 2. MONITORING KEHADIRAN (Live Attendance)
-  const [todayAttendanceList, setTodayAttendanceList] = useState([
-    {
-      id: '1',
-      name: 'Fikril Bay',
-      role: 'Barista Senior',
-      branch: 'LazyBloom',
-      shift: 'Shift Weekend 1 (09:00 - 18:00)',
-      status: 'Terlambat 15 Mnt',
-      discipline_penalty: 10000,
-      check_in: '09:15 WIB',
-      photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop',
-    },
-    {
-      id: '2',
-      name: 'Bagas Pratama',
-      role: 'Head Kitchen',
-      branch: 'Deru Ombak',
-      shift: 'Shift Weekday (12:00 - 21:00)',
-      status: 'Hadir Tepat Waktu',
-      discipline_penalty: 0,
-      check_in: '12:05 WIB',
-      photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop',
-    },
-    {
-      id: '3',
-      name: 'Rian Bahari',
-      role: 'Barista & Gelato',
-      branch: 'Sea Cafe',
-      shift: 'Shift Weekend 1 (09:00 - 18:00)',
-      status: 'Hadir Tepat Waktu',
-      discipline_penalty: 0,
-      check_in: '09:02 WIB',
-      photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop',
-    },
-    {
-      id: '4',
-      name: 'Nadia Rahma',
-      role: 'Kasir',
-      branch: 'LazyBloom',
-      shift: 'Shift Middle (11:00 - 20:00)',
-      status: 'Hadir Tepat Waktu',
-      discipline_penalty: 0,
-      check_in: '11:08 WIB',
-      photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop',
-    },
-    {
-      id: '5',
-      name: 'Dimas Arya',
-      role: 'Kitchen Crew',
-      branch: 'Deru Ombak',
-      shift: 'Shift Weekend 2 (13:00 - 22:00)',
-      status: 'Belum Masuk',
-      discipline_penalty: 0,
-      check_in: '-',
-      photo: null,
-    },
-    {
-      id: '6',
-      name: 'Siti Aisyah',
-      role: 'Floor Staff',
-      branch: 'Sea Cafe',
-      shift: 'Shift Weekday (12:00 - 21:00)',
-      status: 'Izin Sakit',
-      discipline_penalty: 0,
-      check_in: '-',
-      photo: null,
-    },
-  ]);
+  const [todayAttendanceList, setTodayAttendanceList] = useState([]);
+
+  // Fetch real staff and real today's attendance from Supabase
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const { data: emps } = await supabase
+          .from('employees')
+          .select('*')
+          .eq('role', 'staff');
+        if (emps && emps.length > 0) {
+          setStaffList(
+            emps.map((e, idx) => ({
+              id: e.id,
+              name: e.full_name,
+              role: e.position || 'Staff',
+              branch: e.branch || 'LazyBloom',
+              selected: idx === 0,
+            }))
+          );
+        }
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const { data: atts } = await supabase
+          .from('attendance')
+          .select('*, employees(full_name, position)')
+          .eq('attendance_date', todayStr);
+
+        if (atts && atts.length > 0) {
+          const mapped = atts.map((a) => ({
+            id: a.id,
+            name: a.employees?.full_name || a.employee_id,
+            role: a.employees?.position || 'Staff',
+            branch: a.branch,
+            shift: 'Shift Aktif',
+            status: a.status || 'Hadir',
+            discipline_penalty: a.discipline_penalty || 0,
+            check_in: a.check_in_time
+              ? new Date(a.check_in_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
+              : '-',
+            photo: a.check_out_photo || a.check_in_photo,
+          }));
+          setTodayAttendanceList(mapped);
+        }
+      } catch (err) {
+        console.warn('Load staff/attendance error:', err);
+      }
+    }
+    loadData();
+  }, []);
 
   // Sinkronkan monitoring kehadiran dengan data check-in/out karyawan yang sedang aktif
   useEffect(() => {
@@ -211,16 +186,35 @@ export default function AdminLeaderDashboard({ onBack }) {
       for (const staff of selectedStaff) {
         await supabase.from('shifts').upsert(
           {
+            employee_id: staff.id,
             branch: staff.branch,
             shift_date: assignDate,
             shift_name: assignShift,
+            start_time: assignShift.includes('09:00')
+              ? '09:00:00'
+              : assignShift.includes('13:00')
+              ? '13:00:00'
+              : assignShift.includes('11:00')
+              ? '11:00:00'
+              : assignShift.includes('12:00')
+              ? '12:00:00'
+              : null,
+            end_time: assignShift.includes('18:00')
+              ? '18:00:00'
+              : assignShift.includes('22:00')
+              ? '22:00:00'
+              : assignShift.includes('20:00')
+              ? '20:00:00'
+              : assignShift.includes('21:00')
+              ? '21:00:00'
+              : null,
             notes: `Ditugaskan oleh Admin Leader untuk ${staff.name}`,
           },
-          { onConflict: 'branch, shift_date' }
+          { onConflict: 'employee_id, shift_date' }
         );
       }
     } catch (err) {
-      console.warn('Shift sync Supabase fallback:', err);
+      console.warn('Shift sync Supabase error:', err);
     }
 
     setAssignSuccess(true);
@@ -491,11 +485,15 @@ export default function AdminLeaderDashboard({ onBack }) {
             </div>
 
             {/* Shift Rules Info Banner */}
-            <div className="p-2.5 bg-orange-50/70 border border-orange-200 rounded-xl text-[10px] text-orange-900 leading-relaxed flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-orange-600 shrink-0" />
-              <span>
-                <strong>Aturan Shift:</strong> Toleransi keterlambatan 10 menit. Masuk menit ke-11 otomatis dikenakan <strong>Denda Kedisiplinan Flat Rp 10.000</strong> ke slip gaji.
-              </span>
+            <div className="p-3 bg-orange-50/80 border border-orange-200 rounded-xl text-[11px] text-orange-900 leading-relaxed space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-[#EA580C]">
+                <Sparkles className="w-4 h-4 shrink-0" />
+                <span>Aturan Operasional Shift Outlet:</span>
+              </div>
+              <p className="text-[10px] text-slate-600">
+                &bull; <strong>Senin s/d Kamis (Weekday)</strong>: Otomatis 1 shift tunggal yaitu <em>Shift Weekday (12:00 - 21:00)</em>. Leader tidak perlu input rutin.<br />
+                &bull; <strong>Jumat s/d Minggu (Weekend)</strong>: <strong>Wajib diatur oleh Leader</strong> (Pilih Weekend 1 [09:00], Weekend 2 [13:00], Middle [11:00], atau Libur).
+              </p>
             </div>
 
             {/* Daftar Checklist Staf */}
@@ -582,12 +580,25 @@ export default function AdminLeaderDashboard({ onBack }) {
           </div>
 
           <div className="space-y-2.5">
-            {todayAttendanceList
-              .filter(
-                (a) =>
-                  selectedOutletFilter === 'all' || a.branch === selectedOutletFilter
-              )
-              .map((att) => {
+            {todayAttendanceList.filter(
+              (a) => selectedOutletFilter === 'all' || a.branch === selectedOutletFilter
+            ).length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 border border-slate-200/80 text-center shadow-xs space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <h5 className="text-xs font-bold text-slate-700">Belum Ada Presensi Masuk Hari Ini</h5>
+                <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                  Staf yang melakukan check-in akan otomatis tampil live di sini beserta foto selfie & status keterlambatan.
+                </p>
+              </div>
+            ) : (
+              todayAttendanceList
+                .filter(
+                  (a) =>
+                    selectedOutletFilter === 'all' || a.branch === selectedOutletFilter
+                )
+                .map((att) => {
                 const isLate = att.status.includes('Terlambat');
                 return (
                   <div
@@ -653,7 +664,8 @@ export default function AdminLeaderDashboard({ onBack }) {
                     </div>
                   </div>
                 );
-              })}
+              })
+            )}
           </div>
         </div>
       )}

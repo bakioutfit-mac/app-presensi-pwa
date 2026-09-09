@@ -58,156 +58,18 @@ export default function SupabaseTableEditor() {
     { id: 'payslips', label: 'Payslips (Slip Gaji)', icon: '💰' },
   ];
 
-  // Default mock fallback data
+  // Default fallback data (kosong tanpa data dummy)
   const fallbackData = {
-    admin_settings: [
-      {
-        id: 'adm-pin-1',
-        role: 'leader',
-        name: 'Admin Leader',
-        pin: adminPins?.leader || '112233',
-        description: 'Akses Otorisasi: Jadwal Shift, Monitoring Kehadiran, Tambah Karyawan',
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 'adm-pin-2',
-        role: 'finance',
-        name: 'Admin Finance',
-        pin: adminPins?.finance || '445566',
-        description: 'Akses Otorisasi: Slip Gaji 3 Outlet, Pengaturan Titik GPS Lat/Lng',
-        updated_at: new Date().toISOString(),
-      },
-    ],
-    outlets_config: (outlets && outlets.length > 0 ? outlets : OUTLETS).map((o) => ({
-      id: o.id,
-      name: o.name,
-      address: o.address,
-      latitude: o.coords?.lat || -6.2,
-      longitude: o.coords?.lng || 106.8,
-      radius_meters: o.coords?.radiusMeters || 50,
-      branch: o.name,
-    })),
-    employees: [
-      {
-        id: 'e1',
-        employee_id: 'LZY_0021',
-        full_name: 'Fikril Bay',
-        phone: '085775560400',
-        pin: '123456',
-        branch: 'LazyBloom',
-        role: 'staff',
-        position: 'Barista Senior',
-      },
-      {
-        id: 'e2',
-        employee_id: 'DRU_0015',
-        full_name: 'Bagas Pratama',
-        phone: '081233445566',
-        pin: '123456',
-        branch: 'Deru Ombak',
-        role: 'staff',
-        position: 'Head Kitchen',
-      },
-      {
-        id: 'e3',
-        employee_id: 'SEA_0009',
-        full_name: 'Rian Bahari',
-        phone: '081998877665',
-        pin: '123456',
-        branch: 'Sea Cafe',
-        role: 'staff',
-        position: 'Barista & Gelato',
-      },
-      {
-        id: 'e4',
-        employee_id: 'ADM_0001',
-        full_name: 'Admin Manager',
-        phone: '081234567890',
-        pin: '654321',
-        branch: '3 Pillar HQ',
-        role: 'admin',
-        position: 'Store Manager',
-      },
-    ],
-    attendance: [
-      {
-        id: 'a1',
-        employee_name: 'Fikril Bay',
-        branch: 'LazyBloom',
-        attendance_date: '2026-09-07',
-        check_in_time: '07:55 WIB',
-        check_out_time: '16:05 WIB',
-        status: 'Hadir',
-      },
-      {
-        id: 'a2',
-        employee_name: 'Bagas Pratama',
-        branch: 'Deru Ombak',
-        attendance_date: '2026-09-07',
-        check_in_time: '07:45 WIB',
-        check_out_time: '16:00 WIB',
-        status: 'Hadir',
-      },
-      {
-        id: 'a3',
-        employee_name: 'Rian Bahari',
-        branch: 'Sea Cafe',
-        attendance_date: '2026-09-07',
-        check_in_time: '07:58 WIB',
-        check_out_time: '-',
-        status: 'Hadir',
-      },
-    ],
-    leaves: [
-      {
-        id: 'l1',
-        employee_name: 'Siti Aisyah',
-        branch: 'Sea Cafe',
-        leave_type: 'Sakit',
-        start_date: '2026-09-07',
-        end_date: '2026-09-08',
-        status: 'Disetujui',
-      },
-    ],
-    shifts: [
-      {
-        id: 's1',
-        shift_date: '2026-09-07',
-        shift_name: 'Shift Pagi',
-        start_time: '08:00',
-        end_time: '16:00',
-        branch: 'LazyBloom',
-      },
-      {
-        id: 's2',
-        shift_date: '2026-09-07',
-        shift_name: 'Shift Siang',
-        start_time: '14:00',
-        end_time: '22:00',
-        branch: 'Deru Ombak',
-      },
-    ],
-    payslips: [
-      {
-        id: 'p1',
-        period: 'Agustus 2026',
-        basic_salary: 3500000,
-        allowance: 800000,
-        net_salary: 4450000,
-        is_released: true,
-      },
-      {
-        id: 'p2',
-        period: 'September 2026',
-        basic_salary: 3500000,
-        allowance: 800000,
-        net_salary: 4300000,
-        is_released: false,
-      },
-    ],
+    admin_settings: [],
+    outlets_config: [],
+    employees: [],
+    attendance: [],
+    leaves: [],
+    shifts: [],
+    payslips: [],
   };
 
-  // Fetch data dari Supabase atau fallback
+  // Fetch data dari Supabase
   const fetchData = async () => {
     setLoading(true);
     setMsg({ type: '', text: '' });
@@ -262,13 +124,15 @@ export default function SupabaseTableEditor() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!error && result && result.length > 0) {
+      if (!error && result) {
         setData(result);
       } else {
-        setData(fallbackData[activeTable] || []);
+        console.warn('Fetch table error:', error);
+        setData([]);
       }
     } catch (err) {
-      setData(fallbackData[activeTable] || []);
+      console.warn('Fetch table catch:', err);
+      setData([]);
     } finally {
       setLoading(false);
     }
@@ -335,19 +199,24 @@ export default function SupabaseTableEditor() {
   const handleDeleteRow = async (id) => {
     if (!confirm('Yakin ingin menghapus baris data ini?')) return;
     try {
-      await supabase.from(activeTable).delete().eq('id', id);
+      const { error } = await supabase.from(activeTable).delete().eq('id', id);
+      if (error) {
+        setMsg({ type: 'error', text: `Gagal menghapus baris dari Supabase: ${error.message}` });
+        return;
+      }
     } catch (e) {
-      console.log('Delete local fallback');
+      console.warn('Delete exception:', e);
     }
+
     setData((prev) => prev.filter((r) => r.id !== id));
     if (activeTable === 'attendance') {
       resetTodayAttendance();
       setMsg({
         type: 'success',
-        text: 'Data presensi berhasil dihapus! Tombol Presensi Masuk staf telah di-reset & terbuka kembali.',
+        text: 'Data presensi berhasil dihapus permanen dari Supabase! Sesi hari ini telah di-reset.',
       });
     } else {
-      setMsg({ type: 'success', text: 'Baris berhasil dihapus!' });
+      setMsg({ type: 'success', text: 'Baris data berhasil dihapus permanen dari Supabase!' });
     }
   };
 

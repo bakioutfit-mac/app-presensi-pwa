@@ -28,79 +28,58 @@ export default function AdminDashboard({ onBack }) {
   // ================= 1. TAB PENUGASAN SHIFT =================
   const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
   const [assignShift, setAssignShift] = useState('Shift Pagi (08:00 - 16:00)');
-  const [staffList, setStaffList] = useState([
-    { id: '1', name: 'Fikril Bay', role: 'Barista Senior', branch: 'LazyBloom', selected: true },
-    { id: '2', name: 'Nadia Rahma', role: 'Kasir', branch: 'LazyBloom', selected: false },
-    { id: '3', name: 'Bagas Pratama', role: 'Head Kitchen', branch: 'Deru Ombak', selected: false },
-    { id: '4', name: 'Dimas Arya', role: 'Kitchen Crew', branch: 'Deru Ombak', selected: false },
-    { id: '5', name: 'Rian Bahari', role: 'Barista & Gelato', branch: 'Sea Cafe', selected: false },
-    { id: '6', name: 'Siti Aisyah', role: 'Floor Staff', branch: 'Sea Cafe', selected: false },
-  ]);
+  const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
 
   // ================= 2. TAB MONITORING SHIFT =================
-  const [todayAttendanceList, setTodayAttendanceList] = useState([
-    {
-      id: '1',
-      name: 'Fikril Bay',
-      role: 'Barista Senior',
-      branch: 'LazyBloom',
-      shift: 'Shift Pagi',
-      status: 'Hadir',
-      check_in: '07:55 WIB',
-      photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop',
-    },
-    {
-      id: '2',
-      name: 'Bagas Pratama',
-      role: 'Head Kitchen',
-      branch: 'Deru Ombak',
-      shift: 'Shift Pagi',
-      status: 'Hadir',
-      check_in: '07:45 WIB',
-      photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop',
-    },
-    {
-      id: '3',
-      name: 'Rian Bahari',
-      role: 'Barista & Gelato',
-      branch: 'Sea Cafe',
-      shift: 'Shift Pagi',
-      status: 'Hadir',
-      check_in: '07:58 WIB',
-      photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop',
-    },
-    {
-      id: '4',
-      name: 'Nadia Rahma',
-      role: 'Kasir',
-      branch: 'LazyBloom',
-      shift: 'Shift Pagi',
-      status: 'Hadir',
-      check_in: '08:02 WIB',
-      photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop',
-    },
-    {
-      id: '5',
-      name: 'Dimas Arya',
-      role: 'Kitchen Crew',
-      branch: 'Deru Ombak',
-      shift: 'Shift Siang',
-      status: 'Belum Masuk',
-      check_in: '-',
-      photo: null,
-    },
-    {
-      id: '6',
-      name: 'Siti Aisyah',
-      role: 'Floor Staff',
-      branch: 'Sea Cafe',
-      shift: 'Shift Pagi',
-      status: 'Izin Sakit',
-      check_in: '-',
-      photo: null,
-    },
-  ]);
+  const [todayAttendanceList, setTodayAttendanceList] = useState([]);
+
+  useEffect(() => {
+    async function loadAdminData() {
+      try {
+        const { data: emps } = await supabase.from('employees').select('*').eq('role', 'staff');
+        if (emps) {
+          setStaffList(
+            emps.map((e, idx) => ({
+              id: e.id,
+              name: e.full_name,
+              role: e.position || 'Staff',
+              branch: e.branch || 'LazyBloom',
+              selected: idx === 0,
+            }))
+          );
+        }
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const { data: atts } = await supabase
+          .from('attendance')
+          .select('*, employees(full_name, position)')
+          .eq('attendance_date', todayStr);
+
+        if (atts && atts.length > 0) {
+          setTodayAttendanceList(
+            atts.map((a) => ({
+              id: a.id,
+              name: a.employees?.full_name || a.employee_id,
+              role: a.employees?.position || 'Staff',
+              branch: a.branch,
+              shift: 'Shift Aktif',
+              status: a.status || 'Hadir',
+              check_in: a.check_in_time
+                ? new Date(a.check_in_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
+                : '-',
+              photo: a.check_out_photo || a.check_in_photo,
+            }))
+          );
+        } else {
+          setTodayAttendanceList([]);
+        }
+      } catch (err) {
+        console.warn('AdminDashboard fetch error:', err);
+      }
+    }
+    loadAdminData();
+  }, []);
 
   // ================= 3. TAB TAMBAH STAF BARU =================
   const [newStaff, setNewStaff] = useState({

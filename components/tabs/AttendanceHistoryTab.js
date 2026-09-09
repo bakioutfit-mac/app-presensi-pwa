@@ -18,52 +18,7 @@ export default function AttendanceHistoryTab() {
   const [history, setHistory] = useState([]);
   const [photoModal, setPhotoModal] = useState(null);
 
-  const defaultHistory = [
-    {
-      id: 'h-1',
-      date: '07 Sep 2026',
-      day: 'Senin',
-      check_in: '07:55 WIB',
-      check_out: '16:05 WIB',
-      duration: '8 Jam 10 Menit',
-      status: 'Hadir Tepat Waktu',
-      photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop',
-      location: 'LazyBloom Store (Valid)',
-    },
-    {
-      id: 'h-2',
-      date: '06 Sep 2026',
-      day: 'Minggu',
-      check_in: '07:58 WIB',
-      check_out: '16:02 WIB',
-      duration: '8 Jam 04 Menit',
-      status: 'Hadir Tepat Waktu',
-      photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop',
-      location: 'LazyBloom Store (Valid)',
-    },
-    {
-      id: 'h-3',
-      date: '05 Sep 2026',
-      day: 'Sabtu',
-      check_in: '08:12 WIB',
-      check_out: '16:15 WIB',
-      duration: '8 Jam 03 Menit',
-      status: 'Terlambat 12 Menit',
-      photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop',
-      location: 'LazyBloom Store (Valid)',
-    },
-    {
-      id: 'h-4',
-      date: '04 Sep 2026',
-      day: 'Jumat',
-      check_in: '07:50 WIB',
-      check_out: '16:00 WIB',
-      duration: '8 Jam 10 Menit',
-      status: 'Hadir Tepat Waktu',
-      photo: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=200&h=200&fit=crop',
-      location: 'LazyBloom Store (Valid)',
-    },
-  ];
+
 
   const mapAttendanceItem = (item) => {
     const dateObj = new Date(item.attendance_date);
@@ -154,10 +109,7 @@ export default function AttendanceHistoryTab() {
         }
       }
 
-      // 3. Jika masih belum ada riwayat sebelumnya, gunakan defaultHistory mock
-      if (baseList.length === 0) {
-        baseList = [...defaultHistory];
-      }
+      // 3. Jika belum ada riwayat, tetap biarkan baseList kosong (tanpa data dummy)
 
       // 4. SINKRONKAN REAKTIF DENGAN todayAttendance
       let currentToday = todayAttendance;
@@ -217,8 +169,19 @@ export default function AttendanceHistoryTab() {
       </div>
 
       {/* History Items */}
-      <div className="space-y-2.5">
-        {history.map((h) => {
+      {history.length === 0 ? (
+        <div className="bg-white rounded-2xl p-8 border border-slate-200/80 text-center shadow-xs space-y-2.5">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto text-[#2563EB]">
+            <ClipboardList className="w-6 h-6" />
+          </div>
+          <h4 className="text-sm font-bold text-slate-800">Belum Ada Riwayat Presensi</h4>
+          <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+            Data kehadiran akan otomatis tercatat dan tersimpan di sini setelah Anda melakukan Presensi Masuk di Tab Presensi.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {history.map((h) => {
           const isLate = (h.status || '').toLowerCase().includes('terlambat');
 
           return (
@@ -301,6 +264,7 @@ export default function AttendanceHistoryTab() {
           );
         })}
       </div>
+      )}
 
       {/* Photo Preview Modal */}
       {photoModal && (

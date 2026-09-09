@@ -53,80 +53,47 @@ export default function AdminFinanceDashboard({ onBack }) {
     is_released: true,
   });
 
-  const [salaryList, setSalaryList] = useState([
-    {
-      id: 'sal-1',
-      employee_name: 'Fikril Bay',
-      branch: 'LazyBloom',
-      period: 'Agustus 2026',
-      basic_salary: 3500000,
-      child_allowance: 200000,
-      spouse_allowance: 300000,
-      position_allowance: 500000,
-      meal_allowance: 400000,
-      overtime_pay: 150000,
-      meal_deduction: 50000,
-      attendance_deduction: 0,
-      discipline_deduction: 10000,
-      cash_bon: 100000,
-      net_salary: 4790000,
-      is_released: true,
-    },
-    {
-      id: 'sal-2',
-      employee_name: 'Bagas Pratama',
-      branch: 'Deru Ombak',
-      period: 'Agustus 2026',
-      basic_salary: 3800000,
-      child_allowance: 0,
-      spouse_allowance: 300000,
-      position_allowance: 600000,
-      meal_allowance: 400000,
-      overtime_pay: 200000,
-      meal_deduction: 0,
-      attendance_deduction: 0,
-      discipline_deduction: 0,
-      cash_bon: 0,
-      net_salary: 5300000,
-      is_released: true,
-    },
-    {
-      id: 'sal-3',
-      employee_name: 'Rian Bahari',
-      branch: 'Sea Cafe',
-      period: 'Agustus 2026',
-      basic_salary: 3400000,
-      child_allowance: 0,
-      spouse_allowance: 0,
-      position_allowance: 300000,
-      meal_allowance: 400000,
-      overtime_pay: 100000,
-      meal_deduction: 0,
-      attendance_deduction: 0,
-      discipline_deduction: 0,
-      cash_bon: 50000,
-      net_salary: 4150000,
-      is_released: true,
-    },
-    {
-      id: 'sal-4',
-      employee_name: 'Fikril Bay',
-      branch: 'LazyBloom',
-      period: 'September 2026',
-      basic_salary: 3500000,
-      child_allowance: 200000,
-      spouse_allowance: 300000,
-      position_allowance: 500000,
-      meal_allowance: 400000,
-      overtime_pay: 150000,
-      meal_deduction: 50000,
-      attendance_deduction: 0,
-      discipline_deduction: 10000,
-      cash_bon: 0,
-      net_salary: 4890000,
-      is_released: false, // Bergembok
-    },
-  ]);
+  const [salaryList, setSalaryList] = useState([]);
+
+  // Fetch real payslips from Supabase on mount
+  useEffect(() => {
+    async function fetchSalaries() {
+      try {
+        const { data, error } = await supabase
+          .from('payslips')
+          .select('*, employees(full_name, branch)')
+          .order('created_at', { ascending: false });
+
+        if (!error && data && data.length > 0) {
+          const mapped = data.map((p) => ({
+            id: p.id,
+            employee_name: p.employees?.full_name || 'Staf',
+            branch: p.employees?.branch || 'LazyBloom',
+            period: p.period,
+            basic_salary: p.basic_salary,
+            child_allowance: p.child_allowance || 0,
+            spouse_allowance: p.spouse_allowance || 0,
+            position_allowance: p.position_allowance || 0,
+            meal_allowance: p.attendance_allowance || p.meal_allowance || 0,
+            overtime_pay: p.overtime_pay || 0,
+            meal_deduction: 0,
+            attendance_deduction: p.attendance_deduction || 0,
+            discipline_deduction: p.discipline_deduction || 0,
+            cash_bon: p.deductions || 0,
+            net_salary: p.net_salary,
+            is_released: p.is_released,
+          }));
+          setSalaryList(mapped);
+        } else {
+          setSalaryList([]);
+        }
+      } catch (e) {
+        console.warn('Fetch payslips error:', e);
+        setSalaryList([]);
+      }
+    }
+    fetchSalaries();
+  }, []);
 
   // Kalkulasi total pendapatan
   const calculateTotalIncome = (s) => {
@@ -763,58 +730,72 @@ export default function AdminFinanceDashboard({ onBack }) {
 
             {/* Tabel Daftar Slip Gaji */}
             <div className="space-y-2">
-              {salaryList
-                .filter(
-                  (s) => selectedOutletSalary === 'all' || s.branch === selectedOutletSalary
-                )
-                .map((slip) => (
-                  <div
-                    key={slip.id}
-                    className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:border-slate-300 transition shadow-xs"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h5 className="text-xs font-black text-slate-900">{slip.employee_name}</h5>
-                        <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
-                          {slip.branch}
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-medium">• {slip.period}</span>
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-[11px]">
-                        <span className="font-black text-sm text-[#2563EB]">
-                          Rp {slip.net_salary.toLocaleString('id-ID')}
-                        </span>
-                        <span className="text-slate-400 text-[10px]">
-                          (Gaji Pokok: Rp {Number(slip.basic_salary || 0).toLocaleString('id-ID')})
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      <button
-                        type="button"
-                        onClick={() => toggleSalaryRelease(slip.id)}
-                        className={`px-3 py-1.5 rounded-xl text-[10px] font-black flex items-center gap-1.5 transition ${
-                          slip.is_released
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
-                            : 'bg-slate-200 text-slate-700 border border-slate-300 hover:bg-slate-300'
-                        }`}
-                      >
-                        {slip.is_released ? (
-                          <>
-                            <Unlock className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Rilis (Terbuka)</span>
-                          </>
-                        ) : (
-                          <>
-                            <Lock className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Terkunci (Draft)</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
+              {salaryList.filter(
+                (s) => selectedOutletSalary === 'all' || s.branch === selectedOutletSalary
+              ).length === 0 ? (
+                <div className="bg-white rounded-2xl p-8 border border-slate-200/80 text-center shadow-xs space-y-2">
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                    <Banknote className="w-5 h-5" />
                   </div>
-                ))}
+                  <h5 className="text-xs font-bold text-slate-700">Belum Ada Data Penggajian</h5>
+                  <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                    Klik tombol "+ Buat &amp; Terbitkan Slip Gaji Baru" di atas untuk memproses gaji dan denda staf.
+                  </p>
+                </div>
+              ) : (
+                salaryList
+                  .filter(
+                    (s) => selectedOutletSalary === 'all' || s.branch === selectedOutletSalary
+                  )
+                  .map((slip) => (
+                    <div
+                      key={slip.id}
+                      className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:border-slate-300 transition shadow-xs"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h5 className="text-xs font-black text-slate-900">{slip.employee_name}</h5>
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
+                            {slip.branch}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">• {slip.period}</span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-[11px]">
+                          <span className="font-black text-sm text-[#2563EB]">
+                            Rp {Number(slip.net_salary || 0).toLocaleString('id-ID')}
+                          </span>
+                          <span className="text-slate-400 text-[10px]">
+                            (Gaji Pokok: Rp {Number(slip.basic_salary || 0).toLocaleString('id-ID')})
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleRelease(slip.id, slip.is_released)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-xs ${
+                            slip.is_released
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                              : 'bg-slate-200 text-slate-700 border border-slate-300 hover:bg-slate-300'
+                          }`}
+                        >
+                          {slip.is_released ? (
+                            <>
+                              <Unlock className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Rilis (Terbuka)</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Terkunci (Draft)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+              )}
             </div>
           </div>
         </div>

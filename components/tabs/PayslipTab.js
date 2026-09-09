@@ -19,63 +19,6 @@ export default function PayslipTab() {
   const [payslips, setPayslips] = useState([]);
   const [openId, setOpenId] = useState(null);
 
-  const defaultPayslips = [
-    {
-      id: 'slip-001',
-      period: 'Agustus 2026',
-      period_range: '01 Ags 2026 - 31 Ags 2026',
-      payment_date: '31 Agustus 2026',
-      is_released: true,
-      basic_salary: 3500000,
-      child_allowance: 200000,
-      spouse_allowance: 300000,
-      position_allowance: 500000,
-      meal_allowance: 400000,
-      overtime_pay: 150000,
-      meal_deduction: 50000,
-      attendance_deduction: 0,
-      discipline_deduction: 10000,
-      cash_bon: 100000,
-      net_salary: 4790000,
-    },
-    {
-      id: 'slip-002',
-      period: 'Juli 2026',
-      period_range: '01 Jul 2026 - 31 Jul 2026',
-      payment_date: '31 Juli 2026',
-      is_released: true,
-      basic_salary: 3500000,
-      child_allowance: 200000,
-      spouse_allowance: 300000,
-      position_allowance: 500000,
-      meal_allowance: 400000,
-      overtime_pay: 100000,
-      meal_deduction: 50000,
-      attendance_deduction: 0,
-      discipline_deduction: 0,
-      cash_bon: 0,
-      net_salary: 4950000,
-    },
-    {
-      id: 'slip-003',
-      period: 'September 2026',
-      period_range: '01 Sep 2026 - 30 Sep 2026',
-      payment_date: 'Dalam Proses Payroll',
-      is_released: false, // Bergembok
-      basic_salary: 3500000,
-      child_allowance: 200000,
-      spouse_allowance: 300000,
-      position_allowance: 500000,
-      meal_allowance: 400000,
-      overtime_pay: 150000,
-      meal_deduction: 50000,
-      attendance_deduction: 0,
-      discipline_deduction: 10000,
-      cash_bon: 0,
-      net_salary: 4890000,
-    },
-  ];
-
   useEffect(() => {
     async function fetchPayslips() {
       if (!user) return;
@@ -91,12 +34,12 @@ export default function PayslipTab() {
           const latestReleased = data.find((p) => p.is_released);
           if (latestReleased) setOpenId(latestReleased.id);
         } else {
-          setPayslips(defaultPayslips);
-          setOpenId('slip-001');
+          setPayslips([]);
+          setOpenId(null);
         }
       } catch (err) {
-        setPayslips(defaultPayslips);
-        setOpenId('slip-001');
+        setPayslips([]);
+        setOpenId(null);
       }
     }
     fetchPayslips();
@@ -143,8 +86,19 @@ export default function PayslipTab() {
       </div>
 
       {/* Accordion List */}
-      <div className="space-y-2.5">
-        {payslips.map((slip) => {
+      {payslips.length === 0 ? (
+        <div className="bg-white rounded-2xl p-8 border border-slate-200/80 text-center shadow-xs space-y-2.5">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto text-[#2563EB]">
+            <Banknote className="w-6 h-6" />
+          </div>
+          <h4 className="text-sm font-bold text-slate-800">Belum Ada Slip Gaji</h4>
+          <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+            Slip gaji bulanan Anda akan muncul di sini setelah diproses dan dirilis oleh Admin Finance.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {payslips.map((slip) => {
           const isOpen = openId === slip.id;
           const isReleased = slip.is_released;
 
@@ -357,6 +311,7 @@ export default function PayslipTab() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

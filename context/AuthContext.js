@@ -11,10 +11,10 @@ export const isValidUUID = (id) =>
   typeof id === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
-// Default mock employees for each of the 3 outlets (Standard UUID format for Supabase compatibility)
+// Default employees from Supabase database
 export const DEMO_USERS = {
   lazybloom: {
-    id: 'd0000001-0000-0000-0000-000000000001',
+    id: 'e9e43ccf-4c2e-466b-afb5-b6c837d85997',
     employee_id: 'LZY_0021',
     full_name: 'Fikril Bay',
     phone: '085775560400',
@@ -23,30 +23,30 @@ export const DEMO_USERS = {
     position: 'Barista Senior',
     branch: 'LazyBloom',
     birth_date: '21 November 1998',
-    address: 'Jl. Ir Moh Hatta, Candiareng Perumahan candi wanamas',
-    avatar_url: null,
+    address: 'Jl. Ir Moh Hatta No. 12, Candiareng',
+    avatar_url: 'https://kfcjbcdknerflqwofrer.supabase.co/storage/v1/object/public/attendance-photos/LZY_0021/1788904060049_avatar.jpg',
   },
   deru_ombak: {
-    id: 'd0000002-0000-0000-0000-000000000002',
+    id: '652c54dc-ce1f-4433-b1c8-a35af758247f',
     employee_id: 'DRU_0015',
     full_name: 'Bagas Pratama',
     phone: '081233445566',
     pin: '123456',
     role: 'staff',
-    position: 'Head Kitchen & Chef',
+    position: 'Head Kitchen',
     branch: 'Deru Ombak',
     birth_date: '15 Maret 1997',
-    address: 'Kawasan Wisata Bahari Blok A3',
+    address: 'Kawasan Wisata Bahari Blok A3, Pantai Indah',
     avatar_url: null,
   },
   sea_cafe: {
-    id: 'd0000003-0000-0000-0000-000000000003',
+    id: '4de8a3a7-cc82-4f79-833c-f90b1685d551',
     employee_id: 'SEA_0009',
     full_name: 'Rian Bahari',
     phone: '081998877665',
     pin: '123456',
     role: 'staff',
-    position: 'Barista & Gelato Maker',
+    position: 'Barista & Gelato',
     branch: 'Sea Cafe',
     birth_date: '04 Juli 2000',
     address: 'Jl. Dermaga Pelabuhan No. 8',
@@ -79,10 +79,10 @@ export function AuthProvider({ children }) {
       if (stored) {
         const parsed = JSON.parse(stored);
         // Migrasi jika masih menggunakan ID demo string lama
-        if (parsed.id === 'demo-emp-001') parsed.id = 'd0000001-0000-0000-0000-000000000001';
-        if (parsed.id === 'demo-emp-002') parsed.id = 'd0000002-0000-0000-0000-000000000002';
-        if (parsed.id === 'demo-emp-003') parsed.id = 'd0000003-0000-0000-0000-000000000003';
-        if (parsed.id === 'demo-adm-001') parsed.id = 'a0000001-0000-0000-0000-000000000001';
+        if (parsed.phone === '085775560400') parsed.id = 'e9e43ccf-4c2e-466b-afb5-b6c837d85997';
+        if (parsed.phone === '081233445566') parsed.id = '652c54dc-ce1f-4433-b1c8-a35af758247f';
+        if (parsed.phone === '081998877665') parsed.id = '4de8a3a7-cc82-4f79-833c-f90b1685d551';
+        if (parsed.phone === '081234567890') parsed.id = '38fcb788-a0fb-49df-aece-150515e6fe20';
         setUser(parsed);
         localStorage.setItem('pwa_presensi_user', JSON.stringify(parsed));
       }
@@ -352,9 +352,9 @@ export function AuthProvider({ children }) {
       // Check admin login
       if (phone === '081234567890' && pin === '654321') {
         const demoAdmin = {
-          id: 'a0000001-0000-0000-0000-000000000001',
+          id: '38fcb788-a0fb-49df-aece-150515e6fe20',
           employee_id: 'ADM_0001',
-          full_name: 'Admin HQ',
+          full_name: 'Admin Manager',
           phone: '081234567890',
           pin: '654321',
           role: 'admin',
@@ -449,19 +449,7 @@ export function AuthProvider({ children }) {
   };
 
   // State pengajuan lembur dari Admin Leader ke Admin Finance
-  const [overtimeRequests, setOvertimeRequests] = useState([
-    {
-      id: 'ot-1',
-      employee_id: 'd0000001-0000-0000-0000-000000000001',
-      employee_name: 'Fikril Bay',
-      branch: 'LazyBloom',
-      date: new Date().toISOString().split('T')[0],
-      hours: 2,
-      reason: 'Event Ramai & Closing Store',
-      nominal: 50000,
-      status: 'Diajukan Leader',
-    },
-  ]);
+  const [overtimeRequests, setOvertimeRequests] = useState([]);
 
   const submitOvertimeRequest = async (otData) => {
     const newOt = {
@@ -505,24 +493,51 @@ export function AuthProvider({ children }) {
     };
 
     if (type === 'checkin') {
-      // Hitung keterlambatan berdasarkan jam shift (Toleransi 10 menit, Denda Flat Rp 10.000)
+      // Aturan Operasional:
+      // - Senin s/d Kamis (Weekday): Hanya 1 shift tunggal yaitu Shift Weekday (12:00 - 21:00)
+      // - Jumat s/d Minggu (Weekend): Mengikuti jadwal yang diset Leader (Shift Weekend 1 09:00, Weekend 2 13:00, atau Middle 11:00)
+      const dayOfWeek = now.getDay(); // 0 = Minggu, 1 = Senin, ..., 4 = Kamis, 5 = Jumat, 6 = Sabtu
+      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4; // Senin s/d Kamis
+
       let isLate = false;
       let lateMins = 0;
       let disciplinePenalty = 0;
 
-      // Parsing target shift time (default jika shift weekday 12:00, weekend1 09:00, weekend2 13:00, middle 11:00)
       let shiftStartHour = 12;
       let shiftStartMin = 0;
+      let shiftLabel = 'Shift Weekday (12:00 - 21:00)';
 
-      const shiftStr = (scheduledShift || 'Shift Weekday (12:00 - 21:00)').toLowerCase();
-      if (shiftStr.includes('09:00') || shiftStr.includes('weekend 1')) {
-        shiftStartHour = 9;
-      } else if (shiftStr.includes('13:00') || shiftStr.includes('weekend 2')) {
-        shiftStartHour = 13;
-      } else if (shiftStr.includes('11:00') || shiftStr.includes('middle')) {
-        shiftStartHour = 11;
-      } else if (shiftStr.includes('12:00') || shiftStr.includes('weekday')) {
+      if (isWeekday) {
+        // Senin s/d Kamis: Selalu Shift Weekday (12:00 - 21:00)
         shiftStartHour = 12;
+        shiftStartMin = 0;
+        shiftLabel = 'Shift Weekday (12:00 - 21:00)';
+      } else {
+        // Jumat s/d Minggu: Berdasarkan penugasan Leader
+        const shiftStr = (scheduledShift || '').toLowerCase();
+        if (shiftStr.includes('09:00') || shiftStr.includes('weekend 1')) {
+          shiftStartHour = 9;
+          shiftLabel = 'Shift Weekend 1 (09:00 - 18:00)';
+        } else if (shiftStr.includes('13:00') || shiftStr.includes('weekend 2')) {
+          shiftStartHour = 13;
+          shiftLabel = 'Shift Weekend 2 (13:00 - 22:00)';
+        } else if (shiftStr.includes('11:00') || shiftStr.includes('middle')) {
+          shiftStartHour = 11;
+          shiftLabel = 'Shift Middle (11:00 - 20:00)';
+        } else {
+          // Jika belum diset Leader pada Jumat-Minggu, gunakan smart nearest shift
+          const currentHour = now.getHours();
+          if (currentHour < 10) {
+            shiftStartHour = 9;
+            shiftLabel = 'Shift Weekend 1 (09:00 - 18:00)';
+          } else if (currentHour >= 10 && currentHour < 12) {
+            shiftStartHour = 11;
+            shiftLabel = 'Shift Middle (11:00 - 20:00)';
+          } else {
+            shiftStartHour = 13;
+            shiftLabel = 'Shift Weekend 2 (13:00 - 22:00)';
+          }
+        }
       }
 
       const scheduledTime = new Date();

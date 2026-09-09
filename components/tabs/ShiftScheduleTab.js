@@ -10,90 +10,73 @@ export default function ShiftScheduleTab() {
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Generate 7 days schedule starting today with 4 official outlet shifts
-  const defaultShifts = [
-    {
-      id: '1',
-      shift_date: '2026-09-07',
-      day_name: 'Senin',
-      shift_name: 'Shift Weekday',
-      time: '12:00 - 21:00',
-      status: 'Bertugas',
-      is_today: true,
-    },
-    {
-      id: '2',
-      shift_date: '2026-09-08',
-      day_name: 'Selasa',
-      shift_name: 'Shift Weekday',
-      time: '12:00 - 21:00',
-      status: 'Mendatang',
-      is_today: false,
-    },
-    {
-      id: '3',
-      shift_date: '2026-09-09',
-      day_name: 'Rabu',
-      shift_name: 'Shift Middle',
-      time: '11:00 - 20:00',
-      status: 'Mendatang',
-      is_today: false,
-    },
-    {
-      id: '4',
-      shift_date: '2026-09-10',
-      day_name: 'Kamis',
-      shift_name: 'Shift Middle',
-      time: '11:00 - 20:00',
-      status: 'Mendatang',
-      is_today: false,
-    },
-    {
-      id: '5',
-      shift_date: '2026-09-11',
-      day_name: 'Jumat',
-      shift_name: 'Shift Weekday',
-      time: '12:00 - 21:00',
-      status: 'Mendatang',
-      is_today: false,
-    },
-    {
-      id: '6',
-      shift_date: '2026-09-12',
-      day_name: 'Sabtu',
-      shift_name: 'Shift Weekend 1',
-      time: '09:00 - 18:00',
-      status: 'Mendatang',
-      is_today: false,
-    },
-    {
-      id: '7',
-      shift_date: '2026-09-13',
-      day_name: 'Minggu',
-      shift_name: 'Libur / Off',
-      time: 'Libur',
-      status: 'Libur',
-      is_today: false,
-    },
-  ];
-
+  // Generate 7 hari jadwal dinamis (Senin-Kamis: Shift Weekday otomatis, Jumat-Minggu: Penugasan Leader)
   useEffect(() => {
     async function fetchShifts() {
       if (!user) return;
       try {
+        let dbShifts = [];
         const { data, error } = await supabase
           .from('shifts')
           .select('*')
-          .eq('employee_id', user.id)
-          .order('shift_date', { ascending: true });
+          .eq('employee_id', user.id);
 
-        if (!error && data && data.length > 0) {
-          setShifts(data);
-        } else {
-          setShifts(defaultShifts);
+        if (!error && data) {
+          dbShifts = data;
         }
+
+        const generated = [];
+        for (let i = 0; i < 7; i++) {
+          const dateObj = new Date();
+          dateObj.setDate(dateObj.getDate() + i);
+          const dateStr = dateObj.toISOString().split('T')[0];
+          const dayOfWeek = dateObj.getDay(); // 0 = Min, 1 = Sen, ..., 4 = Kam, 5 = Jum, 6 = Sab
+          const dayName = dateObj.toLocaleDateString('id-ID', { weekday: 'long' });
+          const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4; // Senin s/d Kamis
+
+          const assigned = dbShifts.find((s) => s.shift_date === dateStr);
+
+          if (isWeekday) {
+            // Senin s/d Kamis: Otomatis Shift Weekday
+            generated.push({
+              id: assigned?.id || `shift-${dateStr}`,
+              shift_date: dateStr,
+              day_name: dayName,
+              shift_name: 'Shift Weekday',
+              time: '12:00 - 21:00 WIB',
+              status: i === 0 ? 'Bertugas Hari Ini' : 'Shift Rutin',
+              is_today: i === 0,
+            });
+          } else {
+            // Jumat s/d Minggu: Berdasarkan penugasan Leader di Supabase
+            if (assigned) {
+              const isOff = (assigned.shift_name || '').includes('Off') || (assigned.shift_name || '').includes('Libur');
+              generated.push({
+                id: assigned.id,
+                shift_date: dateStr,
+                day_name: dayName,
+                shift_name: assigned.shift_name,
+                time: isOff ? 'Libur' : (assigned.start_time ? `${assigned.start_time.slice(0, 5)} - ${assigned.end_time?.slice(0, 5)} WIB` : '09:00 - 18:00 WIB'),
+                status: isOff ? 'Libur' : i === 0 ? 'Bertugas Hari Ini' : 'Jadwal Leader',
+                is_today: i === 0,
+              });
+            } else {
+              generated.push({
+                id: `pending-${dateStr}`,
+                shift_date: dateStr,
+                day_name: dayName,
+                shift_name: 'Menunggu Jadwal Leader',
+                time: 'Wajib Diset Leader (Jum-Min)',
+                status: 'Belum Diset',
+                is_today: i === 0,
+              });
+            }
+          }
+        }
+
+        setShifts(generated);
       } catch (err) {
-        setShifts(defaultShifts);
+        console.warn('Fetch shifts error:', err);
       } finally {
         setLoading(false);
       }
