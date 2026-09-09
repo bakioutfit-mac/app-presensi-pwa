@@ -27,6 +27,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { OUTLETS } from '@/lib/outlets';
 import { useAuth } from '@/context/AuthContext';
+import { formatRupiah, CurrencyInput, fetchEmployeeSalaries, saveEmployeeSalaries } from '@/lib/currency';
 
 export default function SupabaseTableEditor() {
   const { adminPins, updateAdminPin, outlets, updateOutletCoords, resetTodayAttendance } = useAuth();
@@ -47,6 +48,84 @@ export default function SupabaseTableEditor() {
   const [showLeaderPin, setShowLeaderPin] = useState(false);
   const [showFinancePin, setShowFinancePin] = useState(false);
   const [isSavingPin, setIsSavingPin] = useState(false);
+
+  // Map nama karyawan untuk tampilan attendance yang akurat (tidak '-')
+  const [employeeMap, setEmployeeMap] = useState({});
+  // Paket Gaji Karyawan (Pokok + 4 Tunjangan)
+  const [employeeSalaries, setEmployeeSalaries] = useState({});
+  const [editingSalaryEmp, setEditingSalaryEmp] = useState(null);
+  const [salaryPkgInput, setSalaryPkgInput] = useState({
+    basic_salary: 0,
+    child_allowance: 0,
+    spouse_allowance: 0,
+    position_allowance: 0,
+    meal_allowance: 0,
+  });
+  const [isSavingSalaryPkg, setIsSavingSalaryPkg] = useState(false);
+
+  // Load employee map dan salary packages
+  const refreshEmployeeSalaries = async () => {
+    try {
+      const { data: emps } = await supabase.from('employees').select('id, full_name, branch, position');
+      if (emps) {
+        const map = {};
+        emps.forEach((e) => {
+          map[e.id] = e;
+        });
+        setEmployeeMap(map);
+      }
+      const pkgs = await fetchEmployeeSalaries();
+      setEmployeeSalaries(pkgs || {});
+    } catch (e) {
+      console.warn('Load employee map error:', e);
+    }
+  };
+
+  useEffect(() => {
+    refreshEmployeeSalaries();
+    const handleUpdate = () => refreshEmployeeSalaries();
+    window.addEventListener('pwa_salary_package_updated', handleUpdate);
+    return () => window.removeEventListener('pwa_salary_package_updated', handleUpdate);
+  }, []);
+
+  const handleOpenSalaryModal = (emp) => {
+    const pkg = employeeSalaries[emp.id] || employeeSalaries[emp.full_name] || {};
+    setSalaryPkgInput({
+      basic_salary: pkg.basic_salary ?? 0,
+      child_allowance: pkg.child_allowance ?? 0,
+      spouse_allowance: pkg.spouse_allowance ?? 0,
+      position_allowance: pkg.position_allowance ?? 0,
+      meal_allowance: pkg.meal_allowance ?? 0,
+    });
+    setEditingSalaryEmp(emp);
+  };
+
+  const handleSaveEmployeeSalaryPkg = async (e) => {
+    e.preventDefault();
+    if (!editingSalaryEmp) return;
+    setIsSavingSalaryPkg(true);
+
+    const updatedMap = {
+      ...employeeSalaries,
+      [editingSalaryEmp.id]: { ...salaryPkgInput },
+      [editingSalaryEmp.full_name]: { ...salaryPkgInput },
+    };
+
+    const res = await saveEmployeeSalaries(updatedMap);
+    setIsSavingSalaryPkg(false);
+
+    if (res.success) {
+      setEmployeeSalaries(updatedMap);
+      setEditingSalaryEmp(null);
+      setMsg({
+        type: 'success',
+        text: `Paket gaji untuk ${editingSalaryEmp.full_name} berhasil disimpan dan otomatis sinkron ke Tab Gaji 3 Outlet!`,
+      });
+      setTimeout(() => setMsg({ type: '', text: '' }), 5000);
+    } else {
+      setMsg({ type: 'error', text: 'Gagal menyimpan paket gaji ke database.' });
+    }
+  };
 
   const tables = [
     { id: 'admin_settings', label: 'Admin PIN Settings (Kunci Akses)', icon: '🔐' },
@@ -115,6 +194,24 @@ export default function SupabaseTableEditor() {
               branch: o.name,
             }))
           );
+        }
+        return;
+      }
+
+      if (activeTable === 'attendance') {
+        const { data: result, error } = await supabase
+          .from('attendance')
+          .select('*, employees(full_name, position, branch)')
+          .order('created_at', { ascending: false });
+
+        if (!error && result) {
+          setData(result);
+        } else {
+          const { data: rawRes } = await supabase
+            .from('attendance')
+            .select('*')
+            .order('created_at', { ascending: false });
+          setData(rawRes || []);
         }
         return;
       }
@@ -623,6 +720,9 @@ export default function SupabaseTableEditor() {
               <th className="px-3 py-2">ID / Info</th>
               <th className="px-3 py-2">Nama / Role / Item</th>
               <th className="px-3 py-2">Outlet / Cabang</th>
+              {activeTable === 'employees' && (
+                <th className="px-3 py-2">Paket Gaji (Pokok &amp; Tunjangan)</th>
+              )}
               <th className="px-3 py-2">Detail &amp; Nilai Data</th>
               <th className="px-3 py-2 text-right">Aksi</th>
             </tr>
@@ -630,7 +730,7 @@ export default function SupabaseTableEditor() {
           <tbody className="divide-y divide-gray-100 bg-white">
             {filteredData.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-gray-400">
+                <td colSpan={activeTable === 'employees' ? 6 : 5} className="px-3 py-6 text-center text-gray-400">
                   Tidak ada data yang ditemukan di tabel ini.
                 </td>
               </tr>
@@ -638,32 +738,85 @@ export default function SupabaseTableEditor() {
               filteredData.map((row, idx) => (
                 <tr key={row.id || idx} className="hover:bg-gray-50/80 transition">
                   <td className="px-3 py-2 font-mono text-[10px] text-gray-500">
-                    {row.employee_id || row.role || row.id?.slice(0, 8) || `#${idx + 1}`}
+                    {row.attendance_date || row.employee_id || row.role || row.id?.slice(0, 8) || `#${idx + 1}`}
                   </td>
                   <td className="px-3 py-2 font-bold text-gray-900">
                     {row.role === 'leader'
                       ? 'Admin Leader'
                       : row.role === 'finance'
                       ? 'Admin Finance'
-                      : row.full_name || row.employee_name || row.name || row.period || row.shift_name || '-'}
+                      : row.employees?.full_name ||
+                        employeeMap[row.employee_id]?.full_name ||
+                        row.full_name ||
+                        row.employee_name ||
+                        row.name ||
+                        row.period ||
+                        row.shift_name ||
+                        '-'}
                   </td>
                   <td className="px-3 py-2">
-                    {row.branch || row.name ? (
+                    {row.branch || row.employees?.branch || row.name ? (
                       <span
                         className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
-                          (row.branch || row.name) === 'Deru Ombak'
+                          (row.branch || row.employees?.branch || row.name) === 'Deru Ombak'
                             ? 'bg-emerald-100 text-emerald-800'
-                            : (row.branch || row.name) === 'Sea Cafe'
+                            : (row.branch || row.employees?.branch || row.name) === 'Sea Cafe'
                             ? 'bg-sky-100 text-sky-800'
+                            : (row.branch || row.employees?.branch || row.name) === 'Mobile / Lapangan'
+                            ? 'bg-indigo-100 text-indigo-800'
                             : 'bg-orange-100 text-orange-800'
                         }`}
                       >
-                        {row.branch || row.name}
+                        {row.branch || row.employees?.branch || row.name}
                       </span>
                     ) : (
                       <span className="text-gray-400">-</span>
                     )}
                   </td>
+
+                  {/* Kolom Khusus Employees: Paket Gaji & 4 Tunjangan */}
+                  {activeTable === 'employees' && (() => {
+                    const pkg = employeeSalaries[row.id] || employeeSalaries[row.full_name] || null;
+                    const totalTunjangan =
+                      (pkg?.child_allowance || 0) +
+                      (pkg?.spouse_allowance || 0) +
+                      (pkg?.position_allowance || 0) +
+                      (pkg?.meal_allowance || 0);
+
+                    return (
+                      <td className="px-3 py-2">
+                        {pkg ? (
+                          <div className="space-y-0.5">
+                            <div className="text-[10px] font-extrabold text-emerald-800">
+                              Pokok: {formatRupiah(pkg.basic_salary || 0)}
+                            </div>
+                            <div className="text-[9px] text-slate-500">
+                              Tunjangan: {formatRupiah(totalTunjangan)}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSalaryModal(row)}
+                              className="text-[9px] font-bold text-[#2563EB] hover:underline flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <span>⚙ Ubah Paket Gaji</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="text-[9px] text-slate-400 block mb-0.5">Rp 0 (Belum diatur)</span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSalaryModal(row)}
+                              className="text-[9px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 cursor-pointer transition"
+                            >
+                              + Atur Gaji
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })()}
+
                   <td className="px-3 py-2 text-gray-600 text-[10px]">
                     {row.pin ? (
                       <span className="font-mono font-bold bg-amber-50 text-amber-900 px-1.5 py-0.5 rounded border border-amber-200">
@@ -673,11 +826,23 @@ export default function SupabaseTableEditor() {
                       <span>
                         Lat: {row.latitude}, Lng: {row.longitude} (R: {row.radius_meters || 50}m)
                       </span>
+                    ) : row.check_in_time ? (
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-slate-800">
+                          Masuk: {new Date(row.check_in_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                          {row.check_out_time &&
+                            ` • Pulang: ${new Date(row.check_out_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`}
+                        </div>
+                        {row.status && (
+                          <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                            {row.status}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       row.position ||
-                      (row.check_in_time && `Masuk: ${row.check_in_time}`) ||
                       row.leave_type ||
-                      (row.net_salary && `Rp ${row.net_salary.toLocaleString('id-ID')}`) ||
+                      (row.net_salary && formatRupiah(row.net_salary)) ||
                       row.notes ||
                       row.description ||
                       '-'
@@ -708,6 +873,127 @@ export default function SupabaseTableEditor() {
         <span>Menampilkan {filteredData.length} baris data</span>
         <span className="font-semibold text-emerald-700">● Terhubung ke Supabase</span>
       </div>
+
+      {/* Modal Atur Paket Gaji Karyawan */}
+      {editingSalaryEmp && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-[#2563EB]" />
+                  <span>Atur Paket Gaji &amp; Tunjangan</span>
+                </h4>
+                <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
+                  {editingSalaryEmp.full_name} &bull;{' '}
+                  <span className="text-orange-600 font-bold">{editingSalaryEmp.branch}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSalaryEmp(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEmployeeSalaryPkg} className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Gaji Pokok:
+                </label>
+                <CurrencyInput
+                  value={salaryPkgInput.basic_salary}
+                  onChange={(val) => setSalaryPkgInput({ ...salaryPkgInput, basic_salary: val })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Rp 0"
+                  required
+                />
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-blue-700">
+                    4 Komponen Tunjangan Resmi
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSalaryPkgInput((prev) => ({
+                        ...prev,
+                        child_allowance: 0,
+                        spouse_allowance: 0,
+                        position_allowance: 0,
+                        meal_allowance: 0,
+                      }))
+                    }
+                    className="text-[9px] font-bold text-slate-500 hover:text-rose-600 underline cursor-pointer"
+                  >
+                    Reset Tunjangan ke Rp 0
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Anak</label>
+                    <CurrencyInput
+                      value={salaryPkgInput.child_allowance}
+                      onChange={(val) => setSalaryPkgInput({ ...salaryPkgInput, child_allowance: val })}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-800"
+                      placeholder="Rp 0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Istri</label>
+                    <CurrencyInput
+                      value={salaryPkgInput.spouse_allowance}
+                      onChange={(val) => setSalaryPkgInput({ ...salaryPkgInput, spouse_allowance: val })}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-800"
+                      placeholder="Rp 0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Jabatan</label>
+                    <CurrencyInput
+                      value={salaryPkgInput.position_allowance}
+                      onChange={(val) => setSalaryPkgInput({ ...salaryPkgInput, position_allowance: val })}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-800"
+                      placeholder="Rp 0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Makan</label>
+                    <CurrencyInput
+                      value={salaryPkgInput.meal_allowance}
+                      onChange={(val) => setSalaryPkgInput({ ...salaryPkgInput, meal_allowance: val })}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-800"
+                      placeholder="Rp 0"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingSalaryEmp(null)}
+                  className="px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingSalaryPkg}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#2563EB] hover:bg-blue-700 shadow-md shadow-blue-500/20 active:scale-98 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isSavingSalaryPkg ? 'Menyimpan...' : 'Simpan Paket Gaji'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

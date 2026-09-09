@@ -21,6 +21,14 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import SupabaseTableEditor from './SupabaseTableEditor';
+import { formatRupiah, CurrencyInput, fetchEmployeeSalaries } from '@/lib/currency';
+
+const MONTHS = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
+const currentYearNum = new Date().getFullYear();
+const YEARS = [currentYearNum - 1, currentYearNum, currentYearNum + 1, currentYearNum + 2].map(String);
 
 export default function AdminFinanceDashboard({ onBack }) {
   const { outlets, updateOutletCoords, overtimeRequests, updateOvertimeNominal } = useAuth();
@@ -34,31 +42,54 @@ export default function AdminFinanceDashboard({ onBack }) {
   const [editingOtNominal, setEditingOtNominal] = useState('');
 
   // 10 Komponen Gaji Outlet (6 Pendapatan + 4 Potongan)
+  const [employeesList, setEmployeesList] = useState([]);
+  const [employeeSalaries, setEmployeeSalaries] = useState({});
+
+  const [salaryMonth, setSalaryMonth] = useState(() => {
+    const currentMonthIdx = new Date().getMonth();
+    return MONTHS[currentMonthIdx] || 'September';
+  });
+  const [salaryYear, setSalaryYear] = useState(() => String(new Date().getFullYear()));
+
   const [newSalary, setNewSalary] = useState({
-    employee_name: 'Fikril Bay',
+    employee_name: '',
+    employee_id: null,
     branch: 'LazyBloom',
-    period: 'September 2026',
+    period: `${MONTHS[new Date().getMonth()] || 'September'} ${new Date().getFullYear()}`,
     // 6 Komponen Pendapatan
-    basic_salary: 3500000,
-    child_allowance: 200000,
-    spouse_allowance: 300000,
-    position_allowance: 500000,
-    meal_allowance: 400000,
-    overtime_pay: 150000,
+    basic_salary: 0,
+    child_allowance: 0,
+    spouse_allowance: 0,
+    position_allowance: 0,
+    meal_allowance: 0,
+    overtime_pay: 0,
     // 4 Komponen Potongan
-    meal_deduction: 50000,
+    meal_deduction: 0,
     attendance_deduction: 0,
-    discipline_deduction: 10000, // Default denda terlambat Rp 10.000
-    cash_bon: 100000,
+    discipline_deduction: 0,
+    cash_bon: 0,
     is_released: true,
   });
 
   const [salaryList, setSalaryList] = useState([]);
 
-  // Fetch real payslips from Supabase on mount
+  // Fetch real payslips & employees from Supabase on mount
   useEffect(() => {
-    async function fetchSalaries() {
+    async function loadInitialData() {
       try {
+        // 1. Muat karyawan (staf aktif)
+        const { data: emps } = await supabase
+          .from('employees')
+          .select('id, full_name, branch, position, role')
+          .eq('role', 'staff')
+          .order('full_name', { ascending: true });
+        if (emps) setEmployeesList(emps);
+
+        // 2. Muat paket gaji karyawan
+        const pkgs = await fetchEmployeeSalaries();
+        setEmployeeSalaries(pkgs || {});
+
+        // 3. Muat slip gaji yang pernah dibuat
         const { data, error } = await supabase
           .from('payslips')
           .select('*, employees(full_name, branch)')
@@ -84,16 +115,61 @@ export default function AdminFinanceDashboard({ onBack }) {
             is_released: p.is_released,
           }));
           setSalaryList(mapped);
-        } else {
-          setSalaryList([]);
         }
-      } catch (e) {
-        console.warn('Fetch payslips error:', e);
-        setSalaryList([]);
+      } catch (err) {
+        console.warn('Fetch salaries error:', err);
       }
     }
-    fetchSalaries();
+    loadInitialData();
+
+    // Listener sinkronisasi paket gaji otomatis saat diubah di Tabel Editor
+    const handlePackageUpdate = () => {
+      fetchEmployeeSalaries().then((pkgs) => setEmployeeSalaries(pkgs || {}));
+    };
+    window.addEventListener('pwa_salary_package_updated', handlePackageUpdate);
+    return () => window.removeEventListener('pwa_salary_package_updated', handlePackageUpdate);
   }, []);
+
+  // Handler saat outlet di form slip gaji berubah
+  const handleBranchChange = (newBranch) => {
+    const staffInBranch = employeesList.filter(
+      (e) => e.branch && e.branch.toLowerCase() === newBranch.toLowerCase()
+    );
+    const firstStaff = staffInBranch[0];
+    const pkg = firstStaff ? (employeeSalaries[firstStaff.id] || employeeSalaries[firstStaff.full_name] || null) : null;
+
+    setNewSalary((prev) => ({
+      ...prev,
+      branch: newBranch,
+      employee_name: firstStaff ? firstStaff.full_name : '',
+      employee_id: firstStaff ? firstStaff.id : null,
+      basic_salary: pkg?.basic_salary ?? 0,
+      child_allowance: pkg?.child_allowance ?? 0,
+      spouse_allowance: pkg?.spouse_allowance ?? 0,
+      position_allowance: pkg?.position_allowance ?? 0,
+      meal_allowance: pkg?.meal_allowance ?? 0,
+      overtime_pay: 0,
+    }));
+  };
+
+  // Handler saat nama karyawan di dropdown form slip gaji dipilih
+  const handleSelectEmployee = (empName) => {
+    const staff = employeesList.find((e) => e.full_name === empName);
+    const pkg = staff ? (employeeSalaries[staff.id] || employeeSalaries[staff.full_name] || null) : null;
+
+    setNewSalary((prev) => ({
+      ...prev,
+      employee_name: empName,
+      employee_id: staff?.id || null,
+      branch: staff?.branch || prev.branch,
+      basic_salary: pkg?.basic_salary ?? 0,
+      child_allowance: pkg?.child_allowance ?? 0,
+      spouse_allowance: pkg?.spouse_allowance ?? 0,
+      position_allowance: pkg?.position_allowance ?? 0,
+      meal_allowance: pkg?.meal_allowance ?? 0,
+      // Overtime tetap tersimpan agar Admin Finance bisa memasukkannya
+    }));
+  };
 
   // Kalkulasi total pendapatan
   const calculateTotalIncome = (s) => {
@@ -413,16 +489,24 @@ export default function AdminFinanceDashboard({ onBack }) {
                           <button
                             type="button"
                             onClick={() => {
+                              const staff = employeesList.find((e) => e.full_name === ot.employee_name);
+                              const pkg = staff ? (employeeSalaries[staff.id] || employeeSalaries[staff.full_name] || null) : null;
                               setNewSalary((prev) => ({
                                 ...prev,
                                 employee_name: ot.employee_name,
-                                branch: ot.branch,
+                                employee_id: staff?.id || null,
+                                branch: ot.branch || prev.branch,
                                 overtime_pay: Number(ot.nominal || 0),
+                                basic_salary: pkg?.basic_salary ?? prev.basic_salary,
+                                child_allowance: pkg?.child_allowance ?? prev.child_allowance,
+                                spouse_allowance: pkg?.spouse_allowance ?? prev.spouse_allowance,
+                                position_allowance: pkg?.position_allowance ?? prev.position_allowance,
+                                meal_allowance: pkg?.meal_allowance ?? prev.meal_allowance,
                               }));
                               setIsAddingSalary(true);
                             }}
                             title="Salin data ke Form Slip Gaji"
-                            className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[10px] font-bold"
+                            className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
                           >
                             + Ke Slip Gaji
                           </button>
@@ -486,36 +570,85 @@ export default function AdminFinanceDashboard({ onBack }) {
                     <label className="block text-[10px] font-bold text-slate-600 mb-1">Outlet</label>
                     <select
                       value={newSalary.branch}
-                      onChange={(e) => setNewSalary({ ...newSalary, branch: e.target.value })}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 font-semibold"
+                      onChange={(e) => handleBranchChange(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 font-semibold cursor-pointer"
                     >
                       <option value="LazyBloom">LazyBloom</option>
                       <option value="Deru Ombak">Deru Ombak</option>
                       <option value="Sea Cafe">Sea Cafe</option>
+                      <option value="Mobile / Lapangan">Mobile / Lapangan</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Nama Karyawan</label>
-                    <input
-                      type="text"
-                      value={newSalary.employee_name}
-                      onChange={(e) => setNewSalary({ ...newSalary, employee_name: e.target.value })}
-                      className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 font-semibold"
-                      required
-                    />
+                    {(() => {
+                      const filteredStaff = employeesList.filter(
+                        (e) => e.branch && e.branch.toLowerCase() === newSalary.branch.toLowerCase()
+                      );
+                      return (
+                        <>
+                          <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                            Nama Karyawan ({filteredStaff.length} Staf)
+                          </label>
+                          <select
+                            value={newSalary.employee_name}
+                            onChange={(e) => handleSelectEmployee(e.target.value)}
+                            className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 font-semibold cursor-pointer"
+                            required
+                          >
+                            <option value="">-- Pilih Karyawan {newSalary.branch} --</option>
+                            {filteredStaff.map((emp) => (
+                              <option key={emp.id} value={emp.full_name}>
+                                {emp.full_name} ({emp.position || 'Staff'})
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      );
+                    })()}
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-600 mb-1">Periode Slip</label>
-                    <input
-                      type="text"
-                      value={newSalary.period}
-                      onChange={(e) => setNewSalary({ ...newSalary, period: e.target.value })}
-                      placeholder="September 2026"
-                      className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 font-semibold"
-                      required
-                    />
+                    <div className="grid grid-cols-2 gap-1">
+                      <select
+                        value={salaryMonth}
+                        onChange={(e) => {
+                          setSalaryMonth(e.target.value);
+                          setNewSalary((prev) => ({ ...prev, period: `${e.target.value} ${salaryYear}` }));
+                        }}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs text-slate-800 font-semibold cursor-pointer"
+                      >
+                        {MONTHS.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={salaryYear}
+                        onChange={(e) => {
+                          setSalaryYear(e.target.value);
+                          setNewSalary((prev) => ({ ...prev, period: `${salaryMonth} ${e.target.value}` }));
+                        }}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs text-slate-800 font-semibold cursor-pointer"
+                      >
+                        {YEARS.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
+
+                {newSalary.employee_name && (
+                  <div className="p-2 rounded-xl bg-blue-50 border border-blue-200 text-[10px] text-blue-900 flex items-center justify-between">
+                    <span>
+                      ✨ Paket gaji otomatis terisi dari data karyawan. Admin Finance cukup menginput <strong>Lembur</strong>.
+                    </span>
+                    <span className="font-bold text-blue-700">{newSalary.employee_name}</span>
+                  </div>
+                )}
 
                 {/* 1. BAGIAN PENDAPATAN (6 KOMPONEN) */}
                 <div className="p-3 bg-white rounded-xl border border-blue-100 space-y-2">
@@ -524,64 +657,64 @@ export default function AdminFinanceDashboard({ onBack }) {
                       1. Penghasilan / Pendapatan (6 Komponen)
                     </span>
                     <span className="text-[10px] font-bold text-[#2563EB]">
-                      Subtotal: Rp {calculateTotalIncome(newSalary).toLocaleString('id-ID')}
+                      Subtotal: {formatRupiah(calculateTotalIncome(newSalary))}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Gaji Pokok</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.basic_salary}
-                        onChange={(e) => setNewSalary({ ...newSalary, basic_salary: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold"
+                        onChange={(val) => setNewSalary({ ...newSalary, basic_salary: val })}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                        placeholder="Rp 0"
                         required
                       />
                     </div>
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Anak</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.child_allowance}
-                        onChange={(e) => setNewSalary({ ...newSalary, child_allowance: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold"
+                        onChange={(val) => setNewSalary({ ...newSalary, child_allowance: val })}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                        placeholder="Rp 0"
                       />
                     </div>
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Istri</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.spouse_allowance}
-                        onChange={(e) => setNewSalary({ ...newSalary, spouse_allowance: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold"
+                        onChange={(val) => setNewSalary({ ...newSalary, spouse_allowance: val })}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                        placeholder="Rp 0"
                       />
                     </div>
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Jabatan</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.position_allowance}
-                        onChange={(e) => setNewSalary({ ...newSalary, position_allowance: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold"
+                        onChange={(val) => setNewSalary({ ...newSalary, position_allowance: val })}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                        placeholder="Rp 0"
                       />
                     </div>
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Makan</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.meal_allowance}
-                        onChange={(e) => setNewSalary({ ...newSalary, meal_allowance: e.target.value })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold"
+                        onChange={(val) => setNewSalary({ ...newSalary, meal_allowance: val })}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                        placeholder="Rp 0"
                       />
                     </div>
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Uang Lembur</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.overtime_pay}
-                        onChange={(e) => setNewSalary({ ...newSalary, overtime_pay: e.target.value })}
+                        onChange={(val) => setNewSalary({ ...newSalary, overtime_pay: val })}
                         className="w-full bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-lg px-2 py-1 text-xs font-bold"
+                        placeholder="Rp 0"
                       />
                     </div>
                   </div>
@@ -594,27 +727,27 @@ export default function AdminFinanceDashboard({ onBack }) {
                       2. Potongan (4 Komponen)
                     </span>
                     <span className="text-[10px] font-bold text-rose-600">
-                      Subtotal: Rp {calculateTotalDeductions(newSalary).toLocaleString('id-ID')}
+                      Subtotal: {formatRupiah(calculateTotalDeductions(newSalary))}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Potongan Makan</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.meal_deduction}
-                        onChange={(e) => setNewSalary({ ...newSalary, meal_deduction: e.target.value })}
+                        onChange={(val) => setNewSalary({ ...newSalary, meal_deduction: val })}
                         className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
+                        placeholder="Rp 0"
                       />
                     </div>
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Potongan Kehadiran</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.attendance_deduction}
-                        onChange={(e) => setNewSalary({ ...newSalary, attendance_deduction: e.target.value })}
+                        onChange={(val) => setNewSalary({ ...newSalary, attendance_deduction: val })}
                         className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
+                        placeholder="Rp 0"
                       />
                     </div>
                     <div>
@@ -624,31 +757,31 @@ export default function AdminFinanceDashboard({ onBack }) {
                           (Denda)
                         </span>
                       </div>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.discipline_deduction}
-                        onChange={(e) => setNewSalary({ ...newSalary, discipline_deduction: e.target.value })}
+                        onChange={(val) => setNewSalary({ ...newSalary, discipline_deduction: val })}
                         className="w-full bg-rose-50 border border-rose-300 text-rose-700 rounded-lg px-2 py-1 text-xs font-bold"
+                        placeholder="Rp 0"
                       />
                       <div className="flex gap-1 mt-1">
                         <button
                           type="button"
                           onClick={() => setNewSalary({ ...newSalary, discipline_deduction: 10000 })}
-                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded"
+                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded cursor-pointer"
                         >
                           1x (10rb)
                         </button>
                         <button
                           type="button"
                           onClick={() => setNewSalary({ ...newSalary, discipline_deduction: 20000 })}
-                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded"
+                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded cursor-pointer"
                         >
                           2x (20rb)
                         </button>
                         <button
                           type="button"
                           onClick={() => setNewSalary({ ...newSalary, discipline_deduction: 0 })}
-                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded"
+                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded cursor-pointer"
                         >
                           0
                         </button>
@@ -656,11 +789,11 @@ export default function AdminFinanceDashboard({ onBack }) {
                     </div>
                     <div>
                       <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Cash Bon</label>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={newSalary.cash_bon}
-                        onChange={(e) => setNewSalary({ ...newSalary, cash_bon: e.target.value })}
+                        onChange={(val) => setNewSalary({ ...newSalary, cash_bon: val })}
                         className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
+                        placeholder="Rp 0"
                       />
                     </div>
                   </div>
