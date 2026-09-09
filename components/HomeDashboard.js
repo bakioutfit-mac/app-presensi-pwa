@@ -67,6 +67,15 @@ export default function HomeDashboard() {
   const [currentDistance, setCurrentDistance] = useState(15); // in meters
   const [userCoords, setUserCoords] = useState({ lat: -6.2088, lng: 106.8456 });
 
+  // Deteksi apakah staf bertugas di luar outlet / lapangan (Tim Belanja & Tim Marketing)
+  const isFieldStaff =
+    user?.branch === 'Mobile / Lapangan' ||
+    user?.branch?.toLowerCase().includes('mobile') ||
+    user?.branch?.toLowerCase().includes('lapangan') ||
+    user?.position?.toLowerCase().includes('belanja') ||
+    user?.position?.toLowerCase().includes('marketing') ||
+    user?.position?.toLowerCase().includes('purchasing');
+
   // Check if attendance is disabled due to approved leave / sick / late > 30m
   const isLeaveDisabled =
     activeLeave &&
@@ -77,12 +86,21 @@ export default function HomeDashboard() {
 
   // Geolocation watch
   useEffect(() => {
+    if (isFieldStaff) {
+      setIsInRadius(true);
+    }
     if (typeof window !== 'undefined' && 'geolocation' in navigator) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
           setUserCoords({ lat, lng });
+
+          // Staf mobile selalu bebas radius
+          if (isFieldStaff) {
+            setIsInRadius(true);
+            return;
+          }
 
           // Calculate distance in meters relative to outlet coordinates
           const targetCoords = outlet?.coords || RESTO_COORDS;
@@ -110,7 +128,7 @@ export default function HomeDashboard() {
 
       return () => navigator.geolocation.clearWatch(watchId);
     }
-  }, [outlet]);
+  }, [outlet, isFieldStaff]);
 
   // Live Timer Interval
   useEffect(() => {
@@ -215,7 +233,9 @@ export default function HomeDashboard() {
         <div className="mt-1.5 mb-1 flex flex-col items-center justify-center">
           <div
             className={`px-3.5 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1.5 shadow-sm ${
-              outlet?.id === 'deru-ombak' || outlet?.id === 'deru_ombak'
+              isFieldStaff
+                ? 'bg-indigo-600'
+                : outlet?.id === 'deru-ombak' || outlet?.id === 'deru_ombak'
                 ? 'bg-emerald-600'
                 : outlet?.id === 'sea-cafe' || outlet?.id === 'sea_cafe'
                 ? 'bg-sky-600'
@@ -223,10 +243,10 @@ export default function HomeDashboard() {
             }`}
           >
             <span className="w-2 h-2 rounded-full bg-white shadow-xs animate-pulse" />
-            <span>{outlet?.name || 'Deru Ombak'}</span>
+            <span>{isFieldStaff ? (user?.position || 'Tim Lapangan (Mobile)') : (outlet?.name || 'Deru Ombak')}</span>
           </div>
           <span className="text-[11px] font-medium text-slate-500 mt-1">
-            {outlet?.description || 'beachfront Coffe & Eatery'}
+            {isFieldStaff ? 'Penugasan Luar Outlet (Bebas Radius)' : (outlet?.description || 'beachfront Coffe & Eatery')}
           </span>
         </div>
 
@@ -443,10 +463,10 @@ export default function HomeDashboard() {
               disabled={
                 isLeaveDisabled ||
                 !!todayAttendance?.check_in_time ||
-                !isInRadius
+                (!isFieldStaff && !isInRadius)
               }
               className={`py-3.5 px-3 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2 ${
-                !todayAttendance?.check_in_time && !isLeaveDisabled && isInRadius
+                !todayAttendance?.check_in_time && !isLeaveDisabled && (isFieldStaff || isInRadius)
                   ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md shadow-emerald-600/25 active:scale-98 cursor-pointer'
                   : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
               }`}
@@ -462,13 +482,13 @@ export default function HomeDashboard() {
                 isLeaveDisabled ||
                 !todayAttendance?.check_in_time ||
                 !!todayAttendance?.check_out_time ||
-                !isInRadius
+                (!isFieldStaff && !isInRadius)
               }
               className={`py-3.5 px-3 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2 ${
                 todayAttendance?.check_in_time &&
                 !todayAttendance?.check_out_time &&
                 !isLeaveDisabled &&
-                isInRadius
+                (isFieldStaff || isInRadius)
                   ? 'bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white shadow-md shadow-orange-500/25 active:scale-98 cursor-pointer'
                   : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
               }`}
@@ -479,27 +499,41 @@ export default function HomeDashboard() {
 
           {/* Geolocation Status Indicator (Clean Pill) */}
           <div className="flex flex-col items-center justify-center gap-1.5 text-center pt-1">
-            <div
-              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border transition ${
-                isInRadius
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-rose-50 text-rose-700 border-rose-200'
-              }`}
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  isInRadius ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
-                }`}
-              />
-              <span>
-                {isInRadius
-                  ? `Dalam Radius Presensi (${currentDistance}m)`
-                  : `Di Luar Radius Outlet (${currentDistance}m)`}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Titik Absen: {outlet?.name || 'Outlet Area'} (Radius Maksimal {outlet?.coords?.radiusMeters || 50}m)
-            </p>
+            {isFieldStaff ? (
+              <>
+                <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border transition bg-sky-50 text-sky-800 border-sky-200">
+                  <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                  <span>📍 Mode Tugas Lapangan: Bebas Radius (GPS Aktif)</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Titik koordinat GPS &amp; foto selfie dicatat otomatis saat presensi masuk &amp; pulang
+                </p>
+              </>
+            ) : (
+              <>
+                <div
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border transition ${
+                    isInRadius
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-rose-50 text-rose-700 border-rose-200'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isInRadius ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                    }`}
+                  />
+                  <span>
+                    {isInRadius
+                      ? `Dalam Radius Presensi (${currentDistance}m)`
+                      : `Di Luar Radius Outlet (${currentDistance}m)`}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Titik Absen: {outlet?.name || 'Outlet Area'} (Radius Maksimal {outlet?.coords?.radiusMeters || 50}m)
+                </p>
+              </>
+            )}
           </div>
 
           {/* Bottom Action Buttons: Ajukan Izin & Mode Admin */}

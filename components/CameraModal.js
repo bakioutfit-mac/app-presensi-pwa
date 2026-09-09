@@ -193,12 +193,22 @@ export default function CameraModal({ isOpen, onClose, type = 'checkin', coords,
         type
       );
 
+      const isMobileStaff =
+        user?.branch === 'Mobile / Lapangan' ||
+        user?.position?.toLowerCase().includes('belanja') ||
+        user?.position?.toLowerCase().includes('marketing') ||
+        user?.position?.toLowerCase().includes('purchasing');
+
+      const attendanceBranch = isMobileStaff
+        ? 'Mobile / Lapangan'
+        : activeOutlet?.name || 'LazyBloom';
+
       // Catat ke tabel database attendance
       const res = await recordAttendance({
         type,
         photoUrl: uploadedUrl,
         coords,
-        outletName: activeOutlet?.name,
+        outletName: attendanceBranch,
       });
 
       if (res.success) {
@@ -214,7 +224,11 @@ export default function CameraModal({ isOpen, onClose, type = 'checkin', coords,
         }
 
         setSuccessMsg(
-          type === 'checkin'
+          isMobileStaff
+            ? type === 'checkin'
+              ? 'Presensi Masuk Tugas Lapangan Berhasil!'
+              : 'Presensi Pulang Tugas Lapangan Berhasil!'
+            : type === 'checkin'
             ? `Presensi Masuk di ${activeOutlet?.name || 'Outlet'} Berhasil!`
             : `Presensi Pulang di ${activeOutlet?.name || 'Outlet'} Berhasil!`
         );

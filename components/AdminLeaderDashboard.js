@@ -80,6 +80,8 @@ export default function AdminLeaderDashboard({ onBack }) {
               ? new Date(a.check_in_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
               : '-',
             photo: a.check_out_photo || a.check_in_photo,
+            check_in_lat: a.check_in_lat,
+            check_in_lng: a.check_in_lng,
           }));
           setTodayAttendanceList(mapped);
         }
@@ -237,6 +239,8 @@ export default function AdminLeaderDashboard({ onBack }) {
           ? 'DRU'
           : newStaff.branch === 'Sea Cafe'
           ? 'SEA'
+          : newStaff.branch.includes('Mobile') || newStaff.branch.includes('Lapangan')
+          ? 'MBL'
           : 'LZY';
       const employeeIdCode = `${branchPrefix}_${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -427,6 +431,17 @@ export default function AdminLeaderDashboard({ onBack }) {
           }`}
         >
           Sea Cafe
+        </button>
+        <button
+          type="button"
+          onClick={() => setSelectedOutletFilter('Mobile / Lapangan')}
+          className={`px-3 py-1 rounded-full border transition shrink-0 ${
+            selectedOutletFilter === 'Mobile / Lapangan'
+              ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+              : 'bg-white text-indigo-800 border-indigo-200 hover:bg-indigo-50'
+          }`}
+        >
+          Mobile / Lapangan
         </button>
       </div>
 
@@ -628,6 +643,8 @@ export default function AdminLeaderDashboard({ onBack }) {
                                 ? 'bg-emerald-100 text-emerald-800'
                                 : att.branch === 'Sea Cafe'
                                 ? 'bg-sky-100 text-sky-800'
+                                : att.branch === 'Mobile / Lapangan' || att.branch?.includes('Mobile')
+                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                                 : 'bg-orange-100 text-orange-800'
                             }`}
                           >
@@ -638,6 +655,16 @@ export default function AdminLeaderDashboard({ onBack }) {
                         <p className="text-[10px] font-medium text-slate-700">
                           Masuk: <span className="font-bold">{att.check_in}</span>
                         </p>
+                        {att.check_in_lat && att.check_in_lng && (
+                          <a
+                            href={`https://www.google.com/maps?q=${att.check_in_lat},${att.check_in_lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 hover:underline mt-0.5 font-bold"
+                          >
+                            <span>📍 Buka Titik GPS</span>
+                          </a>
+                        )}
                       </div>
                     </div>
 
@@ -887,7 +914,7 @@ export default function AdminLeaderDashboard({ onBack }) {
             <div className="grid grid-cols-2 gap-2.5">
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Cabang Outlet (3 Pilar):
+                  Cabang Outlet / Penugasan:
                 </label>
                 <select
                   value={newStaff.branch}
@@ -897,6 +924,7 @@ export default function AdminLeaderDashboard({ onBack }) {
                   <option value="LazyBloom">LazyBloom</option>
                   <option value="Deru Ombak">Deru Ombak</option>
                   <option value="Sea Cafe">Sea Cafe</option>
+                  <option value="Mobile / Lapangan">Mobile / Lapangan (Tim Belanja & Marketing)</option>
                 </select>
               </div>
 

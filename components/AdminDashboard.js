@@ -155,7 +155,7 @@ export default function AdminDashboard({ onBack }) {
           pin: newStaff.pin.trim(),
           role: 'staff',
           position: newStaff.position,
-          branch: 'LazyBloom',
+          branch: newStaff.branch || 'LazyBloom',
           birth_date: newStaff.birth_date || '2000-01-01',
           address: newStaff.address || '-',
         })
@@ -621,6 +621,7 @@ export default function AdminDashboard({ onBack }) {
                   <option value="LazyBloom">LazyBloom (Specialty Coffee)</option>
                   <option value="Deru Ombak">Deru Ombak (Seaside Eatery)</option>
                   <option value="Sea Cafe">Sea Cafe (Oceanfront Coffee)</option>
+                  <option value="Mobile / Lapangan">Mobile / Lapangan (Belanja & Marketing)</option>
                 </select>
               </div>
               <div>
@@ -636,6 +637,8 @@ export default function AdminDashboard({ onBack }) {
                   <option value="Kasir">Kasir</option>
                   <option value="Kitchen Crew">Kitchen Crew</option>
                   <option value="Floor Staff">Floor Staff</option>
+                  <option value="Tim Belanja">Tim Belanja (Purchasing)</option>
+                  <option value="Tim Marketing">Tim Marketing</option>
                   <option value="Supervisor">Supervisor</option>
                 </select>
               </div>
