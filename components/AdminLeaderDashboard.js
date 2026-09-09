@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Calendar,
   Activity,
@@ -20,7 +20,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 
 export default function AdminLeaderDashboard({ onBack }) {
-  const { user, overtimeRequests, submitOvertimeRequest } = useAuth();
+  const { user, todayAttendance, overtimeRequests, submitOvertimeRequest } = useAuth();
   const [adminTab, setAdminTab] = useState('assignment'); // 'assignment', 'monitoring', 'overtime', 'addStaff'
   const [selectedOutletFilter, setSelectedOutletFilter] = useState('all');
 
@@ -114,6 +114,40 @@ export default function AdminLeaderDashboard({ onBack }) {
       photo: null,
     },
   ]);
+
+  // Sinkronkan monitoring kehadiran dengan data check-in/out karyawan yang sedang aktif
+  useEffect(() => {
+    let activeToday = todayAttendance;
+    if (!activeToday) {
+      try {
+        const stored = localStorage.getItem('pwa_today_attendance');
+        if (stored) activeToday = JSON.parse(stored);
+      } catch (e) {}
+    }
+
+    if (!activeToday || !activeToday.check_in_time) return;
+
+    setTodayAttendanceList((prev) =>
+      prev.map((item) => {
+        const matchByName = user && item.name.toLowerCase() === user.full_name?.toLowerCase();
+        const matchByBranch = user && item.branch.toLowerCase() === user.branch?.toLowerCase() && item.name === 'Fikril Bay';
+        if (matchByName || matchByBranch) {
+          const checkInTimeStr = new Date(activeToday.check_in_time).toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }) + ' WIB';
+          return {
+            ...item,
+            status: activeToday.status || 'Hadir Tepat Waktu',
+            discipline_penalty: activeToday.discipline_penalty || 0,
+            check_in: checkInTimeStr,
+            photo: activeToday.check_out_photo || activeToday.check_in_photo || item.photo,
+          };
+        }
+        return item;
+      })
+    );
+  }, [todayAttendance, user]);
 
   // 3. PENGAJUAN LEMBUR STAF (Leader ke Finance)
   const [otForm, setOtForm] = useState({

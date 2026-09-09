@@ -6,10 +6,15 @@ import { OUTLETS, getOutletByName, saveOutletsConfig } from '@/lib/outlets';
 
 const AuthContext = createContext(null);
 
-// Default mock employees for each of the 3 outlets
+// Helper validasi format UUID Postgres
+export const isValidUUID = (id) =>
+  typeof id === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+// Default mock employees for each of the 3 outlets (Standard UUID format for Supabase compatibility)
 export const DEMO_USERS = {
   lazybloom: {
-    id: 'demo-emp-001',
+    id: 'd0000001-0000-0000-0000-000000000001',
     employee_id: 'LZY_0021',
     full_name: 'Fikril Bay',
     phone: '085775560400',
@@ -22,7 +27,7 @@ export const DEMO_USERS = {
     avatar_url: null,
   },
   deru_ombak: {
-    id: 'demo-emp-002',
+    id: 'd0000002-0000-0000-0000-000000000002',
     employee_id: 'DRU_0015',
     full_name: 'Bagas Pratama',
     phone: '081233445566',
@@ -35,7 +40,7 @@ export const DEMO_USERS = {
     avatar_url: null,
   },
   sea_cafe: {
-    id: 'demo-emp-003',
+    id: 'd0000003-0000-0000-0000-000000000003',
     employee_id: 'SEA_0009',
     full_name: 'Rian Bahari',
     phone: '081998877665',
@@ -73,7 +78,13 @@ export function AuthProvider({ children }) {
       const stored = localStorage.getItem('pwa_presensi_user');
       if (stored) {
         const parsed = JSON.parse(stored);
+        // Migrasi jika masih menggunakan ID demo string lama
+        if (parsed.id === 'demo-emp-001') parsed.id = 'd0000001-0000-0000-0000-000000000001';
+        if (parsed.id === 'demo-emp-002') parsed.id = 'd0000002-0000-0000-0000-000000000002';
+        if (parsed.id === 'demo-emp-003') parsed.id = 'd0000003-0000-0000-0000-000000000003';
+        if (parsed.id === 'demo-adm-001') parsed.id = 'a0000001-0000-0000-0000-000000000001';
         setUser(parsed);
+        localStorage.setItem('pwa_presensi_user', JSON.stringify(parsed));
       }
 
       const storedAttendance = localStorage.getItem('pwa_today_attendance');
@@ -156,34 +167,37 @@ export function AuthProvider({ children }) {
     if (!employee) return;
     const todayStr = new Date().toISOString().split('T')[0];
 
-    try {
-      const { data: attData, error: attError } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('employee_id', employee.id)
-        .eq('attendance_date', todayStr)
-        .maybeSingle();
+    // Supabase query jika user id berformat valid UUID
+    if (isValidUUID(employee.id)) {
+      try {
+        const { data: attData, error: attError } = await supabase
+          .from('attendance')
+          .select('*')
+          .eq('employee_id', employee.id)
+          .eq('attendance_date', todayStr)
+          .maybeSingle();
 
-      if (!attError && attData) {
-        setTodayAttendance(attData);
-        localStorage.setItem('pwa_today_attendance', JSON.stringify(attData));
+        if (!attError && attData) {
+          setTodayAttendance(attData);
+          localStorage.setItem('pwa_today_attendance', JSON.stringify(attData));
+        }
+
+        const { data: leaveData, error: leaveError } = await supabase
+          .from('leaves')
+          .select('*')
+          .eq('employee_id', employee.id)
+          .lte('start_date', todayStr)
+          .gte('end_date', todayStr)
+          .eq('status', 'Disetujui')
+          .maybeSingle();
+
+        if (!leaveError && leaveData) {
+          setActiveLeave(leaveData);
+          localStorage.setItem('pwa_active_leave', JSON.stringify(leaveData));
+        }
+      } catch (err) {
+        console.warn('Could not fetch attendance/leave from Supabase, using local cache:', err);
       }
-
-      const { data: leaveData, error: leaveError } = await supabase
-        .from('leaves')
-        .select('*')
-        .eq('employee_id', employee.id)
-        .lte('start_date', todayStr)
-        .gte('end_date', todayStr)
-        .eq('status', 'Disetujui')
-        .maybeSingle();
-
-      if (!leaveError && leaveData) {
-        setActiveLeave(leaveData);
-        localStorage.setItem('pwa_active_leave', JSON.stringify(leaveData));
-      }
-    } catch (err) {
-      console.warn('Could not fetch attendance/leave from Supabase, using local cache:', err);
     }
   };
 
@@ -338,7 +352,7 @@ export function AuthProvider({ children }) {
       // Check admin login
       if (phone === '081234567890' && pin === '654321') {
         const demoAdmin = {
-          id: 'demo-adm-001',
+          id: 'a0000001-0000-0000-0000-000000000001',
           employee_id: 'ADM_0001',
           full_name: 'Admin HQ',
           phone: '081234567890',
@@ -421,13 +435,24 @@ export function AuthProvider({ children }) {
   const resetTodayAttendance = () => {
     setTodayAttendance(null);
     localStorage.removeItem('pwa_today_attendance');
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const storedHistory = localStorage.getItem('pwa_attendance_history');
+      if (storedHistory) {
+        let historyList = JSON.parse(storedHistory);
+        historyList = historyList.filter((item) => item.attendance_date !== todayStr);
+        localStorage.setItem('pwa_attendance_history', JSON.stringify(historyList));
+      }
+    } catch (e) {
+      console.warn('Reset local attendance history error:', e);
+    }
   };
 
   // State pengajuan lembur dari Admin Leader ke Admin Finance
   const [overtimeRequests, setOvertimeRequests] = useState([
     {
       id: 'ot-1',
-      employee_id: 'demo-emp-001',
+      employee_id: 'd0000001-0000-0000-0000-000000000001',
       employee_name: 'Fikril Bay',
       branch: 'LazyBloom',
       date: new Date().toISOString().split('T')[0],
@@ -537,16 +562,39 @@ export function AuthProvider({ children }) {
       };
     }
 
-    try {
-      await supabase
-        .from('attendance')
-        .upsert(updatedRecord, { onConflict: 'employee_id, attendance_date' });
-    } catch (err) {
-      console.warn('Supabase upsert attendance error:', err);
+    // Simpan ke Supabase jika employee_id bertipe valid UUID
+    if (isValidUUID(updatedRecord.employee_id)) {
+      try {
+        const { error: upsertErr } = await supabase
+          .from('attendance')
+          .upsert(updatedRecord, { onConflict: 'employee_id, attendance_date' });
+        if (upsertErr) {
+          console.warn('Supabase upsert attendance error:', upsertErr);
+        }
+      } catch (err) {
+        console.warn('Supabase upsert attendance exception:', err);
+      }
     }
 
     setTodayAttendance(updatedRecord);
     localStorage.setItem('pwa_today_attendance', JSON.stringify(updatedRecord));
+
+    // Sinkronkan ke riwayat lokal agar tab riwayat kehadiran langsung tercatat
+    try {
+      const storedHistory = localStorage.getItem('pwa_attendance_history');
+      let historyList = storedHistory ? JSON.parse(storedHistory) : [];
+      const existingIdx = historyList.findIndex(
+        (item) => item.attendance_date === updatedRecord.attendance_date && (item.employee_id === user.id || item.employee_id === updatedRecord.employee_id)
+      );
+      if (existingIdx >= 0) {
+        historyList[existingIdx] = { ...historyList[existingIdx], ...updatedRecord };
+      } else {
+        historyList.unshift(updatedRecord);
+      }
+      localStorage.setItem('pwa_attendance_history', JSON.stringify(historyList));
+    } catch (e) {
+      console.warn('Failed to save to local attendance history:', e);
+    }
 
     return { success: true, data: updatedRecord };
   };

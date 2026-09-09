@@ -65,61 +65,132 @@ export default function AttendanceHistoryTab() {
     },
   ];
 
+  const mapAttendanceItem = (item) => {
+    const dateObj = new Date(item.attendance_date);
+    const dayName = !isNaN(dateObj.getTime())
+      ? dateObj.toLocaleDateString('id-ID', { weekday: 'long' })
+      : 'Hari Kerja';
+    const formattedDate = !isNaN(dateObj.getTime())
+      ? dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+      : item.attendance_date;
+
+    const isWorking = !!item.check_in_time && !item.check_out_time;
+
+    return {
+      id: item.id || `att-${item.attendance_date}`,
+      raw_date: item.attendance_date,
+      date: formattedDate,
+      day: dayName,
+      check_in: item.check_in_time
+        ? new Date(item.check_in_time).toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }) + ' WIB'
+        : '-',
+      check_out: item.check_out_time
+        ? new Date(item.check_out_time).toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }) + ' WIB'
+        : isWorking
+        ? 'Sedang Bekerja'
+        : '-',
+      duration: item.working_hours_seconds
+        ? `${Math.floor(item.working_hours_seconds / 3600)} Jam ${Math.floor(
+            (item.working_hours_seconds % 3600) / 60
+          )} Menit`
+        : isWorking
+        ? 'Aktif'
+        : '-',
+      status: item.status || (isWorking ? 'Sedang Bekerja' : 'Hadir Tepat Waktu'),
+      discipline_penalty: item.discipline_penalty || 0,
+      photo: item.check_out_photo || item.check_in_photo,
+      location: `${item.branch || user?.branch || 'Outlet'} GPS (Valid)`,
+      isWorking: !!isWorking,
+    };
+  };
+
   useEffect(() => {
     async function fetchAttendance() {
       if (!user) return;
-      try {
-        const { data, error } = await supabase
-          .from('attendance')
-          .select('*')
-          .eq('employee_id', user.id)
-          .order('attendance_date', { ascending: false });
 
-        if (!error && data && data.length > 0) {
-          const mapped = data.map((item) => {
-            const dateObj = new Date(item.attendance_date);
-            const dayName = !isNaN(dateObj.getTime())
-              ? dateObj.toLocaleDateString('id-ID', { weekday: 'long' })
-              : 'Hari Kerja';
-            const formattedDate = !isNaN(dateObj.getTime())
-              ? dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
-              : item.attendance_date;
+      let baseList = [];
+      const isValidUUID =
+        typeof user.id === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.id);
 
-            return {
-              id: item.id,
-              date: formattedDate,
-              day: dayName,
-              check_in: item.check_in_time
-                ? new Date(item.check_in_time).toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }) + ' WIB'
-                : '-',
-              check_out: item.check_out_time
-                ? new Date(item.check_out_time).toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }) + ' WIB'
-                : 'Sedang Bekerja',
-              duration: item.working_hours_seconds
-                ? `${Math.floor(item.working_hours_seconds / 3600)} Jam ${Math.floor(
-                    (item.working_hours_seconds % 3600) / 60
-                  )} Menit`
-                : 'Aktif',
-              status: item.status || 'Hadir Tepat Waktu',
-              discipline_penalty: item.discipline_penalty || 0,
-              photo: item.check_in_photo,
-              location: `${item.branch || user?.branch || 'Outlet'} GPS (Valid)`,
-            };
-          });
-          setHistory(mapped);
-        } else {
-          setHistory(defaultHistory);
+      // 1. Ambil dari Supabase jika user.id adalah UUID valid
+      if (isValidUUID) {
+        try {
+          const { data, error } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('employee_id', user.id)
+            .order('attendance_date', { ascending: false });
+
+          if (!error && data && data.length > 0) {
+            baseList = data.map(mapAttendanceItem);
+          }
+        } catch (err) {
+          console.warn('Supabase fetch attendance error:', err);
         }
-      } catch (err) {
-        setHistory(defaultHistory);
       }
+
+      // 2. Ambil dari riwayat lokal localStorage jika Supabase kosong atau mode demo/offline
+      if (baseList.length === 0) {
+        try {
+          const localHistoryStr = localStorage.getItem('pwa_attendance_history');
+          if (localHistoryStr) {
+            const parsed = JSON.parse(localHistoryStr);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const userFiltered = parsed.filter((p) => !p.employee_id || p.employee_id === user.id);
+              if (userFiltered.length > 0) {
+                baseList = userFiltered.map(mapAttendanceItem);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Local history parse error:', e);
+        }
+      }
+
+      // 3. Jika masih belum ada riwayat sebelumnya, gunakan defaultHistory mock
+      if (baseList.length === 0) {
+        baseList = [...defaultHistory];
+      }
+
+      // 4. SINKRONKAN REAKTIF DENGAN todayAttendance
+      let currentToday = todayAttendance;
+      if (!currentToday) {
+        try {
+          const savedToday = localStorage.getItem('pwa_today_attendance');
+          if (savedToday) currentToday = JSON.parse(savedToday);
+        } catch (e) {}
+      }
+
+      if (currentToday && (currentToday.check_in_time || currentToday.check_out_time)) {
+        const todayStr = currentToday.attendance_date || new Date().toISOString().split('T')[0];
+        const formattedToday = mapAttendanceItem(currentToday);
+
+        const existingIdx = baseList.findIndex((item) => {
+          if (item.raw_date && item.raw_date === todayStr) return true;
+          const dateObj = new Date(todayStr);
+          const fDate = !isNaN(dateObj.getTime())
+            ? dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+            : todayStr;
+          return item.date === fDate;
+        });
+
+        if (existingIdx >= 0) {
+          baseList[existingIdx] = formattedToday;
+        } else {
+          baseList = [formattedToday, ...baseList];
+        }
+      }
+
+      setHistory(baseList);
     }
+
     fetchAttendance();
   }, [user, todayAttendance]);
 
@@ -188,7 +259,9 @@ export default function AttendanceHistoryTab() {
                     </h4>
                     <span
                       className={`text-[9px] font-black px-1.5 py-0.5 rounded-sm ${
-                        isLate
+                        h.isWorking
+                          ? 'bg-blue-100 text-blue-700 animate-pulse'
+                          : isLate
                           ? 'bg-rose-100 text-rose-700'
                           : 'bg-emerald-100 text-emerald-800'
                       }`}
@@ -207,7 +280,15 @@ export default function AttendanceHistoryTab() {
                       <Clock className="w-3 h-3 text-slate-400" />
                       Masuk: {h.check_in}
                     </span>
-                    <span>• Pulang: {h.check_out}</span>
+                    <span>
+                      • Pulang:{' '}
+                      <span className={h.isWorking ? 'text-blue-600 font-bold' : ''}>
+                        {h.check_out}
+                      </span>
+                    </span>
+                    {h.duration && h.duration !== '-' && (
+                      <span className="text-[10px] text-slate-400">({h.duration})</span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1 text-[10px] text-slate-400">
