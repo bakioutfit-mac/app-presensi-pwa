@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { uploadAttendancePhoto } from '@/lib/storage';
 
 export default function ProfileModal({ isOpen, onClose }) {
-  const { user, updateProfile, userOutlet } = useAuth();
+  const { user, updateProfile, userOutlet, logout } = useAuth();
   const [phone, setPhone] = useState(user?.phone || '');
   const [oldPin, setOldPin] = useState('');
   const [newPin, setNewPin] = useState('');
@@ -27,10 +27,19 @@ export default function ProfileModal({ isOpen, onClose }) {
     try {
       const uploadedUrl = await uploadAttendancePhoto(file, user?.employee_id || 'emp', 'avatar');
       setAvatarPreview(uploadedUrl);
-      await updateProfile({ avatar_url: uploadedUrl });
-      setMessage({ type: 'success', text: 'Foto profil berhasil diperbarui!' });
+      const res = await updateProfile({ avatar_url: uploadedUrl });
+      if (res.success) {
+        setMessage({ type: 'success', text: 'Foto profil berhasil diperbarui! Mengalihkan ke menu login...' });
+        setTimeout(() => {
+          onClose();
+          logout();
+        }, 1600);
+      } else {
+        setMessage({ type: 'error', text: res.error || 'Gagal menyimpan foto profil.' });
+      }
     } catch (err) {
       console.warn('Avatar upload error:', err);
+      setMessage({ type: 'error', text: 'Gagal mengupload foto profil.' });
     }
   };
 
@@ -57,9 +66,13 @@ export default function ProfileModal({ isOpen, onClose }) {
     setSaving(false);
 
     if (res.success) {
-      setMessage({ type: 'success', text: 'Perubahan berhasil disimpan!' });
+      setMessage({ type: 'success', text: 'Perubahan berhasil disimpan! Mengalihkan ke menu login...' });
       setOldPin('');
       setNewPin('');
+      setTimeout(() => {
+        onClose();
+        logout();
+      }, 1600);
     } else {
       setMessage({ type: 'error', text: res.error || 'Gagal menyimpan perubahan.' });
     }

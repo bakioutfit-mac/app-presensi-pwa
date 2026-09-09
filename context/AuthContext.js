@@ -143,9 +143,42 @@ export function AuthProvider({ children }) {
           .eq('attendance_date', todayStr)
           .maybeSingle();
 
-        if (!attError && attData) {
-          setTodayAttendance(attData);
-          localStorage.setItem('pwa_today_attendance', JSON.stringify(attData));
+        if (!attError) {
+          if (attData) {
+            setTodayAttendance(attData);
+            localStorage.setItem('pwa_today_attendance', JSON.stringify(attData));
+          } else {
+            // Cek apakah local storage masih memiliki data presensi hari ini untuk user ini
+            const stored = localStorage.getItem('pwa_today_attendance');
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              if (parsed.attendance_date === todayStr && parsed.employee_id === employee.id && parsed.check_in_time) {
+                setTodayAttendance(parsed);
+                // Sinkronkan ke Supabase
+                const cleanPayload = {
+                  employee_id: parsed.employee_id,
+                  branch: parsed.branch || 'LazyBloom',
+                  attendance_date: parsed.attendance_date || todayStr,
+                  check_in_time: parsed.check_in_time || null,
+                  check_out_time: parsed.check_out_time || null,
+                  check_in_photo: parsed.check_in_photo || null,
+                  check_out_photo: parsed.check_out_photo || null,
+                  check_in_lat: parsed.check_in_lat != null ? Number(parsed.check_in_lat) : null,
+                  check_in_lng: parsed.check_in_lng != null ? Number(parsed.check_in_lng) : null,
+                  check_out_lat: parsed.check_out_lat != null ? Number(parsed.check_out_lat) : null,
+                  check_out_lng: parsed.check_out_lng != null ? Number(parsed.check_out_lng) : null,
+                  status: parsed.status || 'Hadir',
+                  working_hours_seconds: Number(parsed.working_hours_seconds || 0),
+                };
+                supabase.from('attendance').upsert(cleanPayload, { onConflict: 'employee_id, attendance_date' });
+              } else {
+                setTodayAttendance(null);
+                localStorage.removeItem('pwa_today_attendance');
+              }
+            } else {
+              setTodayAttendance(null);
+            }
+          }
         }
 
         const { data: leaveData, error: leaveError } = await supabase
@@ -347,7 +380,7 @@ export function AuthProvider({ children }) {
     };
 
     try {
-      await supabase
+      const { error } = await supabase
         .from('employees')
         .update({
           phone: updatedUser.phone,
@@ -356,8 +389,14 @@ export function AuthProvider({ children }) {
           avatar_url: updatedUser.avatar_url,
         })
         .eq('id', user.id);
+
+      if (error) {
+        console.error('Supabase update employee error:', error);
+        return { success: false, error: 'Gagal memperbarui di database: ' + error.message };
+      }
     } catch (err) {
       console.warn('Could not sync update to Supabase:', err);
+      return { success: false, error: 'Gagal menghubungi server database.' };
     }
 
     setUser(updatedUser);
@@ -514,14 +553,35 @@ export function AuthProvider({ children }) {
     // Simpan ke Supabase jika employee_id bertipe valid UUID
     if (isValidUUID(updatedRecord.employee_id)) {
       try {
-        const { error: upsertErr } = await supabase
+        const supabasePayload = {
+          employee_id: updatedRecord.employee_id,
+          branch: updatedRecord.branch || 'LazyBloom',
+          attendance_date: updatedRecord.attendance_date || todayStr,
+          check_in_time: updatedRecord.check_in_time || null,
+          check_out_time: updatedRecord.check_out_time || null,
+          check_in_photo: updatedRecord.check_in_photo || null,
+          check_out_photo: updatedRecord.check_out_photo || null,
+          check_in_lat: updatedRecord.check_in_lat != null ? Number(updatedRecord.check_in_lat) : null,
+          check_in_lng: updatedRecord.check_in_lng != null ? Number(updatedRecord.check_in_lng) : null,
+          check_out_lat: updatedRecord.check_out_lat != null ? Number(updatedRecord.check_out_lat) : null,
+          check_out_lng: updatedRecord.check_out_lng != null ? Number(updatedRecord.check_out_lng) : null,
+          status: updatedRecord.status || 'Hadir',
+          working_hours_seconds: Number(updatedRecord.working_hours_seconds || 0),
+        };
+
+        const { data: upsertData, error: upsertErr } = await supabase
           .from('attendance')
-          .upsert(updatedRecord, { onConflict: 'employee_id, attendance_date' });
+          .upsert(supabasePayload, { onConflict: 'employee_id, attendance_date' })
+          .select()
+          .maybeSingle();
+
         if (upsertErr) {
-          console.warn('Supabase upsert attendance error:', upsertErr);
+          console.error('Supabase upsert attendance error:', upsertErr);
+        } else if (upsertData) {
+          updatedRecord = { ...updatedRecord, ...upsertData };
         }
       } catch (err) {
-        console.warn('Supabase upsert attendance exception:', err);
+        console.error('Supabase upsert attendance exception:', err);
       }
     }
 
