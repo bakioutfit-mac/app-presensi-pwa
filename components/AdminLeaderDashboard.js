@@ -15,6 +15,9 @@ import {
   Clock,
   Send,
   Sparkles,
+  CheckSquare,
+  Square,
+  CheckCheck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -128,29 +131,60 @@ export default function AdminLeaderDashboard({ onBack }) {
 
   // 3. PENGAJUAN LEMBUR STAF (Leader ke Finance)
   const [otForm, setOtForm] = useState({
-    employee_name: 'Fikril Bay',
-    branch: 'LazyBloom',
     date: new Date().toISOString().split('T')[0],
     hours: 2,
     reason: 'Event Weekend & Closing Store',
   });
+  const [selectedOtStaffIds, setSelectedOtStaffIds] = useState([]);
   const [otSubmitting, setOtSubmitting] = useState(false);
   const [otMsg, setOtMsg] = useState({ type: '', text: '' });
 
+  // Toggle checklist satu staf
+  const toggleOtStaff = (staffId) => {
+    setSelectedOtStaffIds((prev) =>
+      prev.includes(staffId) ? prev.filter((id) => id !== staffId) : [...prev, staffId]
+    );
+  };
+
+  // Pilih semua atau batalkan semua staf pada filter yang sedang tampil
+  const handleToggleSelectAllOt = (currentVisibleStaff) => {
+    const visibleIds = currentVisibleStaff.map((s) => s.id);
+    const isAllSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedOtStaffIds.includes(id));
+    if (isAllSelected) {
+      setSelectedOtStaffIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+    } else {
+      setSelectedOtStaffIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
   const handleSendOvertime = async (e) => {
     e.preventDefault();
+    if (selectedOtStaffIds.length === 0) {
+      setOtMsg({ type: 'error', text: 'Pilih minimal satu staf pada checklist untuk diajukan lembur.' });
+      return;
+    }
     setOtSubmitting(true);
     setOtMsg({ type: '', text: '' });
 
-    const res = await submitOvertimeRequest(otForm);
+    const selectedStaffMembers = staffList.filter((s) => selectedOtStaffIds.includes(s.id));
+    const payload = selectedStaffMembers.map((s) => ({
+      employee_name: s.name,
+      branch: s.branch || 'LazyBloom',
+      date: otForm.date,
+      hours: Number(otForm.hours || 1),
+      reason: otForm.reason,
+    }));
+
+    const res = await submitOvertimeRequest(payload);
     setOtSubmitting(false);
 
     if (res.success) {
       setOtMsg({
         type: 'success',
-        text: `Pengajuan lembur ${otForm.employee_name} (${otForm.hours} jam) berhasil dikirim ke Admin Finance!`,
+        text: `Berhasil mengajukan lembur untuk ${selectedStaffMembers.length} staf (${otForm.hours} jam) ke Admin Finance!`,
       });
-      setTimeout(() => setOtMsg({ type: '', text: '' }), 4000);
+      setSelectedOtStaffIds([]);
+      setTimeout(() => setOtMsg({ type: '', text: '' }), 5000);
     } else {
       setOtMsg({ type: 'error', text: 'Gagal mengirim pengajuan lembur.' });
     }
@@ -696,143 +730,319 @@ export default function AdminLeaderDashboard({ onBack }) {
       )}
 
       {/* ================= 3. TAB PENGAJUAN LEMBUR STAF ================= */}
-      {adminTab === 'overtime' && (
-        <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4 animate-in fade-in">
-          <div>
-            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-              Form Pengajuan Lembur Staf
-            </h4>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Leader mengajukan jam lembur ke Finance &bull; Nominal rupiah diinput oleh Admin Finance
-            </p>
-          </div>
+      {adminTab === 'overtime' && (() => {
+        // Filter staf lembur berdasarkan kategori/outlet yang aktif (LazyBloom, Deru Ombak, Sea Cafe, Mobile / Lapangan)
+        const filteredOtStaff = staffList.filter((s) => {
+          if (selectedOutletFilter === 'all') return true;
+          return s.branch && s.branch.toLowerCase() === selectedOutletFilter.toLowerCase();
+        });
 
-          {otMsg.text && (
-            <div
-              className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-                otMsg.type === 'success'
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-rose-50 text-rose-800 border border-rose-200'
-              }`}
-            >
-              {otMsg.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              )}
-              <span>{otMsg.text}</span>
+        // Hitung staf per kategori
+        const countAll = staffList.length;
+        const countLazy = staffList.filter((s) => s.branch && s.branch.toLowerCase() === 'lazybloom').length;
+        const countDeru = staffList.filter((s) => s.branch && s.branch.toLowerCase() === 'deru ombak').length;
+        const countSea = staffList.filter((s) => s.branch && s.branch.toLowerCase() === 'sea cafe').length;
+        const countMobile = staffList.filter((s) => s.branch && s.branch.toLowerCase().includes('mobile')).length;
+
+        const isAllVisibleSelected =
+          filteredOtStaff.length > 0 &&
+          filteredOtStaff.every((s) => selectedOtStaffIds.includes(s.id));
+
+        return (
+          <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4 animate-in fade-in">
+            <div>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                  Form Pengajuan Lembur Staf
+                </h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800">
+                  {selectedOtStaffIds.length} Staf Dipilih
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Pilih kategori cabang, centang staf yang lembur &bull; Nominal rupiah diinput oleh Admin Finance
+              </p>
             </div>
-          )}
 
-          <form onSubmit={handleSendOvertime} className="space-y-3.5">
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Nama Staf Lembur:
-                </label>
-                <select
-                  value={otForm.employee_name}
-                  onChange={(e) => {
-                    const selected = staffList.find((s) => s.name === e.target.value);
-                    setOtForm({
-                      ...otForm,
-                      employee_name: e.target.value,
-                      branch: selected?.branch || 'LazyBloom',
-                    });
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none"
+            {/* Kategori Cabang Lembur (Sinkron dengan data staf) */}
+            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 space-y-1.5">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                Kategori Outlet / Lapangan:
+              </span>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOutletFilter('all')}
+                  className={`px-2.5 py-1 rounded-full border transition shrink-0 cursor-pointer ${
+                    selectedOutletFilter === 'all'
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
                 >
-                  {staffList.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name} ({s.branch})
-                    </option>
-                  ))}
-                </select>
+                  Semua ({countAll})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedOutletFilter('LazyBloom')}
+                  className={`px-2.5 py-1 rounded-full border transition shrink-0 cursor-pointer ${
+                    selectedOutletFilter === 'LazyBloom'
+                      ? 'bg-orange-500 text-white border-orange-500 shadow-xs'
+                      : 'bg-white text-orange-700 border-orange-200 hover:bg-orange-50'
+                  }`}
+                >
+                  LazyBloom ({countLazy})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedOutletFilter('Deru Ombak')}
+                  className={`px-2.5 py-1 rounded-full border transition shrink-0 cursor-pointer ${
+                    selectedOutletFilter === 'Deru Ombak'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                      : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
+                  }`}
+                >
+                  Deru Ombak ({countDeru})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedOutletFilter('Sea Cafe')}
+                  className={`px-2.5 py-1 rounded-full border transition shrink-0 cursor-pointer ${
+                    selectedOutletFilter === 'Sea Cafe'
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                      : 'bg-white text-sky-800 border-sky-200 hover:bg-sky-50'
+                  }`}
+                >
+                  Sea Cafe ({countSea})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedOutletFilter('Mobile / Lapangan')}
+                  className={`px-2.5 py-1 rounded-full border transition shrink-0 cursor-pointer ${
+                    selectedOutletFilter === 'Mobile / Lapangan'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                      : 'bg-white text-indigo-800 border-indigo-200 hover:bg-indigo-50'
+                  }`}
+                >
+                  Mobile / Lapangan ({countMobile})
+                </button>
+              </div>
+            </div>
+
+            {/* Checklist Staf Lembur */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
+                  Pilih Nama Staf (Checklist):
+                </label>
+                {filteredOtStaff.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSelectAllOt(filteredOtStaff)}
+                    className="text-[10px] font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    <span>{isAllVisibleSelected ? 'Batalkan Semua' : 'Pilih Semua Staf Ini'}</span>
+                  </button>
+                )}
+              </div>
+
+              {filteredOtStaff.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-500 bg-slate-50">
+                  Tidak ada staf yang terdaftar di kategori{' '}
+                  <span className="font-bold text-slate-700">{selectedOutletFilter}</span>.
+                </div>
+              ) : (
+                <div className="max-h-52 overflow-y-auto space-y-1.5 p-1.5 rounded-xl border border-slate-200 bg-slate-50/50">
+                  {filteredOtStaff.map((s) => {
+                    const isChecked = selectedOtStaffIds.includes(s.id);
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => toggleOtStaff(s.id)}
+                        className={`p-2.5 rounded-xl border transition-all flex items-center justify-between cursor-pointer select-none ${
+                          isChecked
+                            ? 'bg-orange-50 border-orange-300 shadow-xs'
+                            : 'bg-white border-slate-200/80 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="shrink-0 text-orange-600">
+                            {isChecked ? (
+                              <CheckSquare className="w-4 h-4 text-[#EA580C]" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-400" />
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-slate-900 block leading-tight">
+                              {s.name}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {s.role} &bull; <span className="font-semibold text-slate-600">{s.branch}</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {isChecked && (
+                          <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-200/60 text-orange-900">
+                            Lembur
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Tag staf yang terpilih */}
+              {selectedOtStaffIds.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  <span className="text-[9px] text-slate-500 font-bold self-center">Terpilih:</span>
+                  {selectedOtStaffIds.map((id) => {
+                    const staff = staffList.find((s) => s.id === id);
+                    if (!staff) return null;
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-200"
+                      >
+                        <span>{staff.name}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleOtStaff(id);
+                          }}
+                          className="hover:text-rose-600 cursor-pointer"
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {otMsg.text && (
+              <div
+                className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                  otMsg.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}
+              >
+                {otMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{otMsg.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSendOvertime} className="space-y-3.5">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Tanggal Lembur:
+                  </label>
+                  <input
+                    type="date"
+                    value={otForm.date}
+                    onChange={(e) => setOtForm({ ...otForm, date: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-800 focus:outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Durasi Lembur (Jam):
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={otForm.hours}
+                    onChange={(e) => setOtForm({ ...otForm, hours: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none"
+                    placeholder="Contoh: 2 jam"
+                    required
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Tanggal Lembur:
+                  Alasan / Penugasan Lembur:
                 </label>
-                <input
-                  type="date"
-                  value={otForm.date}
-                  onChange={(e) => setOtForm({ ...otForm, date: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-800 focus:outline-none"
+                <textarea
+                  rows={2}
+                  value={otForm.reason}
+                  onChange={(e) => setOtForm({ ...otForm, reason: e.target.value })}
+                  placeholder="Contoh: Event weekend ramai, closing store & inventory bahan"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none"
                   required
                 />
               </div>
-            </div>
 
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                Jumlah Durasi Lembur (Jam):
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={8}
-                value={otForm.hours}
-                onChange={(e) => setOtForm({ ...otForm, hours: Number(e.target.value) })}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none"
-                placeholder="Contoh: 2 jam"
-                required
-              />
-            </div>
+              <button
+                type="submit"
+                disabled={otSubmitting || selectedOtStaffIds.length === 0}
+                className={`w-full py-3 rounded-xl text-xs font-bold text-white shadow-md transition flex items-center justify-center gap-2 ${
+                  selectedOtStaffIds.length === 0 || otSubmitting
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
+                    : 'bg-gradient-to-r from-[#EA580C] to-[#C2410C] hover:from-[#C2410C] hover:to-[#9A3412] shadow-orange-500/20 active:scale-98 cursor-pointer'
+                }`}
+              >
+                {otSubmitting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                <span>
+                  {selectedOtStaffIds.length > 0
+                    ? `Kirim Pengajuan Lembur (${selectedOtStaffIds.length} Staf) ke Finance`
+                    : 'Pilih Staf Lembur Terlebih Dahulu'}
+                </span>
+              </button>
+            </form>
 
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                Alasan / Penugasan Lembur:
-              </label>
-              <textarea
-                rows={2}
-                value={otForm.reason}
-                onChange={(e) => setOtForm({ ...otForm, reason: e.target.value })}
-                placeholder="Contoh: Event weekend ramai, closing store & inventory bahan"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={otSubmitting}
-              className="w-full py-3 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#EA580C] to-[#C2410C] hover:from-[#C2410C] hover:to-[#9A3412] shadow-md shadow-orange-500/20 active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {otSubmitting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-              <span>Kirim Pengajuan Lembur ke Finance</span>
-            </button>
-          </form>
-
-          {/* Riwayat Pengajuan Lembur */}
-          <div className="pt-2 border-t border-slate-100">
-            <h5 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-              Riwayat Pengajuan Lembur Terakhir:
-            </h5>
-            <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
-              {(overtimeRequests || []).map((ot) => (
-                <div
-                  key={ot.id}
-                  className="p-2.5 rounded-xl border border-slate-100 bg-slate-50 flex items-center justify-between text-xs"
-                >
-                  <div>
-                    <span className="font-extrabold text-slate-900">{ot.employee_name}</span>
-                    <span className="text-[10px] text-slate-500 ml-1.5">({ot.hours} Jam &bull; {ot.date})</span>
-                    <p className="text-[10px] text-slate-600">{ot.reason}</p>
-                  </div>
-                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                    {ot.status || 'Diajukan Leader'}
-                  </span>
-                </div>
-              ))}
+            {/* Riwayat Pengajuan Lembur */}
+            <div className="pt-2 border-t border-slate-100">
+              <h5 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                Riwayat Pengajuan Lembur Terakhir:
+              </h5>
+              <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                {(overtimeRequests || []).length === 0 ? (
+                  <p className="text-[11px] text-slate-400 italic py-2 text-center">
+                    Belum ada pengajuan lembur yang dikirim.
+                  </p>
+                ) : (
+                  (overtimeRequests || []).map((ot) => (
+                    <div
+                      key={ot.id}
+                      className="p-2.5 rounded-xl border border-slate-100 bg-slate-50 flex items-center justify-between text-xs"
+                    >
+                      <div>
+                        <span className="font-extrabold text-slate-900">{ot.employee_name}</span>
+                        <span className="text-[10px] text-slate-500 ml-1.5">
+                          ({ot.branch} &bull; {ot.hours} Jam &bull; {ot.date})
+                        </span>
+                        <p className="text-[10px] text-slate-600 mt-0.5">{ot.reason}</p>
+                      </div>
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 shrink-0 ml-2">
+                        {ot.status || 'Diajukan Leader'}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ================= 4. TAB TAMBAH KARYAWAN BARU ================= */}
       {adminTab === 'addStaff' && (

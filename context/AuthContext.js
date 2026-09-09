@@ -75,6 +75,14 @@ export function AuthProvider({ children }) {
         setOutletsList(JSON.parse(storedOutlets));
       }
 
+      // Muat pengajuan lembur tersimpan
+      const storedOvertimes = localStorage.getItem('pwa_overtime_requests');
+      if (storedOvertimes) {
+        try {
+          setOvertimeRequests(JSON.parse(storedOvertimes));
+        } catch (e) {}
+      }
+
       // Sync data admin PIN & outlets dari Supabase jika ada
       (async () => {
         try {
@@ -425,29 +433,41 @@ export function AuthProvider({ children }) {
   const [overtimeRequests, setOvertimeRequests] = useState([]);
 
   const submitOvertimeRequest = async (otData) => {
-    const newOt = {
-      id: `ot-${Date.now()}`,
+    const items = Array.isArray(otData) ? otData : [otData];
+    const newItems = items.map((item, idx) => ({
+      id: item.id || `ot-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
       created_at: new Date().toISOString(),
       status: 'Diajukan Leader',
       nominal: 0,
-      ...otData,
-    };
-    setOvertimeRequests((prev) => [newOt, ...prev]);
+      ...item,
+    }));
+
+    setOvertimeRequests((prev) => {
+      const updated = [...newItems, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pwa_overtime_requests', JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     try {
-      await supabase.from('overtimes').insert(newOt);
+      await supabase.from('overtimes').insert(newItems);
     } catch (e) {
       console.warn('Supabase overtime insert fallback:', e);
     }
-    return { success: true, data: newOt };
+    return { success: true, data: Array.isArray(otData) ? newItems : newItems[0] };
   };
 
   const updateOvertimeNominal = (otId, nominalAmount) => {
-    setOvertimeRequests((prev) =>
-      prev.map((item) =>
+    setOvertimeRequests((prev) => {
+      const updated = prev.map((item) =>
         item.id === otId ? { ...item, nominal: Number(nominalAmount || 0), status: 'Disetujui Finance' } : item
-      )
-    );
+      );
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pwa_overtime_requests', JSON.stringify(updated));
+      }
+      return updated;
+    });
   };
 
   // Record attendance check-in / check-out
