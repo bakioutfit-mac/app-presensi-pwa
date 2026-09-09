@@ -2,8 +2,14 @@ import './globals.css';
 import Providers from '@/components/Providers';
 
 export const metadata = {
-  title: '3 PILLAR MANAGEMENT - Presensi Staf LazyBloom',
-  description: 'Aplikasi PWA Presensi Staf LazyBloom 3 Pillar Management dengan Face & Geofencing Verification',
+  title: '3 PILLAR MANAGEMENT - Presensi Staf',
+  description: 'Aplikasi PWA Presensi Staf 3 Pillar Management (LazyBloom • Deru Ombak • Sea Cafe)',
+  openGraph: {
+    title: '3 PILLAR MANAGEMENT - Presensi Staf',
+    description: 'Aplikasi PWA Presensi Staf 3 Pillar Management (LazyBloom • Deru Ombak • Sea Cafe)',
+    siteName: '3 Pillar Management',
+    type: 'website',
+  },
   manifest: '/manifest.json',
   icons: {
     icon: '/icon.png',
