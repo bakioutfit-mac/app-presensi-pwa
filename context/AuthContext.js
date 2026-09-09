@@ -298,6 +298,11 @@ export function AuthProvider({ children }) {
 
       if (!error && data) {
         setUser(data);
+        if (data.role === 'admin_leader') {
+          setAdminRole('leader');
+        } else if (data.role === 'admin_finance') {
+          setAdminRole('finance');
+        }
         localStorage.setItem('pwa_presensi_user', JSON.stringify(data));
         await loadAttendanceAndLeave(data);
         return { success: true, user: data };
