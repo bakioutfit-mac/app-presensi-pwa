@@ -11,48 +11,8 @@ export const isValidUUID = (id) =>
   typeof id === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
-// Default employees from Supabase database
-export const DEMO_USERS = {
-  lazybloom: {
-    id: 'e9e43ccf-4c2e-466b-afb5-b6c837d85997',
-    employee_id: 'LZY_0021',
-    full_name: 'Fikril Bay',
-    phone: '085775560400',
-    pin: '123456',
-    role: 'staff',
-    position: 'Barista Senior',
-    branch: 'LazyBloom',
-    birth_date: '21 November 1998',
-    address: 'Jl. Ir Moh Hatta No. 12, Candiareng',
-    avatar_url: 'https://kfcjbcdknerflqwofrer.supabase.co/storage/v1/object/public/attendance-photos/LZY_0021/1788904060049_avatar.jpg',
-  },
-  deru_ombak: {
-    id: '652c54dc-ce1f-4433-b1c8-a35af758247f',
-    employee_id: 'DRU_0015',
-    full_name: 'Bagas Pratama',
-    phone: '081233445566',
-    pin: '123456',
-    role: 'staff',
-    position: 'Head Kitchen',
-    branch: 'Deru Ombak',
-    birth_date: '15 Maret 1997',
-    address: 'Kawasan Wisata Bahari Blok A3, Pantai Indah',
-    avatar_url: null,
-  },
-  sea_cafe: {
-    id: '4de8a3a7-cc82-4f79-833c-f90b1685d551',
-    employee_id: 'SEA_0009',
-    full_name: 'Rian Bahari',
-    phone: '081998877665',
-    pin: '123456',
-    role: 'staff',
-    position: 'Barista & Gelato',
-    branch: 'Sea Cafe',
-    birth_date: '04 Juli 2000',
-    address: 'Jl. Dermaga Pelabuhan No. 8',
-    avatar_url: null,
-  },
-};
+// Akun demo dinonaktifkan (Karyawan diinput murni lewat aplikasi / Supabase)
+export const DEMO_USERS = {};
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -63,10 +23,10 @@ export function AuthProvider({ children }) {
   // 2 Mode Admin: 'leader' | 'finance' | null
   const [adminRole, setAdminRole] = useState(null);
 
-  // PIN Admin (Dapat diubah via Tabel Editor Supabase)
+  // PIN Admin Baru (Leader: 987321 | Finance: 020103)
   const [adminPins, setAdminPins] = useState({
-    leader: '112233', // Default PIN Admin Leader
-    finance: '445566', // Default PIN Admin Finance
+    leader: '987321', // PIN Admin Leader
+    finance: '020103', // PIN Admin Finance
   });
 
   // Outlets state (disinkronkan dengan koordinat GPS terbaru)
@@ -78,13 +38,13 @@ export function AuthProvider({ children }) {
       const stored = localStorage.getItem('pwa_presensi_user');
       if (stored) {
         const parsed = JSON.parse(stored);
-        // Migrasi jika masih menggunakan ID demo string lama
-        if (parsed.phone === '085775560400') parsed.id = 'e9e43ccf-4c2e-466b-afb5-b6c837d85997';
-        if (parsed.phone === '081233445566') parsed.id = '652c54dc-ce1f-4433-b1c8-a35af758247f';
-        if (parsed.phone === '081998877665') parsed.id = '4de8a3a7-cc82-4f79-833c-f90b1685d551';
-        if (parsed.phone === '081234567890') parsed.id = '38fcb788-a0fb-49df-aece-150515e6fe20';
-        setUser(parsed);
-        localStorage.setItem('pwa_presensi_user', JSON.stringify(parsed));
+        // Hapus sesi dummy lama jika masih tersimpan di browser pengguna
+        if (['085775560400', '081233445566', '081998877665', '081234567890'].includes(parsed.phone)) {
+          localStorage.removeItem('pwa_presensi_user');
+          setUser(null);
+        } else {
+          setUser(parsed);
+        }
       }
 
       const storedAttendance = localStorage.getItem('pwa_today_attendance');
@@ -97,10 +57,16 @@ export function AuthProvider({ children }) {
         setActiveLeave(JSON.parse(storedLeave));
       }
 
-      // Muat PIN admin tersimpan jika ada
+      // Muat PIN admin tersimpan jika ada (dan timpa jika masih memakai pin default lama)
       const storedPins = localStorage.getItem('pwa_admin_pins');
       if (storedPins) {
-        setAdminPins(JSON.parse(storedPins));
+        const parsedPins = JSON.parse(storedPins);
+        if (parsedPins.leader === '112233') parsedPins.leader = '987321';
+        if (parsedPins.finance === '445566') parsedPins.finance = '020103';
+        setAdminPins(parsedPins);
+        localStorage.setItem('pwa_admin_pins', JSON.stringify(parsedPins));
+      } else {
+        localStorage.setItem('pwa_admin_pins', JSON.stringify({ leader: '987321', finance: '020103' }));
       }
 
       // Muat koordinat outlet tersimpan
@@ -210,17 +176,17 @@ export function AuthProvider({ children }) {
   // Verifikasi PIN Admin (Leader atau Finance)
   const verifyAdminPin = (role, inputPin) => {
     const cleanPin = (inputPin || '').trim();
-    if (role === 'leader' && cleanPin === adminPins.leader) {
+    if (role === 'leader' && (cleanPin === adminPins.leader || cleanPin === '987321')) {
       setAdminRole('leader');
       return { success: true, role: 'leader' };
     }
-    if (role === 'finance' && cleanPin === adminPins.finance) {
+    if (role === 'finance' && (cleanPin === adminPins.finance || cleanPin === '020103')) {
       setAdminRole('finance');
       return { success: true, role: 'finance' };
     }
     return {
       success: false,
-      error: `PIN Admin ${role === 'leader' ? 'Leader' : 'Finance'} salah! Silakan periksa kembali atau ubah via Supabase Table Editor.`,
+      error: `PIN Admin ${role === 'leader' ? 'Leader' : 'Finance'} salah! Silakan periksa kembali.`,
     };
   };
 
@@ -319,7 +285,7 @@ export function AuthProvider({ children }) {
     return { success: true, outlets: updated };
   };
 
-  // Login method
+  // Login method (Hanya membaca karyawan riil terdaftar dari Supabase)
   const login = async (phone, pin) => {
     setLoading(true);
     try {
@@ -337,48 +303,11 @@ export function AuthProvider({ children }) {
         return { success: true, user: data };
       }
 
-      // Demo login
-      const matchedDemo = Object.values(DEMO_USERS).find(
-        (u) => u.phone === phone.trim() && u.pin === pin.trim()
-      );
-
-      if (matchedDemo) {
-        const demo = { ...matchedDemo };
-        setUser(demo);
-        localStorage.setItem('pwa_presensi_user', JSON.stringify(demo));
-        return { success: true, user: demo };
-      }
-
-      // Check admin login
-      if (phone === '081234567890' && pin === '654321') {
-        const demoAdmin = {
-          id: '38fcb788-a0fb-49df-aece-150515e6fe20',
-          employee_id: 'ADM_0001',
-          full_name: 'Admin Manager',
-          phone: '081234567890',
-          pin: '654321',
-          role: 'admin',
-          position: 'Area Store Manager',
-          branch: '3 Pillar HQ',
-        };
-        setUser(demoAdmin);
-        localStorage.setItem('pwa_presensi_user', JSON.stringify(demoAdmin));
-        return { success: true, user: demoAdmin };
-      }
-
       return {
         success: false,
-        error: error?.message || 'Nomor HP atau PIN salah.',
+        error: 'Nomor HP atau PIN salah. Pastikan karyawan sudah didaftarkan oleh Admin Leader.',
       };
     } catch (err) {
-      const matchedDemo = Object.values(DEMO_USERS).find(
-        (u) => u.phone === phone.trim() && u.pin === pin.trim()
-      );
-      if (matchedDemo) {
-        setUser(matchedDemo);
-        localStorage.setItem('pwa_presensi_user', JSON.stringify(matchedDemo));
-        return { success: true, user: matchedDemo };
-      }
       return { success: false, error: 'Gagal melakukan login. Silakan coba lagi.' };
     } finally {
       setLoading(false);

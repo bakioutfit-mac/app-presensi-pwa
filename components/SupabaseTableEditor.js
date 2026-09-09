@@ -83,14 +83,14 @@ export default function SupabaseTableEditor() {
             {
               id: 'adm-pin-1',
               role: 'leader',
-              pin: adminPins?.leader || '112233',
+              pin: adminPins?.leader || '987321',
               description: 'PIN Verifikasi Admin Leader (Shift, Monitoring, Staf)',
               updated_at: new Date().toISOString(),
             },
             {
               id: 'adm-pin-2',
               role: 'finance',
-              pin: adminPins?.finance || '445566',
+              pin: adminPins?.finance || '020103',
               description: 'PIN Verifikasi Admin Finance (Gaji 3 Outlet & Lokasi GPS)',
               updated_at: new Date().toISOString(),
             },
@@ -147,7 +147,7 @@ export default function SupabaseTableEditor() {
   const handleSaveLeaderPin = async (e) => {
     e.preventDefault();
     if (!leaderPinInput || leaderPinInput.trim().length !== 6 || !/^\d{6}$/.test(leaderPinInput.trim())) {
-      setMsg({ type: 'error', text: 'PIN Admin Leader harus tepat 6 digit angka (misal: 112233).' });
+      setMsg({ type: 'error', text: 'PIN Admin Leader harus tepat 6 digit angka (misal: 987321).' });
       return;
     }
 
@@ -173,7 +173,7 @@ export default function SupabaseTableEditor() {
   const handleSaveFinancePin = async (e) => {
     e.preventDefault();
     if (!financePinInput || financePinInput.trim().length !== 6 || !/^\d{6}$/.test(financePinInput.trim())) {
-      setMsg({ type: 'error', text: 'PIN Admin Finance harus tepat 6 digit angka (misal: 445566).' });
+      setMsg({ type: 'error', text: 'PIN Admin Finance harus tepat 6 digit angka (misal: 020103).' });
       return;
     }
 
@@ -407,7 +407,7 @@ export default function SupabaseTableEditor() {
                     inputMode="numeric"
                     value={leaderPinInput}
                     onChange={(e) => setLeaderPinInput(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Contoh: 112233"
+                    placeholder="Contoh: 987321"
                     className="w-full bg-orange-50/40 border border-orange-200 rounded-xl px-3 py-1.5 text-center font-mono font-bold tracking-widest text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
                   />
                 </div>
@@ -464,7 +464,7 @@ export default function SupabaseTableEditor() {
                     inputMode="numeric"
                     value={financePinInput}
                     onChange={(e) => setFinancePinInput(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Contoh: 445566"
+                    placeholder="Contoh: 020103"
                     className="w-full bg-blue-50/40 border border-blue-200 rounded-xl px-3 py-1.5 text-center font-mono font-bold tracking-widest text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#2563EB]/40"
                   />
                 </div>
