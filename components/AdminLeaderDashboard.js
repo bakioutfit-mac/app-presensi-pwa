@@ -62,6 +62,7 @@ export default function AdminLeaderDashboard({ onBack }) {
   const [assignDresscode, setAssignDresscode] = useState('Kaos Hitam');
   const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
+  const [shiftSubTab, setShiftSubTab] = useState('form'); // 'form' | 'calendar'
 
   // Data Semua Jadwal Shift dari Supabase & State Kalender Shift
   const [allShifts, setAllShifts] = useState([]);
@@ -629,9 +630,39 @@ export default function AdminLeaderDashboard({ onBack }) {
 
       {/* ================= 1. TAB PENUGASAN SHIFT (4 SHIFT RESMI) & KALENDER REKAP ================= */}
       {adminTab === 'assignment' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start animate-in fade-in">
-          {/* SISI KIRI (lg:col-span-6): FORM ATUR & TUGASKAN SHIFT */}
-          <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4">
+        <div className="space-y-4 animate-in fade-in">
+          {/* Sub-Tab Tombol: Atur & Tugaskan Shift VS Kalender Shift */}
+          <div className="flex items-center gap-1.5 p-1.5 bg-slate-200/80 rounded-2xl">
+            <button
+              type="button"
+              onClick={() => setShiftSubTab('form')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                shiftSubTab === 'form'
+                  ? 'bg-white text-[#EA580C] shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Atur &amp; Tugaskan Shift</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShiftSubTab('calendar')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                shiftSubTab === 'calendar'
+                  ? 'bg-white text-[#EA580C] shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
+              }`}
+            >
+              <CalendarDays className="w-4 h-4" />
+              <span>Kalender Shift</span>
+            </button>
+          </div>
+
+          {/* KONTEN 1: FORM ATUR & TUGASKAN SHIFT */}
+          {shiftSubTab === 'form' && (
+            <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4 animate-in fade-in">
             <div>
               <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
                 Atur &amp; Tugaskan Jadwal Shift Staf
@@ -778,9 +809,11 @@ export default function AdminLeaderDashboard({ onBack }) {
               </button>
             </form>
           </div>
+        )}
 
-          {/* SISI KANAN (lg:col-span-6): KALENDER SHIFT & REKAPAN STAF */}
-          <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4">
+        {/* KONTEN 2: KALENDER SHIFT & REKAPAN STAF */}
+        {shiftSubTab === 'calendar' && (
+          <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4 animate-in fade-in">
             {/* Header Kalender Shift */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
@@ -1036,8 +1069,9 @@ export default function AdminLeaderDashboard({ onBack }) {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    )}
 
       {/* ================= 2. TAB MONITORING KEHADIRAN (LIVE PENALTY) ================= */}
       {adminTab === 'monitoring' && (
