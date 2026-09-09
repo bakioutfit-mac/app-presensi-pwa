@@ -18,9 +18,29 @@ import {
   CheckSquare,
   Square,
   CheckCheck,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  UserCheck,
+  Coffee,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+
+const MONTH_NAMES = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
 
 export default function AdminLeaderDashboard({ onBack }) {
   const { user, todayAttendance, overtimeRequests, submitOvertimeRequest } = useAuth();
@@ -40,6 +60,127 @@ export default function AdminLeaderDashboard({ onBack }) {
   const [assignShift, setAssignShift] = useState(SHIFT_OPTIONS[0]);
   const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
+
+  // Data Semua Jadwal Shift dari Supabase & State Kalender Shift
+  const [allShifts, setAllShifts] = useState([]);
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [selectedCalDate, setSelectedCalDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
+
+  const fetchAllShifts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('shifts')
+        .select('*, employees(full_name, branch, position)')
+        .order('shift_date', { ascending: false });
+      if (!error && data) {
+        setAllShifts(data);
+      }
+    } catch (err) {
+      console.warn('Load shifts error:', err);
+    }
+  };
+
+  const nextMonth = () => {
+    if (calMonth === 11) {
+      setCalMonth(0);
+      setCalYear((y) => y + 1);
+    } else {
+      setCalMonth((m) => m + 1);
+    }
+  };
+
+  const prevMonth = () => {
+    if (calMonth === 0) {
+      setCalMonth(11);
+      setCalYear((y) => y - 1);
+    } else {
+      setCalMonth((m) => m - 1);
+    }
+  };
+
+  const goToToday = () => {
+    const now = new Date();
+    setCalYear(now.getFullYear());
+    setCalMonth(now.getMonth());
+    const todayStr = now.toISOString().split('T')[0];
+    setSelectedCalDate(todayStr);
+    setAssignDate(todayStr);
+  };
+
+  // Hitung staf bertugas & libur pada tanggal yang diklik di kalender
+  const getShiftRecapForDate = (dateStr) => {
+    const relevantStaff = staffList.filter(
+      (s) => selectedOutletFilter === 'all' || s.branch === selectedOutletFilter
+    );
+    const shiftsOnDate = allShifts.filter((s) => s.shift_date === dateStr);
+
+    const working = [];
+    const off = [];
+
+    // Hari dalam seminggu (0 = Minggu, 1 = Senin, ... 6 = Sabtu)
+    const dayOfWeek = new Date(dateStr + 'T00:00:00').getDay();
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4; // Senin s/d Kamis
+
+    relevantStaff.forEach((staff) => {
+      const assigned = shiftsOnDate.find((s) => s.employee_id === staff.id);
+
+      if (assigned) {
+        const isLibur =
+          assigned.shift_name?.toLowerCase().includes('libur') ||
+          assigned.shift_name?.toLowerCase().includes('off');
+
+        if (isLibur) {
+          off.push({
+            id: staff.id,
+            name: staff.name,
+            branch: staff.branch,
+            shift_name: assigned.shift_name || 'Libur / Off',
+          });
+        } else {
+          working.push({
+            id: staff.id,
+            name: staff.name,
+            branch: staff.branch,
+            shift_name: assigned.shift_name,
+            time:
+              assigned.start_time && assigned.end_time
+                ? `${assigned.start_time.substring(0, 5)} - ${assigned.end_time.substring(0, 5)}`
+                : null,
+          });
+        }
+      } else {
+        // Aturan standar:
+        // Weekday (Senin-Kamis) otomatis bertugas Shift Weekday jika belum diset libur
+        // Weekend (Jumat-Minggu) jika tidak ditugaskan maka statusnya Libur (Belum Dijadwalkan)
+        if (isWeekday) {
+          working.push({
+            id: staff.id,
+            name: staff.name,
+            branch: staff.branch,
+            shift_name: 'Shift Weekday (12:00 - 21:00)',
+            time: '12:00 - 21:00',
+          });
+        } else {
+          off.push({
+            id: staff.id,
+            name: staff.name,
+            branch: staff.branch,
+            shift_name: 'Libur (Belum Ditugaskan)',
+            time: null,
+          });
+        }
+      }
+    });
+
+    return { working, off };
+  };
+
+  const currentRecap = getShiftRecapForDate(selectedCalDate);
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const firstDayOffset = (new Date(calYear, calMonth, 1).getDay() + 6) % 7;
 
   // 2. MONITORING KEHADIRAN (Live Attendance)
   const [todayAttendanceList, setTodayAttendanceList] = useState([]);
@@ -88,6 +229,8 @@ export default function AdminLeaderDashboard({ onBack }) {
           }));
           setTodayAttendanceList(mapped);
         }
+
+        await fetchAllShifts();
       } catch (err) {
         console.warn('Load staff/attendance error:', err);
       }
@@ -249,6 +392,7 @@ export default function AdminLeaderDashboard({ onBack }) {
           { onConflict: 'employee_id, shift_date' }
         );
       }
+      await fetchAllShifts();
     } catch (err) {
       console.warn('Shift sync Supabase error:', err);
     }
@@ -479,133 +623,390 @@ export default function AdminLeaderDashboard({ onBack }) {
         </button>
       </div>
 
-      {/* ================= 1. TAB PENUGASAN SHIFT (4 SHIFT RESMI) ================= */}
+      {/* ================= 1. TAB PENUGASAN SHIFT (4 SHIFT RESMI) & KALENDER REKAP ================= */}
       {adminTab === 'assignment' && (
-        <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4 animate-in fade-in">
-          <div>
-            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-              Atur &amp; Tugaskan Jadwal Shift Staf
-            </h4>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Tentukan tanggal dan shift untuk jadwal shift
-            </p>
-          </div>
-
-          {assignSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Jadwal shift berhasil ditugaskan &amp; disinkronkan ke staf!</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSaveShiftAssignment} className="space-y-4">
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Tanggal Shift:
-                </label>
-                <input
-                  type="date"
-                  value={assignDate}
-                  onChange={(e) => setAssignDate(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Pilihan Jam Shift:
-                </label>
-                <select
-                  value={assignShift}
-                  onChange={(e) => setAssignShift(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
-                >
-                  {SHIFT_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Shift Rules Info Banner */}
-            <div className="p-3 bg-orange-50/80 border border-orange-200 rounded-xl text-[11px] text-orange-900 leading-relaxed space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-[#EA580C]">
-                <Sparkles className="w-4 h-4 shrink-0" />
-                <span>Aturan Operasional Shift Outlet:</span>
-              </div>
-              <p className="text-[10px] text-slate-600">
-                &bull; <strong>Senin s/d Kamis (Weekday)</strong>: Otomatis 1 shift tunggal yaitu <em>Shift Weekday (12:00 - 21:00)</em>. Leader tidak perlu input rutin.<br />
-                &bull; <strong>Jumat s/d Minggu (Weekend)</strong>: <strong>Wajib diatur oleh Leader</strong> (Pilih Weekend 1 [09:00], Weekend 2 [13:00], Middle [11:00], atau Libur).
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start animate-in fade-in">
+          {/* SISI KIRI (lg:col-span-6): FORM ATUR & TUGASKAN SHIFT */}
+          <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4">
+            <div>
+              <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                Atur &amp; Tugaskan Jadwal Shift Staf
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Tentukan tanggal dan shift untuk jadwal shift staf
               </p>
             </div>
 
-            {/* Daftar Checklist Staf */}
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Pilih Staf yang Ditugaskan:
-              </label>
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                {staffList
-                  .filter(
-                    (s) =>
-                      selectedOutletFilter === 'all' || s.branch === selectedOutletFilter
-                  )
-                  .map((staff) => (
-                    <div
-                      key={staff.id}
-                      onClick={() => toggleStaffSelect(staff.id)}
-                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex items-center justify-between ${
-                        staff.selected
-                          ? 'border-[#EA580C] bg-orange-50/80 shadow-xs'
-                          : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div
-                          className={`w-5 h-5 rounded-md flex items-center justify-center border ${
-                            staff.selected
-                              ? 'bg-[#EA580C] border-[#EA580C] text-white'
-                              : 'bg-white border-slate-300'
-                          }`}
-                        >
-                          {staff.selected && <Check className="w-3.5 h-3.5" />}
-                        </div>
-                        <div>
-                          <div className="font-extrabold text-xs text-slate-900">
-                            {staff.name}
-                          </div>
-                          <div className="text-[10px] text-slate-500">{staff.role}</div>
-                        </div>
-                      </div>
+            {assignSuccess && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Jadwal shift berhasil ditugaskan &amp; disinkronkan ke staf!</span>
+              </div>
+            )}
 
-                      <span
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                          staff.branch === 'Deru Ombak'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : staff.branch === 'Sea Cafe'
-                            ? 'bg-sky-100 text-sky-800'
-                            : 'bg-orange-100 text-orange-800'
+            <form onSubmit={handleSaveShiftAssignment} className="space-y-4">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Tanggal Shift:
+                  </label>
+                  <input
+                    type="date"
+                    value={assignDate}
+                    onChange={(e) => {
+                      setAssignDate(e.target.value);
+                      setSelectedCalDate(e.target.value);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Pilihan Jam Shift:
+                  </label>
+                  <select
+                    value={assignShift}
+                    onChange={(e) => setAssignShift(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                  >
+                    {SHIFT_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Shift Rules Info Banner */}
+              <div className="p-3 bg-orange-50/80 border border-orange-200 rounded-xl text-[11px] text-orange-900 leading-relaxed space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-[#EA580C]">
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <span>Aturan Operasional Shift Outlet:</span>
+                </div>
+                <p className="text-[10px] text-slate-600">
+                  &bull; <strong>Senin s/d Kamis (Weekday)</strong>: Otomatis 1 shift tunggal yaitu <em>Shift Weekday (12:00 - 21:00)</em>. Leader tidak perlu input rutin.<br />
+                  &bull; <strong>Jumat s/d Minggu (Weekend)</strong>: <strong>Wajib diatur oleh Leader</strong> (Pilih Weekend 1 [09:00], Weekend 2 [13:00], Middle [11:00], atau Libur).
+                </p>
+              </div>
+
+              {/* Daftar Checklist Staf */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                  Pilih Staf yang Ditugaskan:
+                </label>
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                  {staffList
+                    .filter(
+                      (s) =>
+                        selectedOutletFilter === 'all' || s.branch === selectedOutletFilter
+                    )
+                    .map((staff) => (
+                      <div
+                        key={staff.id}
+                        onClick={() => toggleStaffSelect(staff.id)}
+                        className={`p-3 rounded-xl border-2 transition cursor-pointer flex items-center justify-between ${
+                          staff.selected
+                            ? 'border-[#EA580C] bg-orange-50/80 shadow-xs'
+                            : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100'
                         }`}
                       >
-                        {staff.branch}
-                      </span>
-                    </div>
-                  ))}
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className={`w-5 h-5 rounded-md flex items-center justify-center border ${
+                              staff.selected
+                                ? 'bg-[#EA580C] border-[#EA580C] text-white'
+                                : 'bg-white border-slate-300'
+                            }`}
+                          >
+                            {staff.selected && <Check className="w-3.5 h-3.5" />}
+                          </div>
+                          <div>
+                            <div className="font-extrabold text-xs text-slate-900">
+                              {staff.name}
+                            </div>
+                            <div className="text-[10px] text-slate-500">{staff.role}</div>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                            staff.branch === 'Deru Ombak'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : staff.branch === 'Sea Cafe'
+                              ? 'bg-sky-100 text-sky-800'
+                              : 'bg-orange-100 text-orange-800'
+                          }`}
+                        >
+                          {staff.branch}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-[#EA580C] hover:bg-[#C2410C] active:scale-98 text-white font-bold py-3 rounded-xl text-xs shadow-md shadow-orange-500/20 transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Calendar className="w-4 h-4" />
+                <span>Tugaskan Shift ke Staf Terpilih</span>
+              </button>
+            </form>
+          </div>
+
+          {/* SISI KANAN (lg:col-span-6): KALENDER SHIFT & REKAPAN STAF */}
+          <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4">
+            {/* Header Kalender Shift */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#EA580C]">
+                  <CalendarDays className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                    Kalender Shift Outlet
+                  </h4>
+                  <p className="text-[10px] text-slate-500">
+                    Klik tanggal untuk melihat daftar staf bertugas &amp; libur
+                  </p>
+                </div>
+              </div>
+
+              {/* Navigasi Bulan & Tahun */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={prevMonth}
+                  className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition cursor-pointer"
+                  title="Bulan Sebelumnya"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-xs font-black text-slate-800 px-1 min-w-[110px] text-center">
+                  {MONTH_NAMES[calMonth]} {calYear}
+                </span>
+                <button
+                  type="button"
+                  onClick={nextMonth}
+                  className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition cursor-pointer"
+                  title="Bulan Berikutnya"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={goToToday}
+                  className="text-[10px] font-bold px-2 py-1 bg-orange-50 text-[#EA580C] hover:bg-orange-100 rounded-lg transition ml-0.5 cursor-pointer"
+                >
+                  Hari Ini
+                </button>
               </div>
             </div>
 
-            <button
-              type="submit"
-              className="w-full bg-[#EA580C] hover:bg-[#C2410C] active:scale-98 text-white font-bold py-3 rounded-xl text-xs shadow-md shadow-orange-500/20 transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Calendar className="w-4 h-4" />
-              <span>Tugaskan Shift ke Staf Terpilih</span>
-            </button>
-          </form>
+            {/* Grid Kalender */}
+            <div>
+              {/* Nama Hari (Sen s/d Min) */}
+              <div className="grid grid-cols-7 text-center mb-1">
+                {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((dayName, idx) => (
+                  <div
+                    key={dayName}
+                    className={`text-[10px] font-extrabold uppercase py-1 ${
+                      idx >= 4 ? 'text-orange-600' : 'text-slate-400'
+                    }`}
+                  >
+                    {dayName}
+                  </div>
+                ))}
+              </div>
+
+              {/* Sel Tanggal */}
+              <div className="grid grid-cols-7 gap-1">
+                {/* Kotak kosong offset awal bulan */}
+                {Array.from({ length: firstDayOffset }).map((_, i) => (
+                  <div key={`empty-${i}`} className="h-9" />
+                ))}
+
+                {/* Tanggal-tanggal di bulan terpilih */}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const dayNum = i + 1;
+                  const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                  const isSelected = dateStr === selectedCalDate;
+                  const isToday = dateStr === new Date().toISOString().split('T')[0];
+
+                  const shiftsOnDate = allShifts.filter((s) => s.shift_date === dateStr);
+                  const hasWorking = shiftsOnDate.some(
+                    (s) =>
+                      !s.shift_name?.toLowerCase().includes('libur') &&
+                      !s.shift_name?.toLowerCase().includes('off')
+                  );
+                  const hasOff = shiftsOnDate.some(
+                    (s) =>
+                      s.shift_name?.toLowerCase().includes('libur') ||
+                      s.shift_name?.toLowerCase().includes('off')
+                  );
+
+                  return (
+                    <button
+                      key={dateStr}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCalDate(dateStr);
+                        setAssignDate(dateStr);
+                      }}
+                      className={`h-9 rounded-xl flex flex-col items-center justify-center relative transition text-xs font-bold cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#EA580C] text-white shadow-sm ring-2 ring-orange-400 ring-offset-1 font-black'
+                          : isToday
+                          ? 'border-2 border-[#EA580C] bg-orange-50/50 text-[#EA580C]'
+                          : 'bg-slate-50 hover:bg-orange-50/40 text-slate-700'
+                      }`}
+                    >
+                      <span>{dayNum}</span>
+                      {/* Indikator titik jadwal */}
+                      <div className="flex items-center gap-0.5 absolute bottom-1">
+                        {hasWorking && (
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isSelected ? 'bg-white' : 'bg-emerald-500'
+                            }`}
+                          />
+                        )}
+                        {hasOff && (
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isSelected ? 'bg-white/80' : 'bg-amber-500'
+                            }`}
+                          />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* REKAP DETAIL TANGGAL TERPILIH (BERTUGAS & LIBUR) */}
+            <div className="pt-3 border-t border-slate-100 space-y-3">
+              {/* Header Box Tanggal Terpilih */}
+              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-[#EA580C]" />
+                  <div>
+                    <span className="text-[11px] font-extrabold text-slate-900 block">
+                      {new Date(selectedCalDate + 'T00:00:00').toLocaleDateString('id-ID', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </span>
+                    <span className="text-[9px] text-slate-500">
+                      Filter Outlet:{' '}
+                      <strong className="text-slate-700">
+                        {selectedOutletFilter === 'all' ? 'Semua Outlet' : selectedOutletFilter}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[9px] font-black px-2 py-0.5 bg-orange-100 text-[#EA580C] rounded-full">
+                  Tanggal Terpilih
+                </span>
+              </div>
+
+              {/* 1. BERTUGAS */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>1. Bertugas ({currentRecap.working.length} Staf)</span>
+                  </span>
+                  <span className="text-[9px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-bold">
+                    Masuk Kerja
+                  </span>
+                </div>
+
+                {currentRecap.working.length === 0 ? (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center">
+                    <p className="text-[10px] text-slate-400 italic">
+                      Tidak ada staf yang bertugas pada tanggal ini.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                    {currentRecap.working.map((staf) => (
+                      <div
+                        key={staf.id}
+                        className="p-2.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl flex items-center justify-between shadow-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 font-extrabold text-[10px] flex items-center justify-center shrink-0">
+                            {staf.name.charAt(0)}
+                          </div>
+                          <div>
+                            <h6 className="text-xs font-bold text-slate-900">{staf.name}</h6>
+                            <div className="text-[9px] text-emerald-700 font-semibold">
+                              {staf.shift_name}
+                            </div>
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 bg-white border border-emerald-200 text-emerald-800 rounded-md shrink-0">
+                          {staf.branch}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. LIBUR */}
+              <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Coffee className="w-3.5 h-3.5 text-slate-500" />
+                    <span>2. Libur ({currentRecap.off.length} Staf)</span>
+                  </span>
+                  <span className="text-[9px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded font-bold">
+                    Off / Libur
+                  </span>
+                </div>
+
+                {currentRecap.off.length === 0 ? (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center">
+                    <p className="text-[10px] text-slate-400 italic">
+                      Semua staf bertugas pada tanggal ini.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                    {currentRecap.off.map((staf) => (
+                      <div
+                        key={staf.id}
+                        className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between shadow-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-slate-200 text-slate-600 font-extrabold text-[10px] flex items-center justify-center shrink-0">
+                            {staf.name.charAt(0)}
+                          </div>
+                          <div>
+                            <h6 className="text-xs font-bold text-slate-800">{staf.name}</h6>
+                            <div className="text-[9px] text-slate-500 font-medium">
+                              {staf.shift_name}
+                            </div>
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 bg-white border border-slate-200 text-slate-600 rounded-md shrink-0">
+                          {staf.branch}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
