@@ -240,24 +240,28 @@ export default function AdminLeaderDashboard({ onBack }) {
           : 'LZY';
       const employeeIdCode = `${branchPrefix}_${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const { data, error } = await supabase.from('employees').insert({
-        employee_id: employeeIdCode,
-        full_name: newStaff.full_name,
-        phone: newStaff.phone,
-        pin: newStaff.pin,
-        role: 'staff',
-        position: newStaff.position,
-        branch: newStaff.branch,
-        birth_date: newStaff.birth_date || '2000-01-01',
-        address: newStaff.address || 'Alamat Belum Diisi',
-      });
+      const { data, error } = await supabase
+        .from('employees')
+        .insert({
+          employee_id: employeeIdCode,
+          full_name: newStaff.full_name,
+          phone: newStaff.phone.trim(),
+          pin: newStaff.pin.trim(),
+          role: 'staff',
+          position: newStaff.position,
+          branch: newStaff.branch,
+          birth_date: newStaff.birth_date || '2000-01-01',
+          address: newStaff.address || 'Alamat Belum Diisi',
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
       setStaffList((prev) => [
         ...prev,
         {
-          id: `stf-${Date.now()}`,
+          id: data?.id || `stf-${Date.now()}`,
           name: newStaff.full_name,
           role: newStaff.position,
           branch: newStaff.branch,
@@ -267,7 +271,7 @@ export default function AdminLeaderDashboard({ onBack }) {
 
       setStaffMsg({
         type: 'success',
-        text: `Karyawan baru ${newStaff.full_name} (${employeeIdCode}) berhasil ditambahkan ke ${newStaff.branch}!`,
+        text: `Karyawan baru ${newStaff.full_name} (${employeeIdCode}) berhasil didaftarkan ke ${newStaff.branch}! Staf sekarang bisa login menggunakan No HP dan PIN tersebut.`,
       });
 
       setNewStaff({
@@ -281,19 +285,13 @@ export default function AdminLeaderDashboard({ onBack }) {
         default_shift: 'Shift Weekday (12:00 - 21:00)',
       });
     } catch (err) {
-      setStaffList((prev) => [
-        ...prev,
-        {
-          id: `stf-${Date.now()}`,
-          name: newStaff.full_name,
-          role: newStaff.position,
-          branch: newStaff.branch,
-          selected: false,
-        },
-      ]);
+      console.error('Error creating staff:', err);
+      const isDuplicate = err.message?.includes('duplicate key') || err.message?.includes('unique');
       setStaffMsg({
-        type: 'success',
-        text: `Karyawan ${newStaff.full_name} berhasil didaftarkan ke ${newStaff.branch}!`,
+        type: 'error',
+        text: isDuplicate
+          ? 'Nomor Handphone sudah terdaftar di database! Harap gunakan nomor lain.'
+          : `Gagal mendaftarkan karyawan: ${err.message || 'Terjadi kesalahan pada Supabase'}`,
       });
     } finally {
       setStaffCreating(false);

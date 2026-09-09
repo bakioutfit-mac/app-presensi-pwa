@@ -146,27 +146,29 @@ export default function AdminDashboard({ onBack }) {
     setStaffCreating(true);
     try {
       const generatedId = `LZY_${Math.floor(1000 + Math.random() * 9000)}`;
-      const { data, error } = await supabase.from('employees').insert({
-        employee_id: generatedId,
-        full_name: newStaff.full_name,
-        phone: newStaff.phone,
-        pin: newStaff.pin,
-        role: 'staff',
-        position: newStaff.position,
-        branch: 'LazyBloom',
-        birth_date: newStaff.birth_date || '2000-01-01',
-        address: newStaff.address || '-',
-      });
+      const { data, error } = await supabase
+        .from('employees')
+        .insert({
+          employee_id: generatedId,
+          full_name: newStaff.full_name,
+          phone: newStaff.phone.trim(),
+          pin: newStaff.pin.trim(),
+          role: 'staff',
+          position: newStaff.position,
+          branch: 'LazyBloom',
+          birth_date: newStaff.birth_date || '2000-01-01',
+          address: newStaff.address || '-',
+        })
+        .select()
+        .single();
 
-      if (error) {
-        console.warn('Supabase create employee error:', error);
-      }
+      if (error) throw error;
 
       // Add to local list
       setStaffList((prev) => [
         ...prev,
         {
-          id: Date.now().toString(),
+          id: data?.id || Date.now().toString(),
           name: newStaff.full_name,
           role: newStaff.position,
           selected: false,
@@ -175,7 +177,7 @@ export default function AdminDashboard({ onBack }) {
 
       setStaffMsg({
         type: 'success',
-        text: `Staf ${newStaff.full_name} (${generatedId}) berhasil ditambahkan!`,
+        text: `Staf ${newStaff.full_name} (${generatedId}) berhasil ditambahkan ke database!`,
       });
 
       setNewStaff({
@@ -188,7 +190,14 @@ export default function AdminDashboard({ onBack }) {
         default_shift: 'Shift Pagi',
       });
     } catch (err) {
-      setStaffMsg({ type: 'error', text: 'Gagal menambahkan staf baru.' });
+      console.error('Create staff error:', err);
+      const isDuplicate = err.message?.includes('duplicate key') || err.message?.includes('unique');
+      setStaffMsg({
+        type: 'error',
+        text: isDuplicate
+          ? 'Nomor Handphone sudah terdaftar di database!'
+          : `Gagal menambahkan staf: ${err.message || 'Terjadi kesalahan'}`,
+      });
     } finally {
       setStaffCreating(false);
     }
