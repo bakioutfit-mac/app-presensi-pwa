@@ -33,6 +33,9 @@ export function AuthProvider({ children }) {
   // Outlets state (disinkronkan dengan koordinat GPS terbaru)
   const [outletsList, setOutletsList] = useState(OUTLETS);
 
+  // State pengajuan lembur dari Admin Leader ke Admin Finance
+  const [overtimeRequests, setOvertimeRequests] = useState([]);
+
   // Initialize session and admin PINs on mount
   useEffect(() => {
     try {
@@ -460,9 +463,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // State pengajuan lembur dari Admin Leader ke Admin Finance
-  const [overtimeRequests, setOvertimeRequests] = useState([]);
-
+  // Pengajuan lembur dari Admin Leader ke Admin Finance
   const submitOvertimeRequest = async (otData) => {
     const items = Array.isArray(otData) ? otData : [otData];
     const newItems = items.map((item, idx) => ({
