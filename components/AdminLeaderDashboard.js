@@ -60,7 +60,7 @@ export default function AdminLeaderDashboard({ onBack }) {
 
   const [assignDate, setAssignDate] = useState(getLocalDateString());
   const [assignShift, setAssignShift] = useState(SHIFT_OPTIONS[0]);
-  const [assignDresscode, setAssignDresscode] = useState('Kaos Hitam');
+  const [assignDresscode, setAssignDresscode] = useState('Tentukan seragam atasan dan bawahan');
   const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
   const [shiftSubTab, setShiftSubTab] = useState('form'); // 'form' | 'calendar'
@@ -391,7 +391,7 @@ export default function AdminLeaderDashboard({ onBack }) {
               : assignShift.includes('21:00')
               ? '21:00:00'
               : null,
-            notes: assignDresscode?.trim() || 'Seragam Standar',
+            notes: assignDresscode?.trim() || 'Tentukan seragam atasan dan bawahan',
           },
           { onConflict: 'employee_id, shift_date' }
         );
@@ -727,7 +727,7 @@ export default function AdminLeaderDashboard({ onBack }) {
                   type="text"
                   value={assignDresscode}
                   onChange={(e) => setAssignDresscode(e.target.value)}
-                  placeholder="Contoh: Kaos Hitam, Kemeja Putih, Bebas Rapi"
+                  placeholder="Tentukan seragam atasan dan bawahan"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
                 />
               </div>

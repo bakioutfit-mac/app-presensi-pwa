@@ -44,8 +44,8 @@ export default function ShiftScheduleTab() {
               shift_date: dateStr,
               day_name: dayName,
               shift_name: 'Shift Weekday',
-              time: '12:00 - 21:00 WIB',
-              dresscode: assigned?.notes || 'Kaos Hitam Outlet',
+              time: '12.00 - 21.00 WIB',
+              dresscode: assigned?.notes || null,
               status: i === 0 ? 'Bertugas Hari Ini' : 'Shift Rutin',
               is_today: i === 0,
             });
@@ -58,8 +58,8 @@ export default function ShiftScheduleTab() {
                 shift_date: dateStr,
                 day_name: dayName,
                 shift_name: assigned.shift_name,
-                time: isOff ? 'Libur' : (assigned.start_time ? `${assigned.start_time.slice(0, 5)} - ${assigned.end_time?.slice(0, 5)} WIB` : '09:00 - 18:00 WIB'),
-                dresscode: isOff ? null : (assigned.notes || 'Seragam Standar'),
+                time: isOff ? 'Libur' : (assigned.start_time ? `${assigned.start_time.slice(0, 5).replace(':', '.')} - ${assigned.end_time?.slice(0, 5).replace(':', '.')} WIB` : '09.00 - 18.00 WIB'),
+                dresscode: isOff ? null : (assigned.notes || null),
                 status: isOff ? 'Libur' : i === 0 ? 'Bertugas Hari Ini' : 'Jadwal Leader',
                 is_today: i === 0,
               });
@@ -114,71 +114,118 @@ export default function ShiftScheduleTab() {
       <div className="space-y-2.5">
         {shifts.map((s, idx) => {
           const isOff = (s.shift_name || '').includes('Off') || (s.shift_name || '').includes('Libur');
+          const isPending = s.status === 'Belum Diset';
+
+          // Format jam Indonesia (memastikan pemisah titik)
+          let displayTime = s.time || '';
+          if (isOff) {
+            displayTime = 'Libur';
+          } else if (displayTime) {
+            displayTime = displayTime.replace(/:/g, '.');
+          }
+
+          // Cek seragam
+          const rawDresscode = (s.dresscode || '').replace(/^Seragam:\s*/i, '').trim();
+          const isDresscodeSet =
+            rawDresscode &&
+            rawDresscode.toLowerCase() !== 'tentukan seragam atasan dan bawahan' &&
+            rawDresscode.toLowerCase() !== 'seragam standar' &&
+            rawDresscode.toLowerCase() !== 'belum di atur' &&
+            rawDresscode !== '-';
+
+          // Status Badge & Teks Seragam
+          let badgeLabel = 'Bertugas';
+          let badgeStyle = s.is_today
+            ? 'bg-emerald-600 text-white shadow-xs'
+            : 'bg-blue-50 text-[#2563EB] border border-blue-200';
+          let seragamText = isDresscodeSet ? rawDresscode : 'belum di atur';
+
+          if (isOff) {
+            badgeLabel = 'Libur';
+            badgeStyle = 'bg-slate-100 text-slate-500 border border-slate-200';
+            seragamText = '-';
+          } else if (isPending) {
+            badgeLabel = 'Belum Diset';
+            badgeStyle = 'bg-amber-50 text-amber-700 border border-amber-200';
+            seragamText = 'belum di atur';
+          }
+
           return (
             <div
               key={s.id || idx}
-              className={`p-3.5 rounded-2xl border transition flex items-center justify-between ${
+              className={`p-3.5 rounded-2xl border transition flex items-center gap-3.5 ${
                 s.is_today
                   ? 'bg-blue-50/70 border-blue-300 shadow-sm'
                   : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-xs'
               }`}
             >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center font-black shrink-0 ${
-                    s.is_today
-                      ? 'bg-[#2563EB] text-white shadow-xs'
-                      : isOff
-                      ? 'bg-slate-100 text-slate-400'
-                      : 'bg-slate-100 text-[#2563EB]'
-                  }`}
-                >
-                  <span className="text-[10px] uppercase tracking-tighter">
-                    {s.day_name?.slice(0, 3) || 'HRI'}
-                  </span>
-                  <span className="text-xs leading-none mt-0.5">
-                    {s.shift_date ? s.shift_date.split('-')[2] : idx + 7}
-                  </span>
-                </div>
-
-                <div className="text-left">
-                  <div className="flex items-center gap-1.5">
-                    <h4 className="text-xs font-black text-slate-800">
-                      {s.shift_name}
-                    </h4>
-                    {s.is_today && (
-                      <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black px-1.5 py-0.5 rounded-sm">
-                        Hari Ini
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 font-medium flex-wrap">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      <span>{s.time || `${s.start_time || '12:00'} - ${s.end_time || '21:00'}`}</span>
-                    </span>
-                    {s.dresscode && !isOff && (
-                      <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
-                        <Shirt className="w-3 h-3 text-blue-600" />
-                        <span>Seragam: {s.dresscode.replace(/^Seragam:\s*/i, '')}</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
+              {/* Badge Tanggal (Kiri) */}
+              <div
+                className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center font-black shrink-0 ${
+                  s.is_today
+                    ? 'bg-[#2563EB] text-white shadow-xs'
+                    : isOff
+                    ? 'bg-slate-100 text-slate-400'
+                    : 'bg-slate-100 text-[#2563EB]'
+                }`}
+              >
+                <span className="text-[10px] uppercase tracking-wider font-extrabold">
+                  {s.day_name?.slice(0, 3) || 'HRI'}
+                </span>
+                <span className="text-base font-black leading-none mt-0.5">
+                  {s.shift_date ? s.shift_date.split('-')[2] : idx + 7}
+                </span>
               </div>
 
-              <div>
-                <span
-                  className={`text-[10px] font-black px-2.5 py-1 rounded-full ${
-                    isOff
-                      ? 'bg-slate-100 text-slate-500 border border-slate-200'
-                      : s.is_today
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'bg-blue-50 text-[#2563EB] border border-blue-200'
-                  }`}
-                >
-                  {isOff ? 'Libur' : s.is_today ? 'Bertugas' : 'Terjadwal'}
-                </span>
+              {/* Konten Shift (Kanan) */}
+              <div className="flex-1 min-w-0">
+                {/* Baris 1: Label Info */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-slate-500">
+                    {isOff ? 'Status hari ini :' : 'Kamu bertugas di :'}
+                  </span>
+                  {s.is_today && (
+                    <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
+                      Hari Ini
+                    </span>
+                  )}
+                </div>
+
+                {/* Baris 2: Jam Kerja (BOLD) & Badge Status Sejajar */}
+                <div className="flex items-center justify-between gap-2 mt-0.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {!isOff && <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                    <span
+                      className={`text-xs sm:text-sm tracking-tight truncate ${
+                        isOff ? 'text-slate-500 font-bold' : 'text-slate-900 font-black'
+                      }`}
+                    >
+                      {displayTime}
+                    </span>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 ${badgeStyle}`}>
+                    {badgeLabel}
+                  </span>
+                </div>
+
+                {/* Baris 3: Seragam */}
+                <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-500">
+                  <Shirt className="w-3 h-3 text-slate-400 shrink-0" />
+                  <span className="truncate">
+                    seragam :{' '}
+                    <span
+                      className={
+                        isDresscodeSet
+                          ? 'font-semibold text-slate-700'
+                          : isOff
+                          ? 'text-slate-400 font-semibold'
+                          : 'text-slate-400 italic'
+                      }
+                    >
+                      {seragamText}
+                    </span>
+                  </span>
+                </div>
               </div>
             </div>
           );
