@@ -25,74 +25,136 @@ export default function PayslipTab() {
     async function fetchPayslips() {
       if (!user) return;
       try {
-        const { data, error } = await supabase
-          .from('payslips')
-          .select('*')
-          .eq('employee_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (!error && data && data.length > 0) {
-          let detailsMap = {};
-          if (typeof window !== 'undefined') {
-            try {
-              detailsMap = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
-            } catch (e) {}
-          }
+        // 1. Ambil detail 11 komponen dari cache cloud (admin_settings) dan localStorage
+        let detailsMap = {};
+        if (typeof window !== 'undefined') {
           try {
-            const { data: detailRow } = await supabase
-              .from('admin_settings')
-              .select('description')
-              .eq('role', 'payslips_detail')
-              .single();
-            if (detailRow && detailRow.description) {
-              const remoteDetails = JSON.parse(detailRow.description);
-              detailsMap = { ...detailsMap, ...remoteDetails };
-            }
+            detailsMap = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
           } catch (e) {}
+        }
+        try {
+          const { data: detailRow } = await supabase
+            .from('admin_settings')
+            .select('description')
+            .eq('role', 'payslips_detail')
+            .single();
+          if (detailRow && detailRow.description) {
+            const remoteDetails = JSON.parse(detailRow.description);
+            detailsMap = { ...detailsMap, ...remoteDetails };
+          }
+        } catch (e) {}
 
-          const mapped = data.map((p) => {
-            const detail = detailsMap[p.id] || {};
-            return {
-              ...p,
-              child_allowance: detail.child_allowance ?? 0,
-              spouse_allowance: detail.spouse_allowance ?? 0,
-              position_allowance: detail.position_allowance ?? 0,
-              meal_allowance: detail.meal_allowance ?? p.attendance_allowance ?? 0,
-              overtime_pay: detail.overtime_pay ?? p.overtime_pay ?? 0,
-              plus_day_count: detail.plus_day_count ?? p.plus_day_count ?? 0,
-              plus_day_pay: detail.plus_day_pay ?? p.plus_day_pay ?? 0,
-              plus_day_note: detail.plus_day_note ?? p.plus_day_note ?? '',
-              meal_deduction: detail.meal_deduction ?? 0,
-              attendance_deduction: detail.attendance_deduction ?? 0,
-              discipline_deduction: detail.discipline_deduction ?? 0,
-              cash_bon: detail.cash_bon ?? p.deductions ?? 0,
-            };
+        // 2. Query dari tabel payslips Supabase jika ada
+        let dbSlips = [];
+        try {
+          const { data, error } = await supabase
+            .from('payslips')
+            .select('*')
+            .eq('employee_id', user.id)
+            .order('created_at', { ascending: false });
+          if (!error && data) {
+            dbSlips = data;
+          }
+        } catch (e) {}
+
+        // 3. Kumpulkan slip milik user yang login dari kedua sumber (Supabase table + detailsMap cloud)
+        const combinedList = [];
+
+        // Masukkan dari dbSlips
+        for (const p of dbSlips) {
+          const detail = detailsMap[p.id] || {};
+          combinedList.push({
+            ...p,
+            child_allowance: detail.child_allowance ?? 0,
+            spouse_allowance: detail.spouse_allowance ?? 0,
+            position_allowance: detail.position_allowance ?? 0,
+            meal_allowance: detail.meal_allowance ?? p.attendance_allowance ?? 0,
+            overtime_pay: detail.overtime_pay ?? p.overtime_pay ?? 0,
+            plus_day_count: detail.plus_day_count ?? p.plus_day_count ?? 0,
+            plus_day_pay: detail.plus_day_pay ?? p.plus_day_pay ?? 0,
+            plus_day_note: detail.plus_day_note ?? p.plus_day_note ?? '',
+            meal_deduction: detail.meal_deduction ?? 0,
+            attendance_deduction: detail.attendance_deduction ?? 0,
+            discipline_deduction: detail.discipline_deduction ?? 0,
+            cash_bon: detail.cash_bon ?? p.deductions ?? 0,
+            is_released: detail.is_released !== undefined ? detail.is_released : p.is_released,
+            net_salary: detail.net_salary ?? p.net_salary,
           });
+        }
 
-          // Deduplikasi: 1 karyawan hanya melihat 1 slip per periode (terbaru)
-          const seenPeriod = new Set();
-          const uniqueMapped = [];
-          for (const slip of mapped) {
-            const periodKey = (slip.period || '').toLowerCase().trim();
-            if (!seenPeriod.has(periodKey)) {
-              seenPeriod.add(periodKey);
-              uniqueMapped.push(slip);
+        // Masukkan juga dari detailsMap jika belum ada di combinedList (mencocokkan employee_id atau nama staf)
+        const userFullName = (user.full_name || user.name || '').toLowerCase().trim();
+        for (const [id, item] of Object.entries(detailsMap)) {
+          const matchId = Boolean(user.id && item.employee_id && item.employee_id === user.id);
+          const itemEmpName = (item.employee_name || '').toLowerCase().trim();
+          const matchName = Boolean(userFullName && itemEmpName && (itemEmpName === userFullName || itemEmpName.includes(userFullName) || userFullName.includes(itemEmpName)));
+
+          if (matchId || matchName) {
+            const alreadyInList = combinedList.some(
+              (c) => c.id === id || ((c.period || '').toLowerCase().trim() === (item.period || '').toLowerCase().trim())
+            );
+            if (!alreadyInList) {
+              combinedList.push({
+                id: item.id || id,
+                employee_id: item.employee_id || user.id,
+                period: item.period,
+                basic_salary: item.basic_salary || 0,
+                child_allowance: item.child_allowance ?? 0,
+                spouse_allowance: item.spouse_allowance ?? 0,
+                position_allowance: item.position_allowance ?? 0,
+                meal_allowance: item.meal_allowance ?? 0,
+                overtime_pay: item.overtime_pay ?? 0,
+                plus_day_count: item.plus_day_count ?? 0,
+                plus_day_pay: item.plus_day_pay ?? 0,
+                plus_day_note: item.plus_day_note ?? '',
+                meal_deduction: item.meal_deduction ?? 0,
+                attendance_deduction: item.attendance_deduction ?? 0,
+                discipline_deduction: item.discipline_deduction ?? 0,
+                cash_bon: item.cash_bon ?? 0,
+                net_salary: item.net_salary ?? 0,
+                is_released: item.is_released !== undefined ? item.is_released : true,
+                created_at: item.created_at || new Date().toISOString(),
+              });
             }
           }
-
-          setPayslips(uniqueMapped);
-          const latestReleased = uniqueMapped.find((p) => p.is_released);
-          if (latestReleased) setOpenId(latestReleased.id);
-        } else {
-          setPayslips([]);
-          setOpenId(null);
         }
+
+        // 4. Urutkan dan deduplikasi per periode (hanya ambil 1 slip terbaru per periode)
+        combinedList.sort((a, b) => {
+          const timeA = new Date(a.created_at || 0).getTime();
+          const timeB = new Date(b.created_at || 0).getTime();
+          return timeB - timeA;
+        });
+
+        const seenPeriod = new Set();
+        const uniqueMapped = [];
+        for (const slip of combinedList) {
+          const periodKey = (slip.period || '').toLowerCase().trim();
+          if (!seenPeriod.has(periodKey)) {
+            seenPeriod.add(periodKey);
+            uniqueMapped.push(slip);
+          }
+        }
+
+        setPayslips(uniqueMapped);
+        const latestReleased = uniqueMapped.find((p) => p.is_released);
+        if (latestReleased) setOpenId(latestReleased.id);
       } catch (err) {
+        console.warn('Fetch payslips error:', err);
         setPayslips([]);
         setOpenId(null);
       }
     }
     fetchPayslips();
+
+    // Listener reload otomatis jika Finance merilis atau memperbarui slip
+    const handleSyncUpdate = () => fetchPayslips();
+    window.addEventListener('pwa_payslips_detail_updated', handleSyncUpdate);
+    window.addEventListener('storage', handleSyncUpdate);
+    return () => {
+      window.removeEventListener('pwa_payslips_detail_updated', handleSyncUpdate);
+      window.removeEventListener('storage', handleSyncUpdate);
+    };
   }, [user]);
 
   const toggleAccordion = (id, isReleased) => {

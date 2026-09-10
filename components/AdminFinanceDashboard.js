@@ -560,6 +560,7 @@ export default function AdminFinanceDashboard({ onBack }) {
 
       if (typeof window !== 'undefined') {
         localStorage.setItem('pwa_payslips_detail', JSON.stringify(savedDetails));
+        window.dispatchEvent(new Event('pwa_payslips_detail_updated'));
       }
 
       await supabase.from('admin_settings').upsert(
@@ -612,36 +613,92 @@ export default function AdminFinanceDashboard({ onBack }) {
       prev.map((s) => (s.id === id ? { ...s, is_released: newStatus } : s))
     );
 
-    // Update di Supabase tabel payslips
-    try {
-      await supabase.from('payslips').update({ is_released: newStatus }).eq('id', id);
-    } catch (e) {
-      console.warn('Update payslip release status error:', e);
-    }
-
-    // Update di persistent cache
+    // 1. Update di persistent cache (localStorage & cloud admin_settings)
     try {
       let savedDetails = {};
       if (typeof window !== 'undefined') {
         savedDetails = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
       }
-      if (savedDetails[id]) {
-        savedDetails[id].is_released = newStatus;
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('pwa_payslips_detail', JSON.stringify(savedDetails));
+      try {
+        const { data: remoteRow } = await supabase
+          .from('admin_settings')
+          .select('description')
+          .eq('role', 'payslips_detail')
+          .single();
+        if (remoteRow && remoteRow.description) {
+          savedDetails = { ...savedDetails, ...JSON.parse(remoteRow.description) };
         }
-        await supabase.from('admin_settings').upsert(
-          {
-            role: 'payslips_detail',
-            pin: '000000',
-            name: 'Detail Komponen Payslips',
-            description: JSON.stringify(savedDetails),
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'role' }
-        );
+      } catch (e) {}
+
+      // Cari entri yang cocok di savedDetails
+      let matchedKey = id;
+      if (!savedDetails[id]) {
+        const targetEmpName = (targetSlip.employee_name || '').toLowerCase().trim();
+        const targetPeriod = (targetSlip.period || '').toLowerCase().trim();
+        const foundEntry = Object.entries(savedDetails).find(([, v]) => {
+          const vEmpName = (v.employee_name || '').toLowerCase().trim();
+          const vPeriod = (v.period || '').toLowerCase().trim();
+          const sameEmp =
+            (v.employee_id && targetSlip.employee_id && v.employee_id === targetSlip.employee_id) ||
+            (vEmpName === targetEmpName);
+          const samePeriod = vPeriod === targetPeriod;
+          return sameEmp && samePeriod;
+        });
+        if (foundEntry) matchedKey = foundEntry[0];
       }
-    } catch (e) {}
+
+      if (savedDetails[matchedKey]) {
+        savedDetails[matchedKey].is_released = newStatus;
+      } else {
+        savedDetails[matchedKey] = {
+          ...targetSlip,
+          is_released: newStatus,
+        };
+      }
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pwa_payslips_detail', JSON.stringify(savedDetails));
+        window.dispatchEvent(new Event('pwa_payslips_detail_updated'));
+      }
+
+      await supabase.from('admin_settings').upsert(
+        {
+          role: 'payslips_detail',
+          pin: '000000',
+          name: 'Detail Komponen Payslips',
+          description: JSON.stringify(savedDetails),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'role' }
+      );
+    } catch (e) {
+      console.warn('Persistent release toggle error:', e);
+    }
+
+    // 2. Update atau Upsert di Supabase tabel payslips resmi
+    try {
+      const { error: updErr } = await supabase
+        .from('payslips')
+        .update({ is_released: newStatus })
+        .eq('id', id);
+
+      if (updErr && targetSlip.employee_id && typeof targetSlip.employee_id === 'string' && targetSlip.employee_id.includes('-')) {
+        await supabase.from('payslips').upsert({
+          id: id,
+          employee_id: targetSlip.employee_id,
+          period: targetSlip.period,
+          basic_salary: Number(targetSlip.basic_salary || 0),
+          attendance_allowance: Number(targetSlip.meal_allowance || 0),
+          transport_allowance: Number(targetSlip.transport_allowance || targetSlip.position_allowance || 0),
+          overtime_pay: Number(targetSlip.overtime_pay || 0),
+          deductions: Number(targetSlip.deductions || 0),
+          net_salary: Number(targetSlip.net_salary || 0),
+          is_released: newStatus,
+        }, { onConflict: 'id' });
+      }
+    } catch (e) {
+      console.warn('Update payslip release status error:', e);
+    }
   };
 
   const toggleSalaryRelease = handleToggleRelease;
