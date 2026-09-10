@@ -604,12 +604,34 @@ export function AuthProvider({ children }) {
       const { data: existingSlips } = await query;
       if (existingSlips && existingSlips.length > 0) {
         for (const slip of existingSlips) {
+          let detailsMap = {};
+          try {
+            detailsMap = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+          } catch (e) {}
+          const detail = detailsMap[slip.id] || {};
+
+          const plusDay = Number(detail.plus_day_pay ?? slip.plus_day_pay ?? 0);
+          const childAllowance = Number(detail.child_allowance ?? 0);
+          const spouseAllowance = Number(detail.spouse_allowance ?? 0);
+          const positionAllowance = Number(detail.position_allowance ?? 0);
+          const mealAllowance = Number(detail.meal_allowance ?? slip.attendance_allowance ?? 0);
+
           const newTotalIncome =
             (Number(slip.basic_salary) || 0) +
-            (Number(slip.attendance_allowance) || 0) +
-            (Number(slip.transport_allowance) || 0) +
+            childAllowance +
+            spouseAllowance +
+            positionAllowance +
+            mealAllowance +
+            plusDay +
             totalOvertime;
-          const newNetSalary = newTotalIncome - (Number(slip.deductions) || 0);
+
+          const totalDeductions =
+            (Number(detail.meal_deduction) || 0) +
+            (Number(detail.attendance_deduction) || 0) +
+            (Number(detail.discipline_deduction) || 0) +
+            (Number(detail.cash_bon ?? slip.deductions) || 0);
+
+          const newNetSalary = newTotalIncome - totalDeductions;
 
           await supabase
             .from('payslips')
@@ -619,10 +641,6 @@ export function AuthProvider({ children }) {
             })
             .eq('id', slip.id);
 
-          let detailsMap = {};
-          try {
-            detailsMap = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
-          } catch (e) {}
           detailsMap[slip.id] = {
             ...(detailsMap[slip.id] || {}),
             overtime_pay: totalOvertime,

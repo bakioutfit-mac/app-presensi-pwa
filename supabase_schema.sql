@@ -100,13 +100,16 @@ CREATE TABLE IF NOT EXISTS public.payslips (
     period VARCHAR(50) NOT NULL, -- e.g. 'Agustus 2026', 'September 2026'
     period_start DATE,
     period_end DATE,
-    -- 6 Komponen Pendapatan:
+    -- 7 Komponen Pendapatan (6 Komponen Pokok & Tunjangan + Lembur + Perbantuan +Day):
     basic_salary NUMERIC NOT NULL DEFAULT 3500000,
     child_allowance NUMERIC NOT NULL DEFAULT 0,
     spouse_allowance NUMERIC NOT NULL DEFAULT 0,
     position_allowance NUMERIC NOT NULL DEFAULT 0,
     meal_allowance NUMERIC NOT NULL DEFAULT 0,
     overtime_pay NUMERIC NOT NULL DEFAULT 0,
+    plus_day_count INTEGER NOT NULL DEFAULT 0, -- Jumlah hari kerja saat jadwal libur / event
+    plus_day_pay NUMERIC NOT NULL DEFAULT 0, -- Total uang perbantuan (+Day) fleksibel
+    plus_day_note TEXT, -- Catatan event/perbantuan
     -- 4 Komponen Potongan:
     meal_deduction NUMERIC NOT NULL DEFAULT 0,
     attendance_deduction NUMERIC NOT NULL DEFAULT 0,
@@ -116,7 +119,8 @@ CREATE TABLE IF NOT EXISTS public.payslips (
     net_salary NUMERIC NOT NULL DEFAULT 3500000,
     is_released BOOLEAN NOT NULL DEFAULT false, -- true = bisa dibuka staf, false = bergembok
     payment_date DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT unique_employee_period UNIQUE (employee_id, period)
 );
 
 -- 9. TABEL OVERTIMES (PENGAJUAN LEMBUR STAF DARI LEADER KE FINANCE)

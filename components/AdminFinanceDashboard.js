@@ -21,6 +21,8 @@ import {
   X,
   FileText,
   CheckCircle,
+  Edit3,
+  RefreshCw,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -81,18 +83,22 @@ export default function AdminFinanceDashboard({ onBack }) {
   const [salaryYear, setSalaryYear] = useState(() => String(new Date().getFullYear()));
 
   const [newSalary, setNewSalary] = useState({
+    existing_slip_id: null,
     employee_name: '',
     employee_id: null,
     branch: 'LazyBloom',
     period: `${MONTHS[new Date().getMonth()] || 'September'} ${new Date().getFullYear()}`,
-    // 6 Komponen Pendapatan
+    // Komponen Pendapatan
     basic_salary: 0,
     child_allowance: 0,
     spouse_allowance: 0,
     position_allowance: 0,
     meal_allowance: 0,
     overtime_pay: 0,
-    // 4 Komponen Potongan
+    plus_day_count: 0,
+    plus_day_pay: 0,
+    plus_day_note: '',
+    // Komponen Potongan
     meal_deduction: 0,
     attendance_deduction: 0,
     discipline_deduction: 0,
@@ -161,6 +167,9 @@ export default function AdminFinanceDashboard({ onBack }) {
               position_allowance: detail.position_allowance ?? 0,
               meal_allowance: detail.meal_allowance ?? p.attendance_allowance ?? 0,
               overtime_pay: detail.overtime_pay ?? p.overtime_pay ?? 0,
+              plus_day_count: detail.plus_day_count ?? p.plus_day_count ?? 0,
+              plus_day_pay: detail.plus_day_pay ?? p.plus_day_pay ?? 0,
+              plus_day_note: detail.plus_day_note ?? p.plus_day_note ?? '',
               meal_deduction: detail.meal_deduction ?? 0,
               attendance_deduction: detail.attendance_deduction ?? 0,
               discipline_deduction: detail.discipline_deduction ?? 0,
@@ -189,64 +198,150 @@ export default function AdminFinanceDashboard({ onBack }) {
     return () => window.removeEventListener('pwa_salary_package_updated', handlePackageUpdate);
   }, []);
 
+  // Helper mencari apakah staf sudah memiliki slip gaji di periode tertentu
+  const findExistingSlip = (empId, empName, targetPeriod) => {
+    return salaryList.find((slip) => {
+      const matchEmp = (empId && slip.employee_id === empId) || slip.employee_name === empName;
+      const matchPeriod = slip.period === targetPeriod;
+      return matchEmp && matchPeriod;
+    });
+  };
+
+  // Helper mengisi form slip gaji: Jika sudah ada slip di bulan tersebut, otomatis beralih ke Mode Edit (Opsi A)
+  const populateSalaryForm = (empName, branch, targetMonth, targetYear) => {
+    const staff = employeesList.find((e) => e.full_name === empName);
+    const empId = staff?.id || null;
+    const targetPeriod = `${targetMonth} ${targetYear}`;
+    const existingSlip = findExistingSlip(empId, empName, targetPeriod);
+
+    if (existingSlip) {
+      // 1. JIKA SUDAH ADA: Beralih ke Mode Edit (Opsi A: Mencegah Slip Ganda)
+      setNewSalary({
+        existing_slip_id: existingSlip.id,
+        employee_name: existingSlip.employee_name,
+        employee_id: existingSlip.employee_id,
+        branch: existingSlip.branch || branch,
+        period: targetPeriod,
+        basic_salary: existingSlip.basic_salary ?? 0,
+        child_allowance: existingSlip.child_allowance ?? 0,
+        spouse_allowance: existingSlip.spouse_allowance ?? 0,
+        position_allowance: existingSlip.position_allowance ?? 0,
+        meal_allowance: existingSlip.meal_allowance ?? 0,
+        overtime_pay: existingSlip.overtime_pay ?? 0,
+        plus_day_count: existingSlip.plus_day_count ?? 0,
+        plus_day_pay: existingSlip.plus_day_pay ?? 0,
+        plus_day_note: existingSlip.plus_day_note ?? '',
+        meal_deduction: existingSlip.meal_deduction ?? 0,
+        attendance_deduction: existingSlip.attendance_deduction ?? 0,
+        discipline_deduction: existingSlip.discipline_deduction ?? 0,
+        cash_bon: existingSlip.cash_bon ?? 0,
+        is_released: existingSlip.is_released ?? true,
+      });
+      return true;
+    } else {
+      // 2. JIKA BELUM ADA: Mode Buat Baru
+      const pkg = staff ? (employeeSalaries[staff.id] || employeeSalaries[staff.full_name] || null) : null;
+      const approvedOtSum = (overtimeRequests || [])
+        .filter((ot) => {
+          const matchEmp = (staff && ot.employee_id === staff.id) || ot.employee_name === empName;
+          const matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+          return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
+        })
+        .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
+
+      setNewSalary({
+        existing_slip_id: null,
+        employee_name: empName,
+        employee_id: empId,
+        branch: staff?.branch || branch,
+        period: targetPeriod,
+        basic_salary: pkg?.basic_salary ?? 0,
+        child_allowance: pkg?.child_allowance ?? 0,
+        spouse_allowance: pkg?.spouse_allowance ?? 0,
+        position_allowance: pkg?.position_allowance ?? 0,
+        meal_allowance: pkg?.meal_allowance ?? 0,
+        overtime_pay: approvedOtSum,
+        plus_day_count: 0,
+        plus_day_pay: 0,
+        plus_day_note: '',
+        meal_deduction: 0,
+        attendance_deduction: 0,
+        discipline_deduction: 0,
+        cash_bon: 0,
+        is_released: true,
+      });
+      return false;
+    }
+  };
+
   // Handler saat outlet di form slip gaji berubah
   const handleBranchChange = (newBranch) => {
     const staffInBranch = employeesList.filter(
       (e) => e.branch && e.branch.toLowerCase() === newBranch.toLowerCase()
     );
     const firstStaff = staffInBranch[0];
-    const pkg = firstStaff ? (employeeSalaries[firstStaff.id] || employeeSalaries[firstStaff.full_name] || null) : null;
-    const targetPeriod = `${salaryMonth} ${salaryYear}`;
-    const approvedOtSum = (overtimeRequests || [])
-      .filter((ot) => {
-        const matchEmp = (firstStaff && ot.employee_id === firstStaff.id) || (firstStaff && ot.employee_name === firstStaff.full_name);
-        const matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
-        return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
-      })
-      .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
-
-    setNewSalary((prev) => ({
-      ...prev,
-      branch: newBranch,
-      employee_name: firstStaff ? firstStaff.full_name : '',
-      employee_id: firstStaff ? firstStaff.id : null,
-      basic_salary: pkg?.basic_salary ?? 0,
-      child_allowance: pkg?.child_allowance ?? 0,
-      spouse_allowance: pkg?.spouse_allowance ?? 0,
-      position_allowance: pkg?.position_allowance ?? 0,
-      meal_allowance: pkg?.meal_allowance ?? 0,
-      overtime_pay: approvedOtSum > 0 ? approvedOtSum : 0,
-    }));
+    if (firstStaff) {
+      populateSalaryForm(firstStaff.full_name, newBranch, salaryMonth, salaryYear);
+    } else {
+      setNewSalary((prev) => ({
+        ...prev,
+        existing_slip_id: null,
+        branch: newBranch,
+        employee_name: '',
+        employee_id: null,
+        basic_salary: 0,
+        child_allowance: 0,
+        spouse_allowance: 0,
+        position_allowance: 0,
+        meal_allowance: 0,
+        overtime_pay: 0,
+        plus_day_count: 0,
+        plus_day_pay: 0,
+        plus_day_note: '',
+      }));
+    }
   };
 
   // Handler saat nama karyawan di dropdown form slip gaji dipilih
   const handleSelectEmployee = (empName) => {
-    const staff = employeesList.find((e) => e.full_name === empName);
-    const pkg = staff ? (employeeSalaries[staff.id] || employeeSalaries[staff.full_name] || null) : null;
-    const targetPeriod = `${salaryMonth} ${salaryYear}`;
-    const approvedOtSum = (overtimeRequests || [])
-      .filter((ot) => {
-        const matchEmp = (staff && ot.employee_id === staff.id) || ot.employee_name === empName;
-        const matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
-        return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
-      })
-      .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
-
-    setNewSalary((prev) => ({
-      ...prev,
-      employee_name: empName,
-      employee_id: staff?.id || null,
-      branch: staff?.branch || prev.branch,
-      basic_salary: pkg?.basic_salary ?? 0,
-      child_allowance: pkg?.child_allowance ?? 0,
-      spouse_allowance: pkg?.spouse_allowance ?? 0,
-      position_allowance: pkg?.position_allowance ?? 0,
-      meal_allowance: pkg?.meal_allowance ?? 0,
-      overtime_pay: approvedOtSum > 0 ? approvedOtSum : (prev.overtime_pay || 0),
-    }));
+    populateSalaryForm(empName, newSalary.branch, salaryMonth, salaryYear);
   };
 
-  // Kalkulasi total pendapatan
+  // Handler tombol [Edit] pada kartu slip gaji yang ada di daftar
+  const handleEditExistingSlip = (slip) => {
+    const parts = (slip.period || '').split(' ');
+    if (parts.length === 2) {
+      setSalaryMonth(parts[0]);
+      setSalaryYear(parts[1]);
+    }
+    setNewSalary({
+      existing_slip_id: slip.id,
+      employee_name: slip.employee_name,
+      employee_id: slip.employee_id,
+      branch: slip.branch,
+      period: slip.period,
+      basic_salary: slip.basic_salary ?? 0,
+      child_allowance: slip.child_allowance ?? 0,
+      spouse_allowance: slip.spouse_allowance ?? 0,
+      position_allowance: slip.position_allowance ?? 0,
+      meal_allowance: slip.meal_allowance ?? 0,
+      overtime_pay: slip.overtime_pay ?? 0,
+      plus_day_count: slip.plus_day_count ?? 0,
+      plus_day_pay: slip.plus_day_pay ?? 0,
+      plus_day_note: slip.plus_day_note ?? '',
+      meal_deduction: slip.meal_deduction ?? 0,
+      attendance_deduction: slip.attendance_deduction ?? 0,
+      discipline_deduction: slip.discipline_deduction ?? 0,
+      cash_bon: slip.cash_bon ?? 0,
+      is_released: slip.is_released ?? true,
+    });
+    setIsAddingSalary(true);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 300, behavior: 'smooth' });
+    }
+  };
+
+  // Kalkulasi total pendapatan (6 Komponen Tetap + Lembur + Perbantuan +Day)
   const calculateTotalIncome = (s) => {
     return (
       (Number(s.basic_salary) || 0) +
@@ -254,7 +349,8 @@ export default function AdminFinanceDashboard({ onBack }) {
       (Number(s.spouse_allowance) || 0) +
       (Number(s.position_allowance) || 0) +
       (Number(s.meal_allowance) || 0) +
-      (Number(s.overtime_pay) || 0)
+      (Number(s.overtime_pay) || 0) +
+      (Number(s.plus_day_pay) || 0)
     );
   };
 
@@ -293,32 +389,60 @@ export default function AdminFinanceDashboard({ onBack }) {
       Number(newSalary.spouse_allowance || 0) +
       Number(newSalary.position_allowance || 0);
 
-    let savedId = `sal_${Date.now()}`;
-    let remoteCreated = null;
+    // Cek apakah mode edit/update atau buat baru (Opsi A: Mencegah Slip Ganda)
+    const existingSlip = newSalary.existing_slip_id
+      ? salaryList.find((s) => s.id === newSalary.existing_slip_id)
+      : findExistingSlip(targetEmployee.id, targetEmployee.full_name, newSalary.period);
+
+    const isUpdate = !!existingSlip;
+    let savedId = existingSlip ? existingSlip.id : `sal_${Date.now()}`;
+    let remoteCreated = existingSlip?.created_at || null;
 
     try {
-      // 1. Simpan ke tabel payslips resmi di Supabase
-      const { data: inserted, error: insertErr } = await supabase
-        .from('payslips')
-        .insert({
-          employee_id: targetEmployee.id,
-          period: newSalary.period,
-          basic_salary: Number(newSalary.basic_salary || 0),
-          attendance_allowance: Number(newSalary.meal_allowance || 0),
-          transport_allowance: totalAllowances,
-          overtime_pay: Number(newSalary.overtime_pay || 0),
-          deductions: totalDeductions,
-          net_salary: net,
-          is_released: Boolean(newSalary.is_released),
-        })
-        .select('*, employees(full_name, branch)')
-        .single();
+      if (isUpdate) {
+        // UPDATE SLIP YANG SUDAH ADA (TIDAK MEMBUAT DUPLIKAT)
+        await supabase
+          .from('payslips')
+          .update({
+            basic_salary: Number(newSalary.basic_salary || 0),
+            attendance_allowance: Number(newSalary.meal_allowance || 0),
+            transport_allowance: totalAllowances,
+            overtime_pay: Number(newSalary.overtime_pay || 0),
+            plus_day_count: Number(newSalary.plus_day_count || 0),
+            plus_day_pay: Number(newSalary.plus_day_pay || 0),
+            plus_day_note: newSalary.plus_day_note || null,
+            deductions: totalDeductions,
+            net_salary: net,
+            is_released: Boolean(newSalary.is_released),
+          })
+          .eq('id', savedId);
+      } else {
+        // INSERT SLIP BARU
+        const { data: inserted, error: insertErr } = await supabase
+          .from('payslips')
+          .insert({
+            employee_id: targetEmployee.id,
+            period: newSalary.period,
+            basic_salary: Number(newSalary.basic_salary || 0),
+            attendance_allowance: Number(newSalary.meal_allowance || 0),
+            transport_allowance: totalAllowances,
+            overtime_pay: Number(newSalary.overtime_pay || 0),
+            plus_day_count: Number(newSalary.plus_day_count || 0),
+            plus_day_pay: Number(newSalary.plus_day_pay || 0),
+            plus_day_note: newSalary.plus_day_note || null,
+            deductions: totalDeductions,
+            net_salary: net,
+            is_released: Boolean(newSalary.is_released),
+          })
+          .select('*, employees(full_name, branch)')
+          .single();
 
-      if (!insertErr && inserted) {
-        savedId = inserted.id;
-        remoteCreated = inserted.created_at;
-      } else if (insertErr) {
-        console.warn('Supabase payslips insert error:', insertErr);
+        if (!insertErr && inserted) {
+          savedId = inserted.id;
+          remoteCreated = inserted.created_at;
+        } else if (insertErr) {
+          console.warn('Supabase payslips insert error:', insertErr);
+        }
       }
     } catch (err) {
       console.warn('Payslip sync catch error:', err);
@@ -336,6 +460,9 @@ export default function AdminFinanceDashboard({ onBack }) {
       position_allowance: Number(newSalary.position_allowance || 0),
       meal_allowance: Number(newSalary.meal_allowance || 0),
       overtime_pay: Number(newSalary.overtime_pay || 0),
+      plus_day_count: Number(newSalary.plus_day_count || 0),
+      plus_day_pay: Number(newSalary.plus_day_pay || 0),
+      plus_day_note: newSalary.plus_day_note || '',
       meal_deduction: Number(newSalary.meal_deduction || 0),
       attendance_deduction: Number(newSalary.attendance_deduction || 0),
       discipline_deduction: Number(newSalary.discipline_deduction || 0),
@@ -345,7 +472,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       created_at: remoteCreated || new Date().toISOString(),
     };
 
-    // 2. Simpan rincian 10 komponen ke persistent cache (localStorage & cloud admin_settings)
+    // 2. Simpan rincian 11 komponen ke persistent cache (localStorage & cloud admin_settings)
     try {
       let savedDetails = {};
       if (typeof window !== 'undefined') {
@@ -370,11 +497,24 @@ export default function AdminFinanceDashboard({ onBack }) {
       console.warn('Save persistent payslip details fallback:', e);
     }
 
-    setSalaryList((prev) => [item, ...prev.filter((s) => s.id !== savedId)]);
+    setSalaryList((prev) => [
+      item,
+      ...prev.filter((s) => {
+        if (s.id === savedId) return false;
+        const sameEmp =
+          (s.employee_id && item.employee_id && s.employee_id === item.employee_id) ||
+          s.employee_name === item.employee_name;
+        const samePeriod = s.period === item.period;
+        if (sameEmp && samePeriod) return false;
+        return true;
+      }),
+    ]);
     setIsAddingSalary(false);
     setSalaryMsg({
       type: 'success',
-      text: `Slip gaji ${item.employee_name} (${item.period}) berhasil disimpan & dihitung bersih!`,
+      text: isUpdate
+        ? `Slip gaji ${item.employee_name} (${item.period}) berhasil DIPERBARUI (data disinkronkan)!`
+        : `Slip gaji ${item.employee_name} (${item.period}) berhasil DITERBITKAN!`,
     });
     setTimeout(() => setSalaryMsg({ type: '', text: '' }), 4000);
   };
@@ -922,15 +1062,25 @@ export default function AdminFinanceDashboard({ onBack }) {
               </div>
             )}
 
-            {/* Form Tambah Slip Gaji Baru (10 Komponen) */}
+            {/* Form Tambah / Edit Slip Gaji (11 Komponen Resmi) */}
             {isAddingSalary && (
               <form onSubmit={handleSaveSalary} className="p-4 bg-slate-50/80 border border-blue-200 rounded-2xl space-y-4 animate-in fade-in">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                   <h5 className="font-black text-xs text-[#2563EB] flex items-center gap-1.5">
-                    <span>Form Input Slip Gaji (10 Komponen Resmi)</span>
+                    <span>
+                      {newSalary.existing_slip_id
+                        ? 'Form Edit / Perbarui Slip Gaji (Mode Update)'
+                        : 'Form Input Slip Gaji (11 Komponen Resmi)'}
+                    </span>
                   </h5>
-                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
-                    Sesuai Standar Outlet
+                  <span
+                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                      newSalary.existing_slip_id
+                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    {newSalary.existing_slip_id ? 'Slip Sudah Ada (Edit)' : 'Slip Baru'}
                   </span>
                 </div>
 
@@ -966,11 +1116,18 @@ export default function AdminFinanceDashboard({ onBack }) {
                             required
                           >
                             <option value="">-- Pilih Karyawan {newSalary.branch} --</option>
-                            {filteredStaff.map((emp) => (
-                              <option key={emp.id} value={emp.full_name}>
-                                {emp.full_name} ({emp.position || 'Staff'})
-                              </option>
-                            ))}
+                            {filteredStaff.map((emp) => {
+                              const alreadyHasSlip = salaryList.some(
+                                (s) =>
+                                  (s.employee_id === emp.id || s.employee_name === emp.full_name) &&
+                                  s.period === `${salaryMonth} ${salaryYear}`
+                              );
+                              return (
+                                <option key={emp.id} value={emp.full_name}>
+                                  {emp.full_name} ({emp.position || 'Staff'}) {alreadyHasSlip ? '• [Ada Slip]' : ''}
+                                </option>
+                              );
+                            })}
                           </select>
                         </>
                       );
@@ -982,8 +1139,13 @@ export default function AdminFinanceDashboard({ onBack }) {
                       <select
                         value={salaryMonth}
                         onChange={(e) => {
-                          setSalaryMonth(e.target.value);
-                          setNewSalary((prev) => ({ ...prev, period: `${e.target.value} ${salaryYear}` }));
+                          const m = e.target.value;
+                          setSalaryMonth(m);
+                          if (newSalary.employee_name) {
+                            populateSalaryForm(newSalary.employee_name, newSalary.branch, m, salaryYear);
+                          } else {
+                            setNewSalary((prev) => ({ ...prev, period: `${m} ${salaryYear}` }));
+                          }
                         }}
                         className="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs text-slate-800 font-semibold cursor-pointer"
                       >
@@ -996,8 +1158,13 @@ export default function AdminFinanceDashboard({ onBack }) {
                       <select
                         value={salaryYear}
                         onChange={(e) => {
-                          setSalaryYear(e.target.value);
-                          setNewSalary((prev) => ({ ...prev, period: `${salaryMonth} ${e.target.value}` }));
+                          const y = e.target.value;
+                          setSalaryYear(y);
+                          if (newSalary.employee_name) {
+                            populateSalaryForm(newSalary.employee_name, newSalary.branch, salaryMonth, y);
+                          } else {
+                            setNewSalary((prev) => ({ ...prev, period: `${salaryMonth} ${y}` }));
+                          }
                         }}
                         className="w-full bg-white border border-slate-300 rounded-xl px-2 py-1.5 text-xs text-slate-800 font-semibold cursor-pointer"
                       >
@@ -1011,20 +1178,33 @@ export default function AdminFinanceDashboard({ onBack }) {
                   </div>
                 </div>
 
-                {newSalary.employee_name && (
-                  <div className="p-2 rounded-xl bg-blue-50 border border-blue-200 text-[10px] text-blue-900 flex items-center justify-between">
+                {/* Banner Status Mode Input vs Edit */}
+                {newSalary.existing_slip_id ? (
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-[11px] text-amber-900 flex items-start gap-2.5 shadow-xs">
+                    <RefreshCw className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 animate-spin-reverse" />
+                    <div>
+                      <span className="font-black block text-amber-900">
+                        Mode Edit / Perbarui Aktif (Pencegahan Slip Ganda)
+                      </span>
+                      <p className="text-[10px] text-amber-800 leading-relaxed mt-0.5">
+                        Slip gaji periode <strong>{newSalary.period}</strong> untuk <strong>{newSalary.employee_name}</strong> sudah pernah diterbitkan. Data di bawah otomatis dimuat dari slip sebelumnya. Perubahan akan <strong>memperbarui slip yang tersimpan</strong> dan tidak akan membuat data ganda.
+                      </p>
+                    </div>
+                  </div>
+                ) : newSalary.employee_name ? (
+                  <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-[10px] text-blue-900 flex items-center justify-between">
                     <span>
-                      ✨ Paket gaji otomatis terisi dari data karyawan. Admin Finance cukup menginput <strong>Lembur</strong>.
+                      ✨ Paket gaji otomatis terisi. Finance cukup cek <strong>Lembur</strong> atau <strong>+Day (Perbantuan)</strong> jika ada.
                     </span>
                     <span className="font-bold text-blue-700">{newSalary.employee_name}</span>
                   </div>
-                )}
+                ) : null}
 
-                {/* 1. BAGIAN PENDAPATAN (6 KOMPONEN) */}
+                {/* 1. BAGIAN PENDAPATAN (7 KOMPONEN: 5 POKOK/TUNJANGAN + LEMBUR + PERBANTUAN +DAY) */}
                 <div className="p-3 bg-white rounded-xl border border-blue-100 space-y-2">
                   <div className="flex items-center justify-between pb-1 border-b border-blue-50">
                     <span className="text-[11px] font-black uppercase text-[#2563EB] tracking-wider">
-                      1. Penghasilan / Pendapatan (6 Komponen)
+                      1. Penghasilan / Pendapatan (7 Komponen)
                     </span>
                     <span className="text-[10px] font-bold text-[#2563EB]">
                       Subtotal: {formatRupiah(calculateTotalIncome(newSalary))}
@@ -1079,13 +1259,71 @@ export default function AdminFinanceDashboard({ onBack }) {
                       />
                     </div>
                     <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Uang Lembur</label>
+                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Uang Lembur (Jam)</label>
                       <CurrencyInput
                         value={newSalary.overtime_pay}
                         onChange={(val) => setNewSalary({ ...newSalary, overtime_pay: val })}
                         className="w-full bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-lg px-2 py-1 text-xs font-bold"
                         placeholder="Rp 0"
                       />
+                    </div>
+
+                    {/* Komponen Khusus: Perbantuan Hari Libur / Event (+Day) */}
+                    <div className="col-span-2 sm:col-span-3 pt-2 border-t border-blue-100">
+                      <div className="bg-blue-50/60 p-3 rounded-xl border border-blue-200/80 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black text-blue-900 flex items-center gap-1.5">
+                            <Plus className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Perbantuan Hari Libur / Event (+Day)</span>
+                          </span>
+                          <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
+                            Tarif Fleksibel Sesuai Event &amp; Posisi
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-600 mb-0.5">
+                              Jumlah Hari (+Day)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={newSalary.plus_day_count || 0}
+                              onChange={(e) =>
+                                setNewSalary({
+                                  ...newSalary,
+                                  plus_day_count: Math.max(0, parseInt(e.target.value) || 0),
+                                })
+                              }
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-900"
+                              placeholder="0 Hari"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-600 mb-0.5">
+                              Total Uang Perbantuan (Rp)
+                            </label>
+                            <CurrencyInput
+                              value={newSalary.plus_day_pay}
+                              onChange={(val) => setNewSalary({ ...newSalary, plus_day_pay: val })}
+                              className="w-full bg-white border border-emerald-300 rounded-lg px-2.5 py-1 text-xs font-black text-emerald-700"
+                              placeholder="Rp 0"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-600 mb-0.5">
+                              Keterangan Event / Posisi (Opsional)
+                            </label>
+                            <input
+                              type="text"
+                              value={newSalary.plus_day_note || ''}
+                              onChange={(e) => setNewSalary({ ...newSalary, plus_day_note: e.target.value })}
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-slate-800"
+                              placeholder="Contoh: Event Musik Weekend Deru Ombak"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1204,9 +1442,23 @@ export default function AdminFinanceDashboard({ onBack }) {
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-1.5 rounded-xl text-xs bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-black shadow-xs transition"
+                    className={`px-4 py-1.5 rounded-xl text-xs font-black shadow-xs transition flex items-center gap-1.5 cursor-pointer ${
+                      newSalary.existing_slip_id
+                        ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                        : 'bg-[#2563EB] hover:bg-[#1D4ED8] text-white'
+                    }`}
                   >
-                    Simpan &amp; Terbitkan Slip
+                    {newSalary.existing_slip_id ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Perbarui Slip Gaji Ini</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Simpan &amp; Terbitkan Slip</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -1256,12 +1508,17 @@ export default function AdminFinanceDashboard({ onBack }) {
                       className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:border-slate-300 transition shadow-xs"
                     >
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <h5 className="text-xs font-black text-slate-900">{slip.employee_name}</h5>
                           <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
                             {slip.branch}
                           </span>
                           <span className="text-[10px] text-slate-500 font-medium">• {slip.period}</span>
+                          {(Number(slip.plus_day_pay) > 0 || Number(slip.plus_day_count) > 0) && (
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              +Day: {slip.plus_day_count || 0} Hari (+Rp {Number(slip.plus_day_pay || 0).toLocaleString('id-ID')})
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-[11px]">
                           <span className="font-black text-sm text-[#2563EB]">
@@ -1274,6 +1531,16 @@ export default function AdminFinanceDashboard({ onBack }) {
                       </div>
 
                       <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => handleEditExistingSlip(slip)}
+                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-xs cursor-pointer"
+                          title="Edit / Sesuaikan Slip Gaji Ini"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Edit</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleToggleRelease(slip.id, slip.is_released)}

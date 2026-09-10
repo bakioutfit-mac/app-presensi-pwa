@@ -59,6 +59,9 @@ export default function PayslipTab() {
               position_allowance: detail.position_allowance ?? 0,
               meal_allowance: detail.meal_allowance ?? p.attendance_allowance ?? 0,
               overtime_pay: detail.overtime_pay ?? p.overtime_pay ?? 0,
+              plus_day_count: detail.plus_day_count ?? p.plus_day_count ?? 0,
+              plus_day_pay: detail.plus_day_pay ?? p.plus_day_pay ?? 0,
+              plus_day_note: detail.plus_day_note ?? p.plus_day_note ?? '',
               meal_deduction: detail.meal_deduction ?? 0,
               attendance_deduction: detail.attendance_deduction ?? 0,
               discipline_deduction: detail.discipline_deduction ?? 0,
@@ -144,7 +147,8 @@ export default function PayslipTab() {
             (Number(slip.spouse_allowance) || 0) +
             (Number(slip.position_allowance) || 0) +
             (Number(slip.meal_allowance) || 0) +
-            (Number(slip.overtime_pay) || 0);
+            (Number(slip.overtime_pay) || 0) +
+            (Number(slip.plus_day_pay) || 0);
 
           const totalDeductions =
             (Number(slip.meal_deduction) || 0) +
@@ -288,6 +292,22 @@ export default function PayslipTab() {
                         +{formatRupiah(slip.overtime_pay)}
                       </span>
                     </div>
+
+                    {(Number(slip.plus_day_pay) > 0 || Number(slip.plus_day_count) > 0) && (
+                      <div className="flex justify-between text-xs text-slate-700 pt-1 border-t border-blue-100/60">
+                        <div>
+                          <span className="font-bold text-blue-900 flex items-center gap-1">
+                            <span>Perbantuan (+Day)</span>
+                          </span>
+                          <span className="text-[10px] text-blue-600 block font-medium">
+                            {slip.plus_day_count || 0} Hari {slip.plus_day_note ? `• ${slip.plus_day_note}` : 'Perbantuan Libur/Event'}
+                          </span>
+                        </div>
+                        <span className="font-semibold text-emerald-600">
+                          +{formatRupiah(slip.plus_day_pay)}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* 2. Komponen Potongan (4) */}
