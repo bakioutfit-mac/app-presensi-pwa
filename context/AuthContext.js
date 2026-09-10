@@ -64,6 +64,91 @@ export function AuthProvider({ children }) {
   // State pengajuan lembur dari Admin Leader ke Admin Finance
   const [overtimeRequests, setOvertimeRequests] = useState([]);
 
+  // 1. Sinkronisasi daftar pengajuan lembur dari Cloud (Supabase overtimes / admin_settings)
+  const loadOvertimeRequests = async () => {
+    let allRequests = [];
+
+    // Coba ambil dari tabel overtimes jika tabel sudah ada di Supabase
+    try {
+      const { data: otRows, error: otErr } = await supabase
+        .from('overtimes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!otErr && otRows && otRows.length > 0) {
+        allRequests = otRows;
+      }
+    } catch (e) {}
+
+    // Ambil sinkronisasi dari admin_settings (role: 'overtime_requests')
+    try {
+      const { data: settingRow } = await supabase
+        .from('admin_settings')
+        .select('description')
+        .eq('role', 'overtime_requests')
+        .maybeSingle();
+
+      if (settingRow?.description) {
+        const parsed = JSON.parse(settingRow.description);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingIds = new Set(allRequests.map((r) => r.id));
+          parsed.forEach((item) => {
+            if (!existingIds.has(item.id)) {
+              allRequests.push(item);
+              existingIds.add(item.id);
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // Fallback localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const local = JSON.parse(localStorage.getItem('pwa_overtime_requests') || '[]');
+        if (Array.isArray(local) && local.length > 0) {
+          const existingIds = new Set(allRequests.map((r) => r.id));
+          local.forEach((item) => {
+            if (!existingIds.has(item.id)) {
+              allRequests.push(item);
+              existingIds.add(item.id);
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
+    allRequests.sort(
+      (a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime()
+    );
+
+    setOvertimeRequests(allRequests);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pwa_overtime_requests', JSON.stringify(allRequests));
+    }
+    return allRequests;
+  };
+
+  // Helper sinkronisasi state lembur ke cloud (admin_settings & localStorage)
+  const syncOvertimeToCloud = async (requestsList) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pwa_overtime_requests', JSON.stringify(requestsList));
+    }
+    try {
+      await supabase.from('admin_settings').upsert(
+        {
+          role: 'overtime_requests',
+          pin: '000000',
+          name: 'Daftar Pengajuan Lembur',
+          description: JSON.stringify(requestsList),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'role' }
+      );
+    } catch (e) {
+      console.warn('Sync overtimes to admin_settings error:', e);
+    }
+  };
+
   // Initialize session and admin PINs on mount
   useEffect(() => {
     try {
@@ -495,90 +580,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // 1. Sinkronisasi daftar pengajuan lembur dari Cloud (Supabase overtimes / admin_settings)
-  const loadOvertimeRequests = async () => {
-    let allRequests = [];
 
-    // Coba ambil dari tabel overtimes jika tabel sudah ada di Supabase
-    try {
-      const { data: otRows, error: otErr } = await supabase
-        .from('overtimes')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!otErr && otRows && otRows.length > 0) {
-        allRequests = otRows;
-      }
-    } catch (e) {}
-
-    // Ambil sinkronisasi dari admin_settings (role: 'overtime_requests')
-    try {
-      const { data: settingRow } = await supabase
-        .from('admin_settings')
-        .select('description')
-        .eq('role', 'overtime_requests')
-        .maybeSingle();
-
-      if (settingRow?.description) {
-        const parsed = JSON.parse(settingRow.description);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const existingIds = new Set(allRequests.map((r) => r.id));
-          parsed.forEach((item) => {
-            if (!existingIds.has(item.id)) {
-              allRequests.push(item);
-              existingIds.add(item.id);
-            }
-          });
-        }
-      }
-    } catch (e) {}
-
-    // Fallback localStorage
-    if (typeof window !== 'undefined') {
-      try {
-        const local = JSON.parse(localStorage.getItem('pwa_overtime_requests') || '[]');
-        if (Array.isArray(local) && local.length > 0) {
-          const existingIds = new Set(allRequests.map((r) => r.id));
-          local.forEach((item) => {
-            if (!existingIds.has(item.id)) {
-              allRequests.push(item);
-              existingIds.add(item.id);
-            }
-          });
-        }
-      } catch (e) {}
-    }
-
-    allRequests.sort(
-      (a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime()
-    );
-
-    setOvertimeRequests(allRequests);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('pwa_overtime_requests', JSON.stringify(allRequests));
-    }
-    return allRequests;
-  };
-
-  // Helper sinkronisasi state lembur ke cloud (admin_settings & localStorage)
-  const syncOvertimeToCloud = async (requestsList) => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('pwa_overtime_requests', JSON.stringify(requestsList));
-    }
-    try {
-      await supabase.from('admin_settings').upsert(
-        {
-          role: 'overtime_requests',
-          pin: '000000',
-          name: 'Daftar Pengajuan Lembur',
-          description: JSON.stringify(requestsList),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'role' }
-      );
-    } catch (e) {
-      console.warn('Sync overtimes to admin_settings error:', e);
-    }
-  };
 
   // Helper akumulasi lembur disetujui otomatis ke slip gaji karyawan pada bulan terkait
   const syncOvertimeToEmployeePayslip = async (otRecord, currentAllOts = null) => {
