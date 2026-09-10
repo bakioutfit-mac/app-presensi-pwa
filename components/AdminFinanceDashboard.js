@@ -23,12 +23,14 @@ import {
   CheckCircle,
   Edit3,
   RefreshCw,
+  Printer,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import SupabaseTableEditor from './SupabaseTableEditor';
 import { formatRupiah, CurrencyInput, fetchEmployeeSalaries } from '@/lib/currency';
 import { getPeriodFromDate } from '@/lib/date';
+import PayslipPrintModal from './PayslipPrintModal';
 
 const MONTHS = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -47,6 +49,7 @@ export default function AdminFinanceDashboard({ onBack }) {
   } = useAuth();
   const [financeTab, setFinanceTab] = useState('payroll'); // 'payroll' | 'gpsConfig' | 'tableEditor'
   const [payrollSubTab, setPayrollSubTab] = useState('manage'); // 'manage' | 'overtime'
+  const [printModalSlip, setPrintModalSlip] = useState(null);
 
   // Modal Penolakan Lembur
   const [rejectModal, setRejectModal] = useState({
@@ -1674,6 +1677,16 @@ export default function AdminFinanceDashboard({ onBack }) {
                       <div className="flex items-center gap-2 self-end sm:self-auto">
                         <button
                           type="button"
+                          onClick={() => setPrintModalSlip(slip)}
+                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition flex items-center gap-1 shadow-xs cursor-pointer"
+                          title="Pratinjau & Cetak Slip PDF Resmi"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Cetak</span>
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => handleEditExistingSlip(slip)}
                           className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-xs cursor-pointer"
                           title="Edit / Sesuaikan Slip Gaji Ini"
@@ -1973,6 +1986,36 @@ export default function AdminFinanceDashboard({ onBack }) {
           </div>
         </div>
       )}
+
+      {/* Modal Pratinjau & Cetak Slip Gaji Resmi Kop 3 Pillar (Admin Finance) */}
+      <PayslipPrintModal
+        isOpen={!!printModalSlip}
+        onClose={() => setPrintModalSlip(null)}
+        slip={printModalSlip}
+        user={null}
+        approvedOvertimes={
+          printModalSlip
+            ? (overtimeRequests || []).filter(
+                (ot) =>
+                  ((printModalSlip.employee_id && ot.employee_id === printModalSlip.employee_id) ||
+                    ot.employee_name === printModalSlip.employee_name) &&
+                  getPeriodFromDate(ot.date) === printModalSlip.period &&
+                  ot.status === 'Disetujui Finance'
+              )
+            : []
+        }
+        rejectedOvertimes={
+          printModalSlip
+            ? (overtimeRequests || []).filter(
+                (ot) =>
+                  ((printModalSlip.employee_id && ot.employee_id === printModalSlip.employee_id) ||
+                    ot.employee_name === printModalSlip.employee_name) &&
+                  getPeriodFromDate(ot.date) === printModalSlip.period &&
+                  ot.status === 'Ditolak Finance'
+              )
+            : []
+        }
+      />
     </div>
   );
 }
