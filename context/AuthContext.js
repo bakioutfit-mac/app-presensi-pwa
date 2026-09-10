@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { OUTLETS, getOutletByName, saveOutletsConfig } from '@/lib/outlets';
+import { getLocalDateString } from '@/lib/date';
 
 const AuthContext = createContext(null);
 
@@ -139,28 +140,55 @@ export function AuthProvider({ children }) {
   // Fetch today's attendance for the logged-in user
   const loadAttendanceAndLeave = async (employee) => {
     if (!employee) return;
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
 
     // Supabase query jika user id berformat valid UUID
     if (isValidUUID(employee.id)) {
       try {
-        const { data: attData, error: attError } = await supabase
+        let attData = null;
+        const { data, error: attError } = await supabase
           .from('attendance')
           .select('*')
           .eq('employee_id', employee.id)
           .eq('attendance_date', todayStr)
           .maybeSingle();
 
-        if (!attError) {
-          if (attData) {
-            setTodayAttendance(attData);
-            localStorage.setItem('pwa_today_attendance', JSON.stringify(attData));
-          } else {
-            // Cek apakah local storage masih memiliki data presensi hari ini untuk user ini
-            const stored = localStorage.getItem('pwa_today_attendance');
-            if (stored) {
+        if (!attError && data) {
+          attData = data;
+        } else if (!attError && !data) {
+          // Fallback: cek jika ada presensi aktif yang belum checkout dalam 20 jam terakhir
+          const { data: openAtt } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('employee_id', employee.id)
+            .is('check_out_time', null)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (openAtt && openAtt.check_in_time) {
+            const checkInTime = new Date(openAtt.check_in_time).getTime();
+            const hoursSince = (Date.now() - checkInTime) / (1000 * 60 * 60);
+            if (hoursSince >= 0 && hoursSince < 20) {
+              attData = openAtt;
+            }
+          }
+        }
+
+        if (attData) {
+          setTodayAttendance(attData);
+          localStorage.setItem('pwa_today_attendance', JSON.stringify(attData));
+        } else {
+          // Cek apakah local storage masih memiliki data presensi hari ini untuk user ini
+          const stored = localStorage.getItem('pwa_today_attendance');
+          if (stored) {
+            try {
               const parsed = JSON.parse(stored);
-              if (parsed.attendance_date === todayStr && parsed.employee_id === employee.id && parsed.check_in_time) {
+              const isSameDay = parsed.attendance_date === todayStr;
+              const isRecentOpen = !parsed.check_out_time && parsed.check_in_time &&
+                ((Date.now() - new Date(parsed.check_in_time).getTime()) / (1000 * 60 * 60) < 20);
+
+              if ((isSameDay || isRecentOpen) && parsed.employee_id === employee.id && parsed.check_in_time) {
                 setTodayAttendance(parsed);
                 // Sinkronkan ke Supabase
                 const cleanPayload = {
@@ -183,9 +211,12 @@ export function AuthProvider({ children }) {
                 setTodayAttendance(null);
                 localStorage.removeItem('pwa_today_attendance');
               }
-            } else {
+            } catch (e) {
               setTodayAttendance(null);
+              localStorage.removeItem('pwa_today_attendance');
             }
+          } else {
+            setTodayAttendance(null);
           }
         }
 
@@ -417,7 +448,7 @@ export function AuthProvider({ children }) {
     setTodayAttendance(null);
     localStorage.removeItem('pwa_today_attendance');
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
       const storedHistory = localStorage.getItem('pwa_attendance_history');
       if (storedHistory) {
         let historyList = JSON.parse(storedHistory);
@@ -474,7 +505,7 @@ export function AuthProvider({ children }) {
   const recordAttendance = async ({ type, photoUrl, coords, outletName, scheduledShift }) => {
     if (!user) return { success: false, error: 'Belum login.' };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -632,7 +663,7 @@ export function AuthProvider({ children }) {
   const submitLeave = async (leaveData) => {
     if (!user) return { success: false, error: 'Belum login.' };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const newLeave = {
       employee_id: user.id,
       leave_type: leaveData.leave_type,

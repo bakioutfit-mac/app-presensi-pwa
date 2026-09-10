@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { getLocalDateString, parseLocalDate } from '@/lib/date';
 
 export default function AttendanceHistoryTab() {
   const { user, todayAttendance } = useAuth();
@@ -21,7 +22,7 @@ export default function AttendanceHistoryTab() {
 
 
   const mapAttendanceItem = (item) => {
-    const dateObj = new Date(item.attendance_date);
+    const dateObj = parseLocalDate(item.attendance_date);
     const dayName = !isNaN(dateObj.getTime())
       ? dateObj.toLocaleDateString('id-ID', { weekday: 'long' })
       : 'Hari Kerja';
@@ -121,12 +122,12 @@ export default function AttendanceHistoryTab() {
       }
 
       if (currentToday && (currentToday.check_in_time || currentToday.check_out_time)) {
-        const todayStr = currentToday.attendance_date || new Date().toISOString().split('T')[0];
+        const todayStr = currentToday.attendance_date || getLocalDateString();
         const formattedToday = mapAttendanceItem(currentToday);
 
         const existingIdx = baseList.findIndex((item) => {
           if (item.raw_date && item.raw_date === todayStr) return true;
-          const dateObj = new Date(todayStr);
+          const dateObj = parseLocalDate(todayStr);
           const fDate = !isNaN(dateObj.getTime())
             ? dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
             : todayStr;

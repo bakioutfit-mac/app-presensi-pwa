@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, UserCheck, Shirt } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { getLocalDateString } from '@/lib/date';
 
 export default function ShiftScheduleTab() {
   const { user } = useAuth();
@@ -29,7 +30,7 @@ export default function ShiftScheduleTab() {
         for (let i = 0; i < 7; i++) {
           const dateObj = new Date();
           dateObj.setDate(dateObj.getDate() + i);
-          const dateStr = dateObj.toISOString().split('T')[0];
+          const dateStr = getLocalDateString(dateObj);
           const dayOfWeek = dateObj.getDay(); // 0 = Min, 1 = Sen, ..., 4 = Kam, 5 = Jum, 6 = Sab
           const dayName = dateObj.toLocaleDateString('id-ID', { weekday: 'long' });
           const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4; // Senin s/d Kamis

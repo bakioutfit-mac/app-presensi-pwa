@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { getLocalDateString } from '@/lib/date';
 
 const MONTH_NAMES = [
   'Januari',
@@ -57,7 +58,7 @@ export default function AdminLeaderDashboard({ onBack }) {
     'Libur / Off',
   ];
 
-  const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
+  const [assignDate, setAssignDate] = useState(getLocalDateString());
   const [assignShift, setAssignShift] = useState(SHIFT_OPTIONS[0]);
   const [assignDresscode, setAssignDresscode] = useState('Kaos Hitam');
   const [staffList, setStaffList] = useState([]);
@@ -68,9 +69,7 @@ export default function AdminLeaderDashboard({ onBack }) {
   const [allShifts, setAllShifts] = useState([]);
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
-  const [selectedCalDate, setSelectedCalDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [selectedCalDate, setSelectedCalDate] = useState(getLocalDateString());
 
   const fetchAllShifts = async () => {
     try {
@@ -108,7 +107,7 @@ export default function AdminLeaderDashboard({ onBack }) {
     const now = new Date();
     setCalYear(now.getFullYear());
     setCalMonth(now.getMonth());
-    const todayStr = now.toISOString().split('T')[0];
+    const todayStr = getLocalDateString(now);
     setSelectedCalDate(todayStr);
     setAssignDate(todayStr);
   };
@@ -210,7 +209,7 @@ export default function AdminLeaderDashboard({ onBack }) {
           );
         }
 
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         const { data: atts } = await supabase
           .from('attendance')
           .select('*, employees(full_name, position)')
@@ -279,7 +278,7 @@ export default function AdminLeaderDashboard({ onBack }) {
 
   // 3. PENGAJUAN LEMBUR STAF (Leader ke Finance)
   const [otForm, setOtForm] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     hours: 2,
     reason: 'Event Weekend & Closing Store',
   });
@@ -889,7 +888,7 @@ export default function AdminLeaderDashboard({ onBack }) {
                   const dayNum = i + 1;
                   const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
                   const isSelected = dateStr === selectedCalDate;
-                  const isToday = dateStr === new Date().toISOString().split('T')[0];
+                  const isToday = dateStr === getLocalDateString();
 
                   const shiftsOnDate = allShifts.filter((s) => s.shift_date === dateStr);
                   const hasWorking = shiftsOnDate.some(

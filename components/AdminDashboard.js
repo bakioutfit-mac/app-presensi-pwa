@@ -19,6 +19,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import SupabaseTableEditor from './SupabaseTableEditor';
+import { getLocalDateString } from '@/lib/date';
 
 export default function AdminDashboard({ onBack }) {
   const { user } = useAuth();
@@ -26,7 +27,7 @@ export default function AdminDashboard({ onBack }) {
   const [selectedOutletFilter, setSelectedOutletFilter] = useState('all'); // 'all' | 'LazyBloom' | 'Deru Ombak' | 'Sea Cafe'
 
   // ================= 1. TAB PENUGASAN SHIFT =================
-  const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
+  const [assignDate, setAssignDate] = useState(getLocalDateString());
   const [assignShift, setAssignShift] = useState('Shift Pagi (08:00 - 16:00)');
   const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
@@ -50,7 +51,7 @@ export default function AdminDashboard({ onBack }) {
           );
         }
 
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         const { data: atts } = await supabase
           .from('attendance')
           .select('*, employees(full_name, position)')

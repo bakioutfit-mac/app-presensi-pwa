@@ -4,12 +4,13 @@ import React, { useState, useRef } from 'react';
 import { X, FileText, Upload, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { uploadLeaveDocument } from '@/lib/storage';
+import { getLocalDateString } from '@/lib/date';
 
 export default function LeaveModal({ isOpen, onClose }) {
   const { user, submitLeave } = useAuth();
   const [leaveType, setLeaveType] = useState('Sakit');
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(getLocalDateString());
+  const [endDate, setEndDate] = useState(getLocalDateString());
   const [lateDuration, setLateDuration] = useState('45');
   const [reason, setReason] = useState('');
   const [file, setFile] = useState(null);
