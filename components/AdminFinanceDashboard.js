@@ -124,7 +124,7 @@ export default function AdminFinanceDashboard({ onBack }) {
         const pkgs = await fetchEmployeeSalaries();
         setEmployeeSalaries(pkgs || {});
 
-        // 3. Muat cache detail 10 komponen payslip
+        // 3. Muat cache detail 11 komponen payslip
         let detailsMap = {};
         if (typeof window !== 'undefined') {
           try {
@@ -139,12 +139,68 @@ export default function AdminFinanceDashboard({ onBack }) {
             .single();
           if (detailRow && detailRow.description) {
             const remoteDetails = JSON.parse(detailRow.description);
+            // Remote details adalah sumber kebenaran data cloud
             detailsMap = { ...detailsMap, ...remoteDetails };
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('pwa_payslips_detail', JSON.stringify(detailsMap));
-            }
           }
         } catch (e) {}
+
+        // Pembersihan & Deduplikasi Otomatis: Pastikan hanya ada 1 record per karyawan per periode
+        const cleanDetailsMap = {};
+        const seenEmployeePeriod = new Set();
+        // Urutkan key dari yang terbaru berdasarkan created_at
+        const sortedEntries = Object.entries(detailsMap).sort(([, a], [, b]) => {
+          const timeA = new Date(a.created_at || 0).getTime();
+          const timeB = new Date(b.created_at || 0).getTime();
+          return timeB - timeA;
+        });
+
+        let hadDuplicates = false;
+        for (const [key, val] of sortedEntries) {
+          const empIdent = (val.employee_id || val.employee_name || '').toLowerCase().trim();
+          const periodIdent = (val.period || '').toLowerCase().trim();
+          const comboKey = `${empIdent}___${periodIdent}`;
+          if (!seenEmployeePeriod.has(comboKey)) {
+            seenEmployeePeriod.add(comboKey);
+            cleanDetailsMap[key] = val;
+          } else {
+            hadDuplicates = true;
+          }
+        }
+
+        detailsMap = cleanDetailsMap;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('pwa_payslips_detail', JSON.stringify(cleanDetailsMap));
+        }
+
+        if (hadDuplicates) {
+          try {
+            await supabase.from('admin_settings').update({
+              description: JSON.stringify(cleanDetailsMap),
+              updated_at: new Date().toISOString(),
+            }).eq('role', 'payslips_detail');
+          } catch (e) {}
+        }
+
+        // Helper deduplikasi list slip gaji
+        const deduplicateList = (list) => {
+          const seen = new Set();
+          const result = [];
+          const sorted = [...list].sort((a, b) => {
+            const timeA = new Date(a.created_at || 0).getTime();
+            const timeB = new Date(b.created_at || 0).getTime();
+            return timeB - timeA;
+          });
+          for (const item of sorted) {
+            const empIdent = (item.employee_id || item.employee_name || '').toLowerCase().trim();
+            const periodIdent = (item.period || '').toLowerCase().trim();
+            const key = `${empIdent}___${periodIdent}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              result.push(item);
+            }
+          }
+          return result;
+        };
 
         // 4. Muat slip gaji yang pernah dibuat dari Supabase
         const { data, error } = await supabase
@@ -179,10 +235,10 @@ export default function AdminFinanceDashboard({ onBack }) {
               created_at: p.created_at,
             };
           });
-          setSalaryList(mapped);
+          setSalaryList(deduplicateList(mapped));
         } else if (Object.keys(detailsMap).length > 0) {
           // Fallback dari local cache jika ada
-          setSalaryList(Object.values(detailsMap));
+          setSalaryList(deduplicateList(Object.values(detailsMap)));
         }
       } catch (err) {
         console.warn('Fetch salaries error:', err);
@@ -201,8 +257,10 @@ export default function AdminFinanceDashboard({ onBack }) {
   // Helper mencari apakah staf sudah memiliki slip gaji di periode tertentu
   const findExistingSlip = (empId, empName, targetPeriod) => {
     return salaryList.find((slip) => {
-      const matchEmp = (empId && slip.employee_id === empId) || slip.employee_name === empName;
-      const matchPeriod = slip.period === targetPeriod;
+      const matchEmp =
+        (empId && slip.employee_id && slip.employee_id === empId) ||
+        (empName && slip.employee_name && slip.employee_name.toLowerCase().trim() === empName.toLowerCase().trim());
+      const matchPeriod = (slip.period || '').toLowerCase().trim() === (targetPeriod || '').toLowerCase().trim();
       return matchEmp && matchPeriod;
     });
   };
@@ -398,42 +456,34 @@ export default function AdminFinanceDashboard({ onBack }) {
     let savedId = existingSlip ? existingSlip.id : `sal_${Date.now()}`;
     let remoteCreated = existingSlip?.created_at || null;
 
+    const basePayload = {
+      employee_id: targetEmployee.id,
+      period: newSalary.period,
+      basic_salary: Number(newSalary.basic_salary || 0),
+      attendance_allowance: Number(newSalary.meal_allowance || 0),
+      transport_allowance: totalAllowances,
+      overtime_pay: Number(newSalary.overtime_pay || 0),
+      deductions: totalDeductions,
+      net_salary: net,
+      is_released: Boolean(newSalary.is_released),
+    };
+
     try {
       if (isUpdate) {
         // UPDATE SLIP YANG SUDAH ADA (TIDAK MEMBUAT DUPLIKAT)
-        await supabase
+        const { error: updErr } = await supabase
           .from('payslips')
-          .update({
-            basic_salary: Number(newSalary.basic_salary || 0),
-            attendance_allowance: Number(newSalary.meal_allowance || 0),
-            transport_allowance: totalAllowances,
-            overtime_pay: Number(newSalary.overtime_pay || 0),
-            plus_day_count: Number(newSalary.plus_day_count || 0),
-            plus_day_pay: Number(newSalary.plus_day_pay || 0),
-            plus_day_note: newSalary.plus_day_note || null,
-            deductions: totalDeductions,
-            net_salary: net,
-            is_released: Boolean(newSalary.is_released),
-          })
+          .update(basePayload)
           .eq('id', savedId);
+
+        if (updErr) {
+          console.warn('Supabase payslips update error:', updErr);
+        }
       } else {
         // INSERT SLIP BARU
         const { data: inserted, error: insertErr } = await supabase
           .from('payslips')
-          .insert({
-            employee_id: targetEmployee.id,
-            period: newSalary.period,
-            basic_salary: Number(newSalary.basic_salary || 0),
-            attendance_allowance: Number(newSalary.meal_allowance || 0),
-            transport_allowance: totalAllowances,
-            overtime_pay: Number(newSalary.overtime_pay || 0),
-            plus_day_count: Number(newSalary.plus_day_count || 0),
-            plus_day_pay: Number(newSalary.plus_day_pay || 0),
-            plus_day_note: newSalary.plus_day_note || null,
-            deductions: totalDeductions,
-            net_salary: net,
-            is_released: Boolean(newSalary.is_released),
-          })
+          .insert(basePayload)
           .select('*, employees(full_name, branch)')
           .single();
 
@@ -443,6 +493,16 @@ export default function AdminFinanceDashboard({ onBack }) {
         } else if (insertErr) {
           console.warn('Supabase payslips insert error:', insertErr);
         }
+      }
+
+      // Hapus potensi baris duplikat lain di tabel Supabase untuk staf & periode ini
+      if (targetEmployee.id && typeof targetEmployee.id === 'string' && targetEmployee.id.includes('-')) {
+        await supabase
+          .from('payslips')
+          .delete()
+          .eq('employee_id', targetEmployee.id)
+          .eq('period', newSalary.period)
+          .neq('id', savedId);
       }
     } catch (err) {
       console.warn('Payslip sync catch error:', err);
@@ -478,7 +538,26 @@ export default function AdminFinanceDashboard({ onBack }) {
       if (typeof window !== 'undefined') {
         savedDetails = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
       }
+
+      // Hapus SEMUA key lama di savedDetails untuk karyawan & periode yang sama
+      const targetEmpName = (targetEmployee.full_name || '').toLowerCase().trim();
+      const targetPeriod = (newSalary.period || '').toLowerCase().trim();
+
+      for (const [k, v] of Object.entries(savedDetails)) {
+        const vEmpName = (v.employee_name || '').toLowerCase().trim();
+        const vPeriod = (v.period || '').toLowerCase().trim();
+        const sameEmp =
+          (v.employee_id && targetEmployee.id && v.employee_id === targetEmployee.id) ||
+          (vEmpName === targetEmpName);
+        const samePeriod = vPeriod === targetPeriod;
+        if (sameEmp && samePeriod) {
+          delete savedDetails[k];
+        }
+      }
+
+      // Simpan item tunggal yang valid
       savedDetails[savedId] = item;
+
       if (typeof window !== 'undefined') {
         localStorage.setItem('pwa_payslips_detail', JSON.stringify(savedDetails));
       }
@@ -497,18 +576,23 @@ export default function AdminFinanceDashboard({ onBack }) {
       console.warn('Save persistent payslip details fallback:', e);
     }
 
-    setSalaryList((prev) => [
-      item,
-      ...prev.filter((s) => {
+    setSalaryList((prev) => {
+      const targetEmpName = (targetEmployee.full_name || '').toLowerCase().trim();
+      const targetPeriod = (newSalary.period || '').toLowerCase().trim();
+
+      const filtered = prev.filter((s) => {
         if (s.id === savedId) return false;
+        const sEmpName = (s.employee_name || '').toLowerCase().trim();
+        const sPeriod = (s.period || '').toLowerCase().trim();
         const sameEmp =
-          (s.employee_id && item.employee_id && s.employee_id === item.employee_id) ||
-          s.employee_name === item.employee_name;
-        const samePeriod = s.period === item.period;
+          (s.employee_id && targetEmployee.id && s.employee_id === targetEmployee.id) ||
+          (sEmpName === targetEmpName);
+        const samePeriod = sPeriod === targetPeriod;
         if (sameEmp && samePeriod) return false;
         return true;
-      }),
-    ]);
+      });
+      return [item, ...filtered];
+    });
     setIsAddingSalary(false);
     setSalaryMsg({
       type: 'success',

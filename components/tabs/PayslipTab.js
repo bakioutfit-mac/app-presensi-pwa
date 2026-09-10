@@ -69,8 +69,19 @@ export default function PayslipTab() {
             };
           });
 
-          setPayslips(mapped);
-          const latestReleased = mapped.find((p) => p.is_released);
+          // Deduplikasi: 1 karyawan hanya melihat 1 slip per periode (terbaru)
+          const seenPeriod = new Set();
+          const uniqueMapped = [];
+          for (const slip of mapped) {
+            const periodKey = (slip.period || '').toLowerCase().trim();
+            if (!seenPeriod.has(periodKey)) {
+              seenPeriod.add(periodKey);
+              uniqueMapped.push(slip);
+            }
+          }
+
+          setPayslips(uniqueMapped);
+          const latestReleased = uniqueMapped.find((p) => p.is_released);
           if (latestReleased) setOpenId(latestReleased.id);
         } else {
           setPayslips([]);
