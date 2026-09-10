@@ -129,7 +129,10 @@ CREATE TABLE IF NOT EXISTS public.overtimes (
     hours NUMERIC NOT NULL DEFAULT 1,
     reason TEXT,
     nominal NUMERIC DEFAULT 0,
-    status VARCHAR(50) DEFAULT 'Diajukan Leader', -- 'Diajukan Leader', 'Disetujui Finance'
+    status VARCHAR(50) DEFAULT 'Diajukan Leader', -- 'Diajukan Leader', 'Disetujui Finance', 'Ditolak Finance'
+    rejection_reason TEXT,
+    approved_by VARCHAR(50),
+    approved_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

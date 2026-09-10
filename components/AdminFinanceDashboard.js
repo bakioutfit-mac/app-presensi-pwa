@@ -17,11 +17,16 @@ import {
   DollarSign,
   LocateFixed,
   Clock,
+  XCircle,
+  X,
+  FileText,
+  CheckCircle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import SupabaseTableEditor from './SupabaseTableEditor';
 import { formatRupiah, CurrencyInput, fetchEmployeeSalaries } from '@/lib/currency';
+import { getPeriodFromDate } from '@/lib/date';
 
 const MONTHS = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -31,15 +36,39 @@ const currentYearNum = new Date().getFullYear();
 const YEARS = [currentYearNum - 1, currentYearNum, currentYearNum + 1, currentYearNum + 2].map(String);
 
 export default function AdminFinanceDashboard({ onBack }) {
-  const { outlets, updateOutletCoords, overtimeRequests, updateOvertimeNominal } = useAuth();
+  const {
+    outlets,
+    updateOutletCoords,
+    overtimeRequests,
+    approveOvertimeRequest,
+    rejectOvertimeRequest,
+  } = useAuth();
   const [financeTab, setFinanceTab] = useState('payroll'); // 'payroll' | 'gpsConfig' | 'tableEditor'
+  const [payrollSubTab, setPayrollSubTab] = useState('manage'); // 'manage' | 'overtime'
+
+  // Modal Penolakan Lembur
+  const [rejectModal, setRejectModal] = useState({
+    open: false,
+    otId: null,
+    employeeName: '',
+    hours: 0,
+    reason: '',
+  });
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Filter Pengajuan Lembur
+  const pendingOvertimes = (overtimeRequests || []).filter(
+    (ot) => ot.status === 'Diajukan Leader'
+  );
+  const processedOvertimes = (overtimeRequests || []).filter(
+    (ot) => ot.status !== 'Diajukan Leader'
+  );
 
   // ================= 1. KELOLA SLIP GAJI 3 OUTLET =================
   const [selectedOutletSalary, setSelectedOutletSalary] = useState('all');
   const [isAddingSalary, setIsAddingSalary] = useState(false);
   const [salaryMsg, setSalaryMsg] = useState({ type: '', text: '' });
-  const [editingOtId, setEditingOtId] = useState(null);
-  const [editingOtNominal, setEditingOtNominal] = useState('');
+
 
   // 10 Komponen Gaji Outlet (6 Pendapatan + 4 Potongan)
   const [employeesList, setEmployeesList] = useState([]);
@@ -167,6 +196,14 @@ export default function AdminFinanceDashboard({ onBack }) {
     );
     const firstStaff = staffInBranch[0];
     const pkg = firstStaff ? (employeeSalaries[firstStaff.id] || employeeSalaries[firstStaff.full_name] || null) : null;
+    const targetPeriod = `${salaryMonth} ${salaryYear}`;
+    const approvedOtSum = (overtimeRequests || [])
+      .filter((ot) => {
+        const matchEmp = (firstStaff && ot.employee_id === firstStaff.id) || (firstStaff && ot.employee_name === firstStaff.full_name);
+        const matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+        return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
+      })
+      .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
 
     setNewSalary((prev) => ({
       ...prev,
@@ -178,7 +215,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       spouse_allowance: pkg?.spouse_allowance ?? 0,
       position_allowance: pkg?.position_allowance ?? 0,
       meal_allowance: pkg?.meal_allowance ?? 0,
-      overtime_pay: 0,
+      overtime_pay: approvedOtSum > 0 ? approvedOtSum : 0,
     }));
   };
 
@@ -186,6 +223,14 @@ export default function AdminFinanceDashboard({ onBack }) {
   const handleSelectEmployee = (empName) => {
     const staff = employeesList.find((e) => e.full_name === empName);
     const pkg = staff ? (employeeSalaries[staff.id] || employeeSalaries[staff.full_name] || null) : null;
+    const targetPeriod = `${salaryMonth} ${salaryYear}`;
+    const approvedOtSum = (overtimeRequests || [])
+      .filter((ot) => {
+        const matchEmp = (staff && ot.employee_id === staff.id) || ot.employee_name === empName;
+        const matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+        return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
+      })
+      .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
 
     setNewSalary((prev) => ({
       ...prev,
@@ -197,7 +242,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       spouse_allowance: pkg?.spouse_allowance ?? 0,
       position_allowance: pkg?.position_allowance ?? 0,
       meal_allowance: pkg?.meal_allowance ?? 0,
-      // Overtime tetap tersimpan agar Admin Finance bisa memasukkannya
+      overtime_pay: approvedOtSum > 0 ? approvedOtSum : (prev.overtime_pay || 0),
     }));
   };
 
@@ -377,16 +422,55 @@ export default function AdminFinanceDashboard({ onBack }) {
 
   const toggleSalaryRelease = handleToggleRelease;
 
-  // Finance input nominal lembur dari Leader
-  const handleApproveOvertime = (otId, amount) => {
-    updateOvertimeNominal(otId, amount);
-    setEditingOtId(null);
-    setSalaryMsg({
-      type: 'success',
-      text: `Nominal lembur berhasil disetujui sebesar Rp ${Number(amount).toLocaleString('id-ID')}`,
-    });
-    setTimeout(() => setSalaryMsg({ type: '', text: '' }), 3000);
+  // Finance Setujui Lembur (Tarif Flat Rp 20.000 / Jam)
+  const handleApproveOvertimeItem = async (ot) => {
+    const nominal = Number(ot.hours || 1) * 20000;
+    setActionLoading(true);
+    try {
+      await approveOvertimeRequest(ot.id, nominal);
+      setSalaryMsg({
+        type: 'success',
+        text: `Lembur ${ot.employee_name} (${ot.hours} Jam - Rp ${nominal.toLocaleString('id-ID')}) telah DISETUJUI & otomatis diagregasikan ke slip gaji!`,
+      });
+      setTimeout(() => setSalaryMsg({ type: '', text: '' }), 4000);
+    } catch (err) {
+      setSalaryMsg({ type: 'error', text: 'Gagal menyetujui lembur.' });
+    } finally {
+      setActionLoading(false);
+    }
   };
+
+  const handleOpenReject = (ot) => {
+    setRejectModal({
+      open: true,
+      otId: ot.id,
+      employeeName: ot.employee_name,
+      hours: ot.hours || 1,
+      reason: '',
+    });
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectModal.reason.trim()) {
+      alert('Mohon tuliskan alasan penolakan lembur.');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await rejectOvertimeRequest(rejectModal.otId, rejectModal.reason.trim());
+      setSalaryMsg({
+        type: 'success',
+        text: `Pengajuan lembur ${rejectModal.employeeName} ditolak. Alasan dicatat & akan tampil transparan pada slip gaji staf.`,
+      });
+      setTimeout(() => setSalaryMsg({ type: '', text: '' }), 4000);
+      setRejectModal({ open: false, otId: null, employeeName: '', hours: 0, reason: '' });
+    } catch (err) {
+      setSalaryMsg({ type: 'error', text: 'Gagal menolak lembur.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
 
   // ================= 2. PENGATURAN TITIK GPS 3 OUTLET =================
   const safeOutlets = Array.isArray(outlets) && outlets.length > 0 ? outlets : [];
@@ -529,133 +613,284 @@ export default function AdminFinanceDashboard({ onBack }) {
       {/* ================= TAB 1: KELOLA GAJI 3 OUTLET ================= */}
       {financeTab === 'payroll' && (
         <div className="space-y-4">
-          {/* Panel Pengajuan Lembur dari Admin Leader */}
-          <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#F97316]">
-                  <Clock className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                    <span>Pengajuan Lembur Staf</span>
-                    <span className="text-[9px] bg-orange-100 text-orange-800 font-black px-2 py-0.5 rounded-full">
-                      Dari Leader
-                    </span>
-                  </h4>
-                  <p className="text-[10px] text-slate-500">
-                    Leader mengajukan jam &amp; tugas, Finance menentukan nominal rupiah
-                  </p>
-                </div>
-              </div>
-              <span className="text-[10px] font-black bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200">
-                {overtimeRequests.length} Pengajuan
-              </span>
-            </div>
+          {/* Sub-Tab Navigation: Kelola Gaji | Persetujuan Lembur */}
+          <div className="bg-slate-200/80 p-1.5 rounded-2xl flex items-center gap-1.5 border border-slate-300/60 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setPayrollSubTab('manage')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 ${
+                payrollSubTab === 'manage'
+                  ? 'bg-white text-[#2563EB] shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Banknote className="w-4 h-4" />
+              <span>Kelola Gaji</span>
+            </button>
 
-            <div className="space-y-2">
-              {overtimeRequests.map((ot) => {
-                const isApproved = ot.status === 'Disetujui Finance';
-                return (
-                  <div
-                    key={ot.id}
-                    className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                  >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-black text-slate-900">{ot.employee_name}</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-sm bg-blue-100 text-blue-800">
-                          {ot.branch}
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-medium">• {ot.date}</span>
-                      </div>
-                      <p className="text-[11px] text-slate-600">
-                        Durasi: <strong className="text-slate-900">{ot.hours} Jam</strong> • Alasan: <span className="italic">{ot.reason}</span>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      {editingOtId === ot.id ? (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type="number"
-                            placeholder="Rp Nominal"
-                            value={editingOtNominal}
-                            onChange={(e) => setEditingOtNominal(e.target.value)}
-                            className="w-24 px-2 py-1 text-xs border rounded-lg bg-white"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleApproveOvertime(ot.id, editingOtNominal)}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg shadow-xs"
-                          >
-                            Setujui
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingOtId(null)}
-                            className="px-2 py-1 bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg"
-                          >
-                            Batal
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <div className="text-right">
-                            <span className="text-[10px] text-slate-500 block">Uang Lembur:</span>
-                            <span className="text-xs font-black text-[#2563EB]">
-                              Rp {Number(ot.nominal || 0).toLocaleString('id-ID')}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingOtId(ot.id);
-                              setEditingOtNominal(ot.nominal || 50000);
-                            }}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${
-                              isApproved
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                : 'bg-[#2563EB] text-white hover:bg-blue-700'
-                            }`}
-                          >
-                            {isApproved ? 'Ubah Nominal' : 'Input Nominal'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const staff = employeesList.find((e) => e.full_name === ot.employee_name);
-                              const pkg = staff ? (employeeSalaries[staff.id] || employeeSalaries[staff.full_name] || null) : null;
-                              setNewSalary((prev) => ({
-                                ...prev,
-                                employee_name: ot.employee_name,
-                                employee_id: staff?.id || null,
-                                branch: ot.branch || prev.branch,
-                                overtime_pay: Number(ot.nominal || 0),
-                                basic_salary: pkg?.basic_salary ?? prev.basic_salary,
-                                child_allowance: pkg?.child_allowance ?? prev.child_allowance,
-                                spouse_allowance: pkg?.spouse_allowance ?? prev.spouse_allowance,
-                                position_allowance: pkg?.position_allowance ?? prev.position_allowance,
-                                meal_allowance: pkg?.meal_allowance ?? prev.meal_allowance,
-                              }));
-                              setIsAddingSalary(true);
-                            }}
-                            title="Salin data ke Form Slip Gaji"
-                            className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer"
-                          >
-                            + Ke Slip Gaji
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              onClick={() => setPayrollSubTab('overtime')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 relative ${
+                payrollSubTab === 'overtime'
+                  ? 'bg-white text-[#2563EB] shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Clock className="w-4 h-4" />
+              <span>Persetujuan Lembur</span>
+              {pendingOvertimes.length > 0 && (
+                <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs animate-pulse">
+                  {pendingOvertimes.length}
+                </span>
+              )}
+            </button>
           </div>
 
-          {/* Section Slip Gaji Karyawan */}
-          <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-4">
+          {/* ================= SUB-TAB: PERSETUJUAN LEMBUR ================= */}
+          {payrollSubTab === 'overtime' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* Banner Info Kebijakan Lembur */}
+              <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-4 shadow-sm border border-blue-800/50 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-blue-300">
+                      <Clock className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black tracking-wide flex items-center gap-1.5">
+                        <span>Pusat Persetujuan Lembur Staf</span>
+                        <span className="text-[9px] bg-emerald-500/30 text-emerald-300 border border-emerald-400/30 font-black px-2 py-0.5 rounded-full">
+                          Tarif Flat Rp 20.000 / Jam
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-blue-200">
+                        Leader mengajukan penugasan lembur, Finance mengambil keputusan resmi
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-black bg-white/10 px-2.5 py-1 rounded-full border border-white/20 text-blue-100">
+                    {pendingOvertimes.length} Menunggu
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-white/10 text-[11px] text-blue-100">
+                  <div className="flex items-start gap-1.5 bg-white/5 p-2 rounded-xl border border-white/10">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-white block font-bold">Jika Di-ACC / Disetujui:</strong>
+                      <span>Otomatis hilang dari antrean pending &amp; langsung masuk ke slip gaji bulan berjalan staf terkait.</span>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-1.5 bg-white/5 p-2 rounded-xl border border-white/10">
+                    <AlertCircle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-white block font-bold">Jika Ditolak:</strong>
+                      <span>Finance wajib memberikan alasan penolakan. Alasan ini akan tampil transparan pada slip gaji staf.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 1: Antrean Pengajuan yang Menunggu Persetujuan */}
+              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#F97316]">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                        <span>Menunggu Keputusan Finance</span>
+                        {pendingOvertimes.length > 0 && (
+                          <span className="text-[9px] bg-rose-100 text-rose-800 font-black px-2 py-0.5 rounded-full">
+                            Perlu Tindakan
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-[10px] text-slate-500">
+                        Tinjau jam lembur dan tentukan persetujuan
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-black bg-orange-100 text-orange-800 px-2.5 py-1 rounded-full border border-orange-200">
+                    {pendingOvertimes.length} Pengajuan
+                  </span>
+                </div>
+
+                {pendingOvertimes.length === 0 ? (
+                  <div className="py-8 text-center bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2">
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto text-emerald-600">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <p className="text-xs font-black text-slate-800">Semua Pengajuan Telah Diproses</p>
+                    <p className="text-[10px] text-slate-400 max-w-xs mx-auto">
+                      Tidak ada pengajuan lembur yang menunggu persetujuan dari Leader saat ini.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {pendingOvertimes.map((ot) => {
+                      const nominal = Number(ot.hours || 1) * 20000;
+                      return (
+                        <div
+                          key={ot.id}
+                          className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl hover:border-blue-200 transition space-y-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-slate-900">{ot.employee_name}</span>
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200">
+                                {ot.branch}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-medium">• {ot.date}</span>
+                            </div>
+                            <span className="text-[9px] font-black bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full border border-orange-200">
+                              Menunggu Keputusan
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-white p-3 rounded-xl border border-slate-200/60">
+                            <div>
+                              <span className="text-[10px] text-slate-400 block font-medium">Durasi &amp; Tarif Flat:</span>
+                              <span className="text-xs font-black text-slate-800">
+                                {ot.hours} Jam × Rp 20.000 / Jam
+                              </span>
+                            </div>
+                            <div className="sm:text-right">
+                              <span className="text-[10px] text-slate-400 block font-medium">Total Uang Lembur:</span>
+                              <span className="text-xs font-black text-emerald-600">
+                                Rp {nominal.toLocaleString('id-ID')}
+                              </span>
+                            </div>
+                            <div className="sm:col-span-2 pt-1 border-t border-slate-100 text-[11px] text-slate-600">
+                              <span className="font-bold text-slate-700">Tugas / Catatan Leader: </span>
+                              <span className="italic">&ldquo;{ot.reason}&rdquo;</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={() => handleApproveOvertimeItem(ot)}
+                              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Setujui (Rp {nominal.toLocaleString('id-ID')})</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={() => handleOpenReject(ot)}
+                              className="py-2 px-3.5 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>Tolak</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Riwayat Keputusan Lembur (ACC & Ditolak) */}
+              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900">
+                        Riwayat Keputusan Lembur
+                      </h4>
+                      <p className="text-[10px] text-slate-500">
+                        Arsip keputusan lembur yang telah disetujui atau ditolak Finance
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-black bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-200">
+                    {processedOvertimes.length} Selesai
+                  </span>
+                </div>
+
+                {processedOvertimes.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400 italic">
+                    Belum ada riwayat keputusan lembur yang tersimpan.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {processedOvertimes.map((ot) => {
+                      const isApproved = ot.status === 'Disetujui Finance';
+                      return (
+                        <div
+                          key={ot.id}
+                          className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-black text-slate-900">{ot.employee_name}</span>
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
+                                {ot.branch}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-medium">• {ot.date}</span>
+                              <span
+                                className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
+                                  isApproved
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                    : 'bg-rose-100 text-rose-800 border-rose-200'
+                                }`}
+                              >
+                                {isApproved ? 'Disetujui Finance' : 'Ditolak Finance'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600">
+                              Durasi: <strong className="text-slate-900">{ot.hours} Jam</strong> • Tugas: <span className="italic">{ot.reason}</span>
+                            </p>
+                            {!isApproved && ot.rejection_reason && (
+                              <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 p-2 rounded-lg font-medium">
+                                <strong>Alasan Penolakan: </strong>
+                                &ldquo;{ot.rejection_reason}&rdquo; <span className="text-[10px] text-rose-500 block sm:inline sm:ml-1">• Tampil di slip gaji staf</span>
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            {isApproved ? (
+                              <div>
+                                <span className="text-[10px] text-slate-400 block font-medium">Uang Lembur:</span>
+                                <span className="text-xs font-black text-emerald-600">
+                                  +Rp {Number(ot.nominal || ot.hours * 20000).toLocaleString('id-ID')}
+                                </span>
+                                <span className="text-[9px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md block mt-1">
+                                  Masuk Slip Gaji
+                                </span>
+                              </div>
+                            ) : (
+                              <div>
+                                <span className="text-[10px] text-rose-500 block font-bold">Lembur Dibatalkan</span>
+                                <span className="text-xs font-black text-slate-400">Rp 0</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ================= SUB-TAB: KELOLA GAJI ================= */}
+          {payrollSubTab === 'manage' && (
+            <div className="space-y-4">
+              {/* Section Slip Gaji Karyawan */}
+              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#2563EB]">
@@ -1068,6 +1303,12 @@ export default function AdminFinanceDashboard({ onBack }) {
           </div>
         </div>
       )}
+    </div>
+  )}
+
+
+
+
 
       {/* ================= TAB 2: PENGATURAN TITIK GPS 3 OUTLET ================= */}
       {financeTab === 'gpsConfig' && (
@@ -1260,6 +1501,70 @@ export default function AdminFinanceDashboard({ onBack }) {
 
       {/* ================= TAB 3: TABEL EDITOR SUPABASE ================= */}
       {financeTab === 'tableEditor' && <SupabaseTableEditor />}
+
+      {/* ================= MODAL PENOLAKAN LEMBUR ================= */}
+      {rejectModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Tolak Pengajuan Lembur</h3>
+                  <p className="text-xs text-slate-500">
+                    {rejectModal.employeeName} ({rejectModal.hours} Jam)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectModal({ open: false, otId: null, employeeName: '', hours: 0, reason: '' })}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">
+                Alasan Penolakan <span className="text-rose-500">* (Wajib - tampil di slip gaji staf)</span>
+              </label>
+              <textarea
+                rows={3}
+                value={rejectModal.reason}
+                onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+                placeholder="Contoh: Melebihi batas kuota lembur bulan ini / Pekerjaan dapat diselesaikan di jam reguler"
+                className="w-full p-3 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none"
+              />
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Catatan: Alasan ini wajib diisi oleh Finance dan akan langsung tampil secara transparan pada rincian slip gaji karyawan yang bersangkutan.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => setRejectModal({ open: false, otId: null, employeeName: '', hours: 0, reason: '' })}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading || !rejectModal.reason.trim()}
+                onClick={handleConfirmReject}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>{actionLoading ? 'Menyimpan...' : 'Konfirmasi Tolak'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

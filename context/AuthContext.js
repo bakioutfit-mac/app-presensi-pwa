@@ -12,6 +12,34 @@ export const isValidUUID = (id) =>
   typeof id === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
+// Helper generate UUID v4 standar RFC 4122
+export const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+const MONTH_NAMES_LIST = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
+
+export const getPeriodFromDate = (dateStr) => {
+  if (!dateStr) return `${MONTH_NAMES_LIST[new Date().getMonth()]} ${new Date().getFullYear()}`;
+  const parts = String(dateStr).split('-');
+  if (parts.length === 3) {
+    const mIdx = Number(parts[1]) - 1;
+    const year = parts[0];
+    return `${MONTH_NAMES_LIST[mIdx] || 'September'} ${year}`;
+  }
+  return `${MONTH_NAMES_LIST[new Date().getMonth()]} ${new Date().getFullYear()}`;
+};
+
 // Akun demo dinonaktifkan (Karyawan diinput murni lewat aplikasi / Supabase)
 export const DEMO_USERS = {};
 
@@ -87,8 +115,12 @@ export function AuthProvider({ children }) {
         } catch (e) {}
       }
 
-      // Sync data admin PIN & outlets dari Supabase jika ada
+      // Sync data admin PIN, outlets & pengajuan lembur dari Supabase jika ada
       (async () => {
+        try {
+          await loadOvertimeRequests();
+        } catch (e) {}
+
         try {
           const { data: adminData } = await supabase.from('admin_settings').select('role, pin');
           if (adminData && adminData.length > 0) {
@@ -463,23 +495,180 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Pengajuan lembur dari Admin Leader ke Admin Finance
+  // 1. Sinkronisasi daftar pengajuan lembur dari Cloud (Supabase overtimes / admin_settings)
+  const loadOvertimeRequests = async () => {
+    let allRequests = [];
+
+    // Coba ambil dari tabel overtimes jika tabel sudah ada di Supabase
+    try {
+      const { data: otRows, error: otErr } = await supabase
+        .from('overtimes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!otErr && otRows && otRows.length > 0) {
+        allRequests = otRows;
+      }
+    } catch (e) {}
+
+    // Ambil sinkronisasi dari admin_settings (role: 'overtime_requests')
+    try {
+      const { data: settingRow } = await supabase
+        .from('admin_settings')
+        .select('description')
+        .eq('role', 'overtime_requests')
+        .maybeSingle();
+
+      if (settingRow?.description) {
+        const parsed = JSON.parse(settingRow.description);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingIds = new Set(allRequests.map((r) => r.id));
+          parsed.forEach((item) => {
+            if (!existingIds.has(item.id)) {
+              allRequests.push(item);
+              existingIds.add(item.id);
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // Fallback localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const local = JSON.parse(localStorage.getItem('pwa_overtime_requests') || '[]');
+        if (Array.isArray(local) && local.length > 0) {
+          const existingIds = new Set(allRequests.map((r) => r.id));
+          local.forEach((item) => {
+            if (!existingIds.has(item.id)) {
+              allRequests.push(item);
+              existingIds.add(item.id);
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
+    allRequests.sort(
+      (a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime()
+    );
+
+    setOvertimeRequests(allRequests);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pwa_overtime_requests', JSON.stringify(allRequests));
+    }
+    return allRequests;
+  };
+
+  // Helper sinkronisasi state lembur ke cloud (admin_settings & localStorage)
+  const syncOvertimeToCloud = async (requestsList) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pwa_overtime_requests', JSON.stringify(requestsList));
+    }
+    try {
+      await supabase.from('admin_settings').upsert(
+        {
+          role: 'overtime_requests',
+          pin: '000000',
+          name: 'Daftar Pengajuan Lembur',
+          description: JSON.stringify(requestsList),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'role' }
+      );
+    } catch (e) {
+      console.warn('Sync overtimes to admin_settings error:', e);
+    }
+  };
+
+  // Helper akumulasi lembur disetujui otomatis ke slip gaji karyawan pada bulan terkait
+  const syncOvertimeToEmployeePayslip = async (otRecord, currentAllOts = null) => {
+    if (!otRecord || !otRecord.date) return;
+    const period = getPeriodFromDate(otRecord.date);
+    const targetEmpId = otRecord.employee_id;
+    const targetEmpName = otRecord.employee_name;
+
+    const sourceList = currentAllOts || overtimeRequests;
+    const approvedInPeriod = sourceList.filter((ot) => {
+      const matchEmp = (targetEmpId && ot.employee_id === targetEmpId) || ot.employee_name === targetEmpName;
+      const matchPeriod = getPeriodFromDate(ot.date) === period;
+      return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
+    });
+
+    const totalOvertime = approvedInPeriod.reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
+
+    try {
+      let query = supabase.from('payslips').select('*').eq('period', period);
+      if (targetEmpId && isValidUUID(targetEmpId)) {
+        query = query.eq('employee_id', targetEmpId);
+      }
+      const { data: existingSlips } = await query;
+      if (existingSlips && existingSlips.length > 0) {
+        for (const slip of existingSlips) {
+          const newTotalIncome =
+            (Number(slip.basic_salary) || 0) +
+            (Number(slip.attendance_allowance) || 0) +
+            (Number(slip.transport_allowance) || 0) +
+            totalOvertime;
+          const newNetSalary = newTotalIncome - (Number(slip.deductions) || 0);
+
+          await supabase
+            .from('payslips')
+            .update({
+              overtime_pay: totalOvertime,
+              net_salary: newNetSalary,
+            })
+            .eq('id', slip.id);
+
+          let detailsMap = {};
+          try {
+            detailsMap = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+          } catch (e) {}
+          detailsMap[slip.id] = {
+            ...(detailsMap[slip.id] || {}),
+            overtime_pay: totalOvertime,
+            net_salary: newNetSalary,
+          };
+          localStorage.setItem('pwa_payslips_detail', JSON.stringify(detailsMap));
+          try {
+            await supabase.from('admin_settings').upsert(
+              {
+                role: 'payslips_detail',
+                pin: '000000',
+                name: 'Detail Komponen Payslips',
+                description: JSON.stringify(detailsMap),
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'role' }
+            );
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.warn('Sync overtime to payslip error:', e);
+    }
+  };
+
+  // Pengajuan lembur dari Admin Leader ke Admin Finance (Tarif flat Rp 20.000 / jam)
   const submitOvertimeRequest = async (otData) => {
     const items = Array.isArray(otData) ? otData : [otData];
-    const newItems = items.map((item, idx) => ({
-      id: item.id || `ot-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
-      created_at: new Date().toISOString(),
-      status: 'Diajukan Leader',
-      nominal: 0,
-      ...item,
-    }));
+    const newItems = items.map((item) => {
+      const hours = Number(item.hours || 1);
+      return {
+        id: item.id && isValidUUID(item.id) ? item.id : generateUUID(),
+        created_at: new Date().toISOString(),
+        status: 'Diajukan Leader',
+        nominal: hours * 20000, // Tarif flat Rp 20.000 per jam
+        hours,
+        rejection_reason: null,
+        ...item,
+      };
+    });
 
+    let updatedList = [];
     setOvertimeRequests((prev) => {
-      const updated = [...newItems, ...prev];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('pwa_overtime_requests', JSON.stringify(updated));
-      }
-      return updated;
+      updatedList = [...newItems, ...prev];
+      syncOvertimeToCloud(updatedList);
+      return updatedList;
     });
 
     try {
@@ -490,16 +679,101 @@ export function AuthProvider({ children }) {
     return { success: true, data: Array.isArray(otData) ? newItems : newItems[0] };
   };
 
-  const updateOvertimeNominal = (otId, nominalAmount) => {
+  // Keputusan Finance: Setujui Pengajuan Lembur (Hilang dari pending, otomatis masuk ke slip gaji)
+  const approveOvertimeRequest = async (otId, customNominal = null) => {
+    let approvedRecord = null;
+    const nowIso = new Date().toISOString();
+
+    let updatedList = [];
     setOvertimeRequests((prev) => {
-      const updated = prev.map((item) =>
-        item.id === otId ? { ...item, nominal: Number(nominalAmount || 0), status: 'Disetujui Finance' } : item
-      );
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('pwa_overtime_requests', JSON.stringify(updated));
-      }
-      return updated;
+      updatedList = prev.map((item) => {
+        if (item.id === otId) {
+          const hours = Number(item.hours || 1);
+          const nominal = customNominal != null ? Number(customNominal) : hours * 20000;
+          approvedRecord = {
+            ...item,
+            nominal,
+            status: 'Disetujui Finance',
+            approved_at: nowIso,
+            approved_by: 'Finance',
+            rejection_reason: null,
+          };
+          return approvedRecord;
+        }
+        return item;
+      });
+      syncOvertimeToCloud(updatedList);
+      return updatedList;
     });
+
+    if (approvedRecord) {
+      try {
+        await supabase
+          .from('overtimes')
+          .update({
+            status: 'Disetujui Finance',
+            nominal: approvedRecord.nominal,
+            approved_at: nowIso,
+            approved_by: 'Finance',
+            rejection_reason: null,
+          })
+          .eq('id', otId);
+      } catch (e) {
+        console.warn('Update overtimes in Supabase error:', e);
+      }
+
+      await syncOvertimeToEmployeePayslip(approvedRecord, updatedList);
+    }
+
+    return { success: true, data: approvedRecord };
+  };
+
+  // Keputusan Finance: Tolak Pengajuan Lembur (Memberikan alasan penolakan untuk tampil di slip gaji)
+  const rejectOvertimeRequest = async (otId, rejectionReason) => {
+    let rejectedRecord = null;
+    const reasonText = rejectionReason?.trim() || 'Tidak disetujui Finance';
+
+    let updatedList = [];
+    setOvertimeRequests((prev) => {
+      updatedList = prev.map((item) => {
+        if (item.id === otId) {
+          rejectedRecord = {
+            ...item,
+            nominal: 0,
+            status: 'Ditolak Finance',
+            rejection_reason: reasonText,
+          };
+          return rejectedRecord;
+        }
+        return item;
+      });
+      syncOvertimeToCloud(updatedList);
+      return updatedList;
+    });
+
+    if (rejectedRecord) {
+      try {
+        await supabase
+          .from('overtimes')
+          .update({
+            status: 'Ditolak Finance',
+            nominal: 0,
+            rejection_reason: reasonText,
+          })
+          .eq('id', otId);
+      } catch (e) {
+        console.warn('Reject overtime in Supabase error:', e);
+      }
+
+      await syncOvertimeToEmployeePayslip(rejectedRecord, updatedList);
+    }
+
+    return { success: true, data: rejectedRecord };
+  };
+
+  // Kompatibilitas mundur fungsi lama
+  const updateOvertimeNominal = (otId, nominalAmount) => {
+    return approveOvertimeRequest(otId, nominalAmount);
   };
 
   // Record attendance check-in / check-out
@@ -713,7 +987,10 @@ export function AuthProvider({ children }) {
         submitLeave,
         resetTodayAttendance,
         overtimeRequests,
+        loadOvertimeRequests,
         submitOvertimeRequest,
+        approveOvertimeRequest,
+        rejectOvertimeRequest,
         updateOvertimeNominal,
         adminRole,
         setAdminRole,

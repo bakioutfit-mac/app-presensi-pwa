@@ -315,10 +315,12 @@ export default function AdminLeaderDashboard({ onBack }) {
 
     const selectedStaffMembers = staffList.filter((s) => selectedOtStaffIds.includes(s.id));
     const payload = selectedStaffMembers.map((s) => ({
+      employee_id: s.id,
       employee_name: s.name,
       branch: s.branch || 'LazyBloom',
       date: otForm.date,
       hours: Number(otForm.hours || 1),
+      nominal: Number(otForm.hours || 1) * 20000,
       reason: otForm.reason,
     }));
 
@@ -1450,6 +1452,22 @@ export default function AdminLeaderDashboard({ onBack }) {
                 />
               </div>
 
+              {/* Banner Estimasi Tarif Lembur Flat Rp 20.000 / Jam */}
+              <div className="p-2.5 bg-orange-50 border border-orange-200/90 rounded-xl flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 text-slate-700">
+                  <Sparkles className="w-4 h-4 text-[#EA580C] shrink-0" />
+                  <span className="text-[11px]">
+                    Tarif Flat: <strong className="text-slate-900">Rp 20.000 / Jam</strong> ({otForm.hours} Jam = <strong className="text-slate-900">Rp {(Number(otForm.hours || 1) * 20000).toLocaleString('id-ID')}</strong> / staf)
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-500 block">Total Pengajuan:</span>
+                  <span className="text-xs font-black text-[#EA580C]">
+                    Rp {(selectedOtStaffIds.length * Number(otForm.hours || 1) * 20000).toLocaleString('id-ID')}
+                  </span>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={otSubmitting || selectedOtStaffIds.length === 0}
@@ -1483,23 +1501,46 @@ export default function AdminLeaderDashboard({ onBack }) {
                     Belum ada pengajuan lembur yang dikirim.
                   </p>
                 ) : (
-                  (overtimeRequests || []).map((ot) => (
-                    <div
-                      key={ot.id}
-                      className="p-2.5 rounded-xl border border-slate-100 bg-slate-50 flex items-center justify-between text-xs"
-                    >
-                      <div>
-                        <span className="font-extrabold text-slate-900">{ot.employee_name}</span>
-                        <span className="text-[10px] text-slate-500 ml-1.5">
-                          ({ot.branch} &bull; {ot.hours} Jam &bull; {ot.date})
-                        </span>
-                        <p className="text-[10px] text-slate-600 mt-0.5">{ot.reason}</p>
+                  (overtimeRequests || []).map((ot) => {
+                    const isApproved = ot.status === 'Disetujui Finance';
+                    const isRejected = ot.status === 'Ditolak Finance';
+                    return (
+                      <div
+                        key={ot.id}
+                        className="p-2.5 rounded-xl border border-slate-100 bg-slate-50 space-y-1 text-xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-extrabold text-slate-900">{ot.employee_name}</span>
+                            <span className="text-[10px] text-slate-500 ml-1.5">
+                              ({ot.branch} &bull; {ot.hours} Jam &bull; {ot.date})
+                            </span>
+                          </div>
+                          <span
+                            className={`text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                              isApproved
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : isRejected
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : 'bg-amber-100 text-amber-800 border border-amber-200'
+                            }`}
+                          >
+                            {isApproved
+                              ? `Disetujui (Rp ${(Number(ot.nominal) || ot.hours * 20000).toLocaleString('id-ID')})`
+                              : isRejected
+                              ? 'Ditolak Finance'
+                              : 'Menunggu Finance'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-600 italic">Tugas: {ot.reason}</p>
+                        {isRejected && ot.rejection_reason && (
+                          <p className="text-[10px] text-rose-600 bg-rose-50 p-1.5 rounded-lg border border-rose-100 font-medium">
+                            ❌ <strong>Alasan Penolakan:</strong> {ot.rejection_reason}
+                          </p>
+                        )}
                       </div>
-                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 shrink-0 ml-2">
-                        {ot.status || 'Diajukan Leader'}
-                      </span>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>

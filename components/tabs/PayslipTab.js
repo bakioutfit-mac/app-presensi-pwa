@@ -10,12 +10,14 @@ import {
   Printer,
   Calendar,
   ShieldCheck,
+  AlertCircle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { getPeriodFromDate } from '@/lib/date';
 
 export default function PayslipTab() {
-  const { user } = useAuth();
+  const { user, overtimeRequests } = useAuth();
   const [payslips, setPayslips] = useState([]);
   const [openId, setOpenId] = useState(null);
 
@@ -150,6 +152,18 @@ export default function PayslipTab() {
             (Number(slip.discipline_deduction) || 0) +
             (Number(slip.cash_bon) || 0);
 
+          const rejectedOvertimes = (overtimeRequests || []).filter((ot) => {
+            const matchEmp = (user?.id && ot.employee_id === user.id) || ot.employee_name === user?.full_name || ot.employee_name === user?.name;
+            const matchPeriod = getPeriodFromDate(ot.date) === slip.period;
+            return matchEmp && matchPeriod && ot.status === 'Ditolak Finance';
+          });
+
+          const approvedOvertimes = (overtimeRequests || []).filter((ot) => {
+            const matchEmp = (user?.id && ot.employee_id === user.id) || ot.employee_name === user?.full_name || ot.employee_name === user?.name;
+            const matchPeriod = getPeriodFromDate(ot.date) === slip.period;
+            return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
+          });
+
           return (
             <div
               key={slip.id}
@@ -262,7 +276,14 @@ export default function PayslipTab() {
                       <span className="font-semibold">{formatRupiah(slip.meal_allowance)}</span>
                     </div>
                     <div className="flex justify-between text-xs text-slate-700">
-                      <span>Uang Lembur</span>
+                      <div>
+                        <span>Uang Lembur</span>
+                        {approvedOvertimes.length > 0 && (
+                          <span className="text-[10px] text-emerald-600 block font-medium">
+                            {approvedOvertimes.reduce((sum, o) => sum + Number(o.hours || 0), 0)} Jam @ Rp 20.000 / Jam
+                          </span>
+                        )}
+                      </div>
                       <span className="font-semibold text-emerald-600">
                         +{formatRupiah(slip.overtime_pay)}
                       </span>
@@ -304,6 +325,46 @@ export default function PayslipTab() {
                       <span className="font-semibold text-rose-600">-{formatRupiah(slip.cash_bon)}</span>
                     </div>
                   </div>
+
+                  {/* Catatan Lembur Ditolak Finance (Jika Ada) */}
+                  {rejectedOvertimes.length > 0 && (
+                    <div className="p-3.5 bg-amber-50/90 border border-amber-200/90 rounded-xl space-y-2">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="text-xs font-black text-amber-900">
+                          Catatan Pengajuan Lembur Ditolak ({rejectedOvertimes.length})
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-amber-800 leading-tight">
+                        Pengajuan lembur dari Leader tidak disetujui Finance dengan keterangan:
+                      </p>
+                      <div className="space-y-1.5 pt-0.5">
+                        {rejectedOvertimes.map((ot) => (
+                          <div
+                            key={ot.id}
+                            className="bg-white/95 p-2.5 rounded-lg border border-amber-200 text-xs space-y-1"
+                          >
+                            <div className="flex justify-between items-center text-[11px] text-slate-500 font-medium">
+                              <span>Tanggal: <strong className="text-slate-800">{ot.date}</strong> ({ot.hours} Jam)</span>
+                              <span className="text-[9px] bg-rose-100 text-rose-700 font-bold px-1.5 py-0.5 rounded">
+                                Ditolak Finance
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-700">
+                              <span className="font-bold text-slate-900">Alasan Finance: </span>
+                              <span className="italic text-rose-600 font-medium">&ldquo;{ot.rejection_reason || 'Tidak disetujui Finance'}&rdquo;</span>
+                            </p>
+                            {ot.reason && (
+                              <p className="text-[10px] text-slate-500">
+                                <span>Tugas diajukan: </span>
+                                <span className="italic">{ot.reason}</span>
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Total Net Salary */}
                   <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl flex justify-between items-center">
