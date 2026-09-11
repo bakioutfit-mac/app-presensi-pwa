@@ -31,6 +31,7 @@ import SupabaseTableEditor from './SupabaseTableEditor';
 import { formatRupiah, CurrencyInput, fetchEmployeeSalaries } from '@/lib/currency';
 import { getPeriodFromDate } from '@/lib/date';
 import PayslipPrintModal from './PayslipPrintModal';
+import { getOvertimeRateByPosition } from '@/lib/overtimeRates';
 
 const MONTHS = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -60,6 +61,7 @@ export default function AdminFinanceDashboard({ onBack }) {
     reason: '',
   });
   const [actionLoading, setActionLoading] = useState(false);
+  const [otNominals, setOtNominals] = useState({});
 
   // Filter Pengajuan Lembur
   const pendingOvertimes = (overtimeRequests || []).filter(
@@ -706,15 +708,18 @@ export default function AdminFinanceDashboard({ onBack }) {
 
   const toggleSalaryRelease = handleToggleRelease;
 
-  // Finance Setujui Lembur (Tarif Flat Rp 20.000 / Jam)
-  const handleApproveOvertimeItem = async (ot) => {
-    const nominal = Number(ot.hours || 1) * 20000;
+  // Finance Setujui Lembur (Nominal Diinput & Ditentukan oleh Finance)
+  const handleApproveOvertimeItem = async (ot, inputNominal = null) => {
+    const finalNominal = inputNominal !== null && inputNominal !== undefined && inputNominal !== ''
+      ? Number(inputNominal)
+      : (ot.nominal > 0 ? Number(ot.nominal) : Number(ot.hours || 1) * 15000);
+
     setActionLoading(true);
     try {
-      await approveOvertimeRequest(ot.id, nominal);
+      await approveOvertimeRequest(ot.id, finalNominal);
       setSalaryMsg({
         type: 'success',
-        text: `Lembur ${ot.employee_name} (${ot.hours} Jam - Rp ${nominal.toLocaleString('id-ID')}) telah DISETUJUI & otomatis diagregasikan ke slip gaji!`,
+        text: `Lembur ${ot.employee_name} (${ot.hours} Jam - Rp ${finalNominal.toLocaleString('id-ID')}) telah DISETUJUI & otomatis diagregasikan ke slip gaji!`,
       });
       setTimeout(() => setSalaryMsg({ type: '', text: '' }), 4000);
     } catch (err) {
@@ -945,7 +950,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                       <h4 className="text-xs font-black tracking-wide flex items-center gap-1.5">
                         <span>Pusat Persetujuan Lembur Staf</span>
                         <span className="text-[9px] bg-emerald-500/30 text-emerald-300 border border-emerald-400/30 font-black px-2 py-0.5 rounded-full">
-                          Tarif Flat Rp 20.000 / Jam
+                          Nominal Diinput Finance
                         </span>
                       </h4>
                       <p className="text-[10px] text-blue-200">
@@ -1015,7 +1020,10 @@ export default function AdminFinanceDashboard({ onBack }) {
                 ) : (
                   <div className="space-y-3">
                     {pendingOvertimes.map((ot) => {
-                      const nominal = Number(ot.hours || 1) * 20000;
+                      const currentNominal = otNominals[ot.id] !== undefined
+                        ? otNominals[ot.id]
+                        : (ot.nominal > 0 ? ot.nominal : Number(ot.hours || 1) * 15000);
+
                       return (
                         <div
                           key={ot.id}
@@ -1027,6 +1035,11 @@ export default function AdminFinanceDashboard({ onBack }) {
                               <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200">
                                 {ot.branch}
                               </span>
+                              {ot.position && (
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                                  {ot.position}
+                                </span>
+                              )}
                               <span className="text-[10px] text-slate-500 font-medium">• {ot.date}</span>
                             </div>
                             <span className="text-[9px] font-black bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full border border-orange-200">
@@ -1034,20 +1047,36 @@ export default function AdminFinanceDashboard({ onBack }) {
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-white p-3 rounded-xl border border-slate-200/60">
-                            <div>
-                              <span className="text-[10px] text-slate-400 block font-medium">Durasi &amp; Tarif Flat:</span>
-                              <span className="text-xs font-black text-slate-800">
-                                {ot.hours} Jam × Rp 20.000 / Jam
-                              </span>
+                          <div className="bg-white p-3.5 rounded-xl border border-slate-200/70 space-y-2.5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                              <div>
+                                <span className="text-[10px] text-slate-400 block font-medium uppercase tracking-wider">Durasi Lembur:</span>
+                                <span className="text-xs font-black text-slate-800">
+                                  {ot.hours} Jam ({ot.position || 'Staff'})
+                                </span>
+                              </div>
+
+                              <div className="w-full sm:w-60">
+                                <label className="text-[10px] font-bold text-slate-700 block mb-1 flex items-center justify-between">
+                                  <span>Nominal Uang Lembur:</span>
+                                  <span className="text-[9px] text-[#2563EB] font-bold">Input oleh Finance</span>
+                                </label>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Rp</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="5000"
+                                    value={currentNominal}
+                                    onChange={(e) => setOtNominals({ ...otNominals, [ot.id]: e.target.value })}
+                                    className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-1.5 text-xs font-black text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:bg-white"
+                                    placeholder="Contoh: 30000"
+                                  />
+                                </div>
+                              </div>
                             </div>
-                            <div className="sm:text-right">
-                              <span className="text-[10px] text-slate-400 block font-medium">Total Uang Lembur:</span>
-                              <span className="text-xs font-black text-emerald-600">
-                                Rp {nominal.toLocaleString('id-ID')}
-                              </span>
-                            </div>
-                            <div className="sm:col-span-2 pt-1 border-t border-slate-100 text-[11px] text-slate-600">
+
+                            <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-600">
                               <span className="font-bold text-slate-700">Tugas / Catatan Leader: </span>
                               <span className="italic">&ldquo;{ot.reason}&rdquo;</span>
                             </div>
@@ -1057,20 +1086,20 @@ export default function AdminFinanceDashboard({ onBack }) {
                             <button
                               type="button"
                               disabled={actionLoading}
-                              onClick={() => handleApproveOvertimeItem(ot)}
-                              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                              onClick={() => handleApproveOvertimeItem(ot, currentNominal)}
+                              className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-98"
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Setujui (Rp {nominal.toLocaleString('id-ID')})</span>
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Setujui (Rp {Number(currentNominal || 0).toLocaleString('id-ID')})</span>
                             </button>
 
                             <button
                               type="button"
                               disabled={actionLoading}
                               onClick={() => handleOpenReject(ot)}
-                              className="py-2 px-3.5 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer"
+                              className="py-2.5 px-4 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer"
                             >
-                              <XCircle className="w-3.5 h-3.5" />
+                              <XCircle className="w-4 h-4" />
                               <span>Tolak</span>
                             </button>
                           </div>
@@ -1148,7 +1177,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                               <div>
                                 <span className="text-[10px] text-slate-400 block font-medium">Uang Lembur:</span>
                                 <span className="text-xs font-black text-emerald-600">
-                                  +Rp {Number(ot.nominal || ot.hours * 20000).toLocaleString('id-ID')}
+                                  +Rp {Number(ot.nominal || (ot.hours * (ot.hourly_rate || getOvertimeRateByPosition(ot.position)))).toLocaleString('id-ID')}
                                 </span>
                                 <span className="text-[9px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md block mt-1">
                                   Masuk Slip Gaji

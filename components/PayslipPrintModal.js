@@ -239,7 +239,7 @@ export default function PayslipPrintModal({
                       <span>Uang Lembur</span>
                       {approvedHours > 0 && (
                         <span className="text-[10px] text-slate-500 block">
-                          ({approvedHours} Jam @ Rp 20.000)
+                          ({approvedHours} Jam Disetujui)
                         </span>
                       )}
                     </div>

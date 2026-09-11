@@ -364,7 +364,7 @@ export default function PayslipTab() {
                         <span>Uang Lembur</span>
                         {approvedOvertimes.length > 0 && (
                           <span className="text-[10px] text-emerald-600 block font-medium">
-                            {approvedOvertimes.reduce((sum, o) => sum + Number(o.hours || 0), 0)} Jam @ Rp 20.000 / Jam
+                            {approvedOvertimes.reduce((sum, o) => sum + Number(o.hours || 0), 0)} Jam Disetujui
                           </span>
                         )}
                       </div>

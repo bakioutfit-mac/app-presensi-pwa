@@ -28,6 +28,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getLocalDateString } from '@/lib/date';
+import { getOvertimeRateByPosition } from '@/lib/overtimeRates';
 
 const MONTH_NAMES = [
   'Januari',
@@ -49,17 +50,11 @@ export default function AdminLeaderDashboard({ onBack }) {
   const [adminTab, setAdminTab] = useState('assignment'); // 'assignment', 'monitoring', 'overtime', 'addStaff'
   const [selectedOutletFilter, setSelectedOutletFilter] = useState('all');
 
-  // 1. PENUGASAN SHIFT (4 Shift Resmi Outlet)
-  const SHIFT_OPTIONS = [
-    'Shift Weekday (12:00 - 21:00)',
-    'Shift Weekend 1 (09:00 - 18:00)',
-    'Shift Weekend 2 (13:00 - 22:00)',
-    'Shift Middle (11:00 - 20:00)',
-    'Libur / Off',
-  ];
-
+  // 1. PENUGASAN SHIFT (Scroll/Wheel [Jam:Menit] - [Jam:Menit])
   const [assignDate, setAssignDate] = useState(getLocalDateString());
-  const [assignShift, setAssignShift] = useState(SHIFT_OPTIONS[0]);
+  const [shiftStartTime, setShiftStartTime] = useState('13:00');
+  const [shiftEndTime, setShiftEndTime] = useState('22:00');
+  const [isAssignOff, setIsAssignOff] = useState(false);
   const [assignDresscode, setAssignDresscode] = useState('Tentukan seragam atasan dan bawahan');
   const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
@@ -317,10 +312,11 @@ export default function AdminLeaderDashboard({ onBack }) {
     const payload = selectedStaffMembers.map((s) => ({
       employee_id: s.id,
       employee_name: s.name,
+      position: s.role || s.position || 'Staff',
       branch: s.branch || 'LazyBloom',
       date: otForm.date,
       hours: Number(otForm.hours || 1),
-      nominal: Number(otForm.hours || 1) * 20000,
+      nominal: 0, // Nominal akan ditentukan langsung oleh Admin Finance
       reason: otForm.reason,
     }));
 
@@ -368,32 +364,28 @@ export default function AdminLeaderDashboard({ onBack }) {
     }
 
     try {
+      const shiftName = isAssignOff
+        ? 'Libur / Off'
+        : `Shift ${shiftStartTime} - ${shiftEndTime}`;
+      const startTime = isAssignOff
+        ? null
+        : `${shiftStartTime}:00`;
+      const endTime = isAssignOff
+        ? null
+        : `${shiftEndTime}:00`;
+
       for (const staff of selectedStaff) {
         await supabase.from('shifts').upsert(
           {
             employee_id: staff.id,
             branch: staff.branch,
             shift_date: assignDate,
-            shift_name: assignShift,
-            start_time: assignShift.includes('09:00')
-              ? '09:00:00'
-              : assignShift.includes('13:00')
-              ? '13:00:00'
-              : assignShift.includes('11:00')
-              ? '11:00:00'
-              : assignShift.includes('12:00')
-              ? '12:00:00'
-              : null,
-            end_time: assignShift.includes('18:00')
-              ? '18:00:00'
-              : assignShift.includes('22:00')
-              ? '22:00:00'
-              : assignShift.includes('20:00')
-              ? '20:00:00'
-              : assignShift.includes('21:00')
-              ? '21:00:00'
-              : null,
-            notes: assignDresscode?.trim() || 'Tentukan seragam atasan dan bawahan',
+            shift_name: shiftName,
+            start_time: startTime,
+            end_time: endTime,
+            notes: isAssignOff
+              ? 'Libur'
+              : (assignDresscode?.trim() || 'Tentukan seragam atasan dan bawahan'),
           },
           { onConflict: 'employee_id, shift_date' }
         );
@@ -699,20 +691,48 @@ export default function AdminLeaderDashboard({ onBack }) {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    Pilihan Jam Shift:
-                  </label>
-                  <select
-                    value={assignShift}
-                    onChange={(e) => setAssignShift(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
-                  >
-                    {SHIFT_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                      Pilihan Jam Shift:
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer text-[10px] text-slate-500 hover:text-slate-800 select-none">
+                      <input
+                        type="checkbox"
+                        checked={isAssignOff}
+                        onChange={(e) => setIsAssignOff(e.target.checked)}
+                        className="rounded text-[#EA580C] focus:ring-[#EA580C] w-3 h-3"
+                      />
+                      <span className={isAssignOff ? 'font-bold text-rose-600' : ''}>Libur / Off</span>
+                    </label>
+                  </div>
+
+                  {isAssignOff ? (
+                    <div className="w-full bg-rose-50 border border-rose-200 rounded-xl px-2.5 py-2 text-xs font-bold text-rose-600 text-center animate-in fade-in">
+                      Libur / Off (Staf Tidak Masuk)
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex-1">
+                        <input
+                          type="time"
+                          value={shiftStartTime}
+                          onChange={(e) => setShiftStartTime(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40 text-center cursor-pointer shadow-xs"
+                          required={!isAssignOff}
+                        />
+                      </div>
+                      <span className="text-slate-400 font-bold text-xs">-</span>
+                      <div className="flex-1">
+                        <input
+                          type="time"
+                          value={shiftEndTime}
+                          onChange={(e) => setShiftEndTime(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40 text-center cursor-pointer shadow-xs"
+                          required={!isAssignOff}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1342,9 +1362,11 @@ export default function AdminLeaderDashboard({ onBack }) {
                             <span className="text-xs font-bold text-slate-900 block leading-tight">
                               {s.name}
                             </span>
-                            <span className="text-[10px] text-slate-500">
-                              {s.role} &bull; <span className="font-semibold text-slate-600">{s.branch}</span>
-                            </span>
+                            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500">
+                              <span className="font-semibold text-slate-700">{s.role}</span>
+                              <span>&bull;</span>
+                              <span>{s.branch}</span>
+                            </div>
                           </div>
                         </div>
 
@@ -1452,20 +1474,24 @@ export default function AdminLeaderDashboard({ onBack }) {
                 />
               </div>
 
-              {/* Banner Estimasi Tarif Lembur Flat Rp 20.000 / Jam */}
-              <div className="p-2.5 bg-orange-50 border border-orange-200/90 rounded-xl flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1.5 text-slate-700">
-                  <Sparkles className="w-4 h-4 text-[#EA580C] shrink-0" />
-                  <span className="text-[11px]">
-                    Tarif Flat: <strong className="text-slate-900">Rp 20.000 / Jam</strong> ({otForm.hours} Jam = <strong className="text-slate-900">Rp {(Number(otForm.hours || 1) * 20000).toLocaleString('id-ID')}</strong> / staf)
-                  </span>
+              {/* Ringkasan Pengajuan Lembur ke Finance */}
+              <div className="p-3.5 bg-orange-50/90 border border-orange-200/90 rounded-2xl flex items-center justify-between text-xs animate-in fade-in">
+                <div className="flex items-center gap-2.5 text-slate-700">
+                  <div className="w-8 h-8 rounded-xl bg-[#EA580C]/10 flex items-center justify-center text-[#EA580C] shrink-0">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-slate-900 block">
+                      Pengajuan: {selectedOtStaffIds.length} Staf Terpilih ({otForm.hours} Jam)
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Nominal uang lembur akan diinput &amp; ditentukan langsung oleh Admin Finance
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-500 block">Total Pengajuan:</span>
-                  <span className="text-xs font-black text-[#EA580C]">
-                    Rp {(selectedOtStaffIds.length * Number(otForm.hours || 1) * 20000).toLocaleString('id-ID')}
-                  </span>
-                </div>
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-orange-100 text-orange-800 border border-orange-200 shrink-0">
+                  Input Finance
+                </span>
               </div>
 
               <button
@@ -1526,10 +1552,10 @@ export default function AdminLeaderDashboard({ onBack }) {
                             }`}
                           >
                             {isApproved
-                              ? `Disetujui (Rp ${(Number(ot.nominal) || ot.hours * 20000).toLocaleString('id-ID')})`
+                              ? `Disetujui (Rp ${(Number(ot.nominal) || 0).toLocaleString('id-ID')})`
                               : isRejected
                               ? 'Ditolak Finance'
-                              : 'Menunggu Finance'}
+                              : 'Menunggu Nominal Finance'}
                           </span>
                         </div>
                         <p className="text-[10px] text-slate-600 italic">Tugas: {ot.reason}</p>

@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { OUTLETS, getOutletByName, saveOutletsConfig } from '@/lib/outlets';
 import { getLocalDateString } from '@/lib/date';
+import { getOvertimeRateByPosition } from '@/lib/overtimeRates';
 
 const AuthContext = createContext(null);
 
@@ -668,16 +669,17 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Pengajuan lembur dari Admin Leader ke Admin Finance (Tarif flat Rp 20.000 / jam)
+  // Pengajuan lembur dari Admin Leader ke Admin Finance (Nominal ditentukan oleh Finance)
   const submitOvertimeRequest = async (otData) => {
     const items = Array.isArray(otData) ? otData : [otData];
     const newItems = items.map((item) => {
       const hours = Number(item.hours || 1);
+      const nominal = item.nominal != null ? Number(item.nominal) : 0;
       return {
         id: item.id && isValidUUID(item.id) ? item.id : generateUUID(),
         created_at: new Date().toISOString(),
         status: 'Diajukan Leader',
-        nominal: hours * 20000, // Tarif flat Rp 20.000 per jam
+        nominal,
         hours,
         rejection_reason: null,
         ...item,
@@ -699,7 +701,7 @@ export function AuthProvider({ children }) {
     return { success: true, data: Array.isArray(otData) ? newItems : newItems[0] };
   };
 
-  // Keputusan Finance: Setujui Pengajuan Lembur (Hilang dari pending, otomatis masuk ke slip gaji)
+  // Keputusan Finance: Setujui Pengajuan Lembur dengan nominal yang diinput oleh Finance
   const approveOvertimeRequest = async (otId, customNominal = null) => {
     let approvedRecord = null;
     const nowIso = new Date().toISOString();
@@ -709,7 +711,9 @@ export function AuthProvider({ children }) {
       updatedList = prev.map((item) => {
         if (item.id === otId) {
           const hours = Number(item.hours || 1);
-          const nominal = customNominal != null ? Number(customNominal) : hours * 20000;
+          const nominal = customNominal != null && customNominal !== ''
+            ? Number(customNominal)
+            : (item.nominal != null && Number(item.nominal) > 0 ? Number(item.nominal) : hours * 15000);
           approvedRecord = {
             ...item,
             nominal,
