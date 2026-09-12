@@ -27,6 +27,7 @@ import {
   ClipboardCheck,
   Eye,
   Search,
+  Trash2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -236,36 +237,66 @@ export default function AdminFinanceDashboard({ onBack }) {
           .select('*, employees(full_name, branch)')
           .order('created_at', { ascending: false });
 
-        if (!error && data && data.length > 0) {
-          const mapped = data.map((p) => {
-            const detail = detailsMap[p.id] || {};
-            return {
-              id: p.id,
-              employee_id: p.employee_id,
-              employee_name: p.employees?.full_name || detail.employee_name || 'Staf',
-              branch: p.employees?.branch || detail.branch || 'LazyBloom',
-              period: p.period,
-              basic_salary: detail.basic_salary ?? p.basic_salary,
-              child_allowance: detail.child_allowance ?? 0,
-              spouse_allowance: detail.spouse_allowance ?? 0,
-              position_allowance: detail.position_allowance ?? 0,
-              meal_allowance: detail.meal_allowance ?? p.attendance_allowance ?? 0,
-              overtime_pay: detail.overtime_pay ?? p.overtime_pay ?? 0,
-              plus_day_count: detail.plus_day_count ?? p.plus_day_count ?? 0,
-              plus_day_pay: detail.plus_day_pay ?? p.plus_day_pay ?? 0,
-              plus_day_note: detail.plus_day_note ?? p.plus_day_note ?? '',
-              meal_deduction: detail.meal_deduction ?? 0,
-              attendance_deduction: detail.attendance_deduction ?? 0,
-              discipline_deduction: detail.discipline_deduction ?? 0,
-              cash_bon: detail.cash_bon ?? p.deductions ?? 0,
-              net_salary: p.net_salary,
-              is_released: p.is_released,
-              created_at: p.created_at,
-            };
-          });
-          setSalaryList(deduplicateList(mapped));
-        } else if (Object.keys(detailsMap).length > 0) {
-          // Fallback dari local cache jika ada
+        if (!error && Array.isArray(data)) {
+          // DATABASE SUPABASE ADALAH SUMBER KEBENARAN UTAMA (Single Source of Truth):
+          // Bersihkan detailsMap dari ID slip 'zombie' yang sudah dihapus di tabel payslips
+          const existingSlipIds = new Set(data.map((p) => p.id));
+          const cleanDetails = {};
+          for (const [id, detail] of Object.entries(detailsMap)) {
+            if (existingSlipIds.has(id)) {
+              cleanDetails[id] = detail;
+            }
+          }
+          detailsMap = cleanDetails;
+
+          if (typeof window !== 'undefined') {
+            if (Object.keys(cleanDetails).length > 0) {
+              localStorage.setItem('pwa_payslips_detail', JSON.stringify(cleanDetails));
+            } else {
+              localStorage.removeItem('pwa_payslips_detail');
+            }
+          }
+
+          if (data.length > 0) {
+            const mapped = data.map((p) => {
+              const detail = detailsMap[p.id] || {};
+              return {
+                id: p.id,
+                employee_id: p.employee_id,
+                employee_name: p.employees?.full_name || detail.employee_name || 'Staf',
+                branch: p.employees?.branch || detail.branch || 'LazyBloom',
+                period: p.period,
+                basic_salary: detail.basic_salary ?? p.basic_salary,
+                child_allowance: detail.child_allowance ?? 0,
+                spouse_allowance: detail.spouse_allowance ?? 0,
+                position_allowance: detail.position_allowance ?? 0,
+                meal_allowance: detail.meal_allowance ?? p.attendance_allowance ?? 0,
+                overtime_pay: detail.overtime_pay ?? p.overtime_pay ?? 0,
+                plus_day_count: detail.plus_day_count ?? p.plus_day_count ?? 0,
+                plus_day_pay: detail.plus_day_pay ?? p.plus_day_pay ?? 0,
+                plus_day_note: detail.plus_day_note ?? p.plus_day_note ?? '',
+                meal_deduction: detail.meal_deduction ?? 0,
+                attendance_deduction: detail.attendance_deduction ?? 0,
+                discipline_deduction: detail.discipline_deduction ?? 0,
+                cash_bon: detail.cash_bon ?? p.deductions ?? 0,
+                net_salary: p.net_salary,
+                is_released: p.is_released,
+                created_at: p.created_at,
+              };
+            });
+            setSalaryList(deduplicateList(mapped));
+          } else {
+            // Tabel payslips di Supabase kosong: set salaryList kosong & bersihkan cloud backup
+            setSalaryList([]);
+            try {
+              await supabase
+                .from('admin_settings')
+                .update({ description: '{}', updated_at: new Date().toISOString() })
+                .eq('role', 'payslips_detail');
+            } catch (e) {}
+          }
+        } else if (error && Object.keys(detailsMap).length > 0) {
+          // Hanya fallback ke cache lokal jika koneksi ke database error (misal offline)
           setSalaryList(deduplicateList(Object.values(detailsMap)));
         }
       } catch (err) {
@@ -894,6 +925,69 @@ export default function AdminFinanceDashboard({ onBack }) {
       setSalaryMsg({ type: 'error', text: 'Gagal menolak lembur.' });
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // Handle Hapus Slip Gaji Langsung dari Kelola Gaji
+  const handleDeleteSlip = async (slip) => {
+    if (
+      !window.confirm(
+        `Yakin ingin menghapus slip gaji ${slip.employee_name} (${slip.period})? Data akan dihapus permanen dari sistem.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      // 1. Hapus dari Supabase tabel payslips
+      const { error } = await supabase.from('payslips').delete().eq('id', slip.id);
+      if (error) throw error;
+
+      // 2. Hapus dari localStorage
+      let currentDetails = {};
+      if (typeof window !== 'undefined') {
+        try {
+          currentDetails = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+          delete currentDetails[slip.id];
+          if (Object.keys(currentDetails).length > 0) {
+            localStorage.setItem('pwa_payslips_detail', JSON.stringify(currentDetails));
+          } else {
+            localStorage.removeItem('pwa_payslips_detail');
+          }
+        } catch (e) {}
+      }
+
+      // 3. Update admin_settings di Supabase
+      try {
+        await supabase
+          .from('admin_settings')
+          .update({
+            description: JSON.stringify(currentDetails),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('role', 'payslips_detail');
+      } catch (e) {}
+
+      // 4. Update state salaryList
+      setSalaryList((prev) => prev.filter((s) => s.id !== slip.id));
+
+      // 5. Tampilkan notifikasi
+      setSalaryMsg({
+        type: 'success',
+        text: `Slip gaji ${slip.employee_name} (${slip.period}) berhasil dihapus permanen!`,
+      });
+      setTimeout(() => setSalaryMsg({ type: '', text: '' }), 4000);
+
+      // 6. Broadcast event
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pwa_payslips_deleted', { detail: { id: slip.id } }));
+      }
+    } catch (err) {
+      console.error('Delete slip error:', err);
+      setSalaryMsg({
+        type: 'error',
+        text: `Gagal menghapus slip gaji: ${err.message}`,
+      });
     }
   };
 
@@ -1901,6 +1995,16 @@ export default function AdminFinanceDashboard({ onBack }) {
                               <span>Terkunci (Draft)</span>
                             </>
                           )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSlip(slip)}
+                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition flex items-center gap-1 shadow-xs cursor-pointer"
+                          title="Hapus Slip Gaji Ini Permanen"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Hapus</span>
                         </button>
                       </div>
                     </div>

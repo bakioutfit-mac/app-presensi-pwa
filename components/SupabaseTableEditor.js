@@ -318,17 +318,15 @@ export default function SupabaseTableEditor() {
         if (stored) {
           const map = JSON.parse(stored);
           delete map[id];
-          localStorage.setItem('pwa_payslips_detail', JSON.stringify(map));
-          await supabase.from('admin_settings').upsert(
-            {
-              setting_key: 'payslips_detail_backup',
-              setting_value: map,
-              role: 'payslips_detail',
-              description: JSON.stringify(map),
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: 'setting_key' }
-          );
+          if (Object.keys(map).length > 0) {
+            localStorage.setItem('pwa_payslips_detail', JSON.stringify(map));
+          } else {
+            localStorage.removeItem('pwa_payslips_detail');
+          }
+          await supabase.from('admin_settings').update({
+            description: JSON.stringify(map),
+            updated_at: new Date().toISOString(),
+          }).eq('role', 'payslips_detail');
         }
       } catch (err) {
         console.warn('Error clearing payslip detail cache:', err);
