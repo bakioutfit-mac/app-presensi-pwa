@@ -26,6 +26,7 @@ import AdminPinModal from './AdminPinModal';
 import AdminLeaderDashboard from './AdminLeaderDashboard';
 import AdminFinanceDashboard from './AdminFinanceDashboard';
 import BrandLogo from './BrandLogo';
+import { getLocalDateString } from '@/lib/date';
 
 // Resto Coordinates fallback
 const RESTO_COORDS = {
@@ -77,12 +78,25 @@ export default function HomeDashboard() {
     user?.position?.toLowerCase().includes('purchasing');
 
   // Check if attendance is disabled due to approved leave / sick / late > 30m
-  const isLeaveDisabled =
+  const todayStr = getLocalDateString();
+  const isLeaveApprovedForToday =
     activeLeave &&
+    activeLeave.status === 'Disetujui' &&
+    todayStr >= (activeLeave.start_date || '') &&
+    todayStr <= (activeLeave.end_date || activeLeave.start_date || '');
+
+  const isLeaveDisabled =
+    isLeaveApprovedForToday &&
     (activeLeave.leave_type === 'Sakit' ||
       activeLeave.leave_type === 'Cuti Tahunan' ||
       (activeLeave.leave_type === 'Izin Terlambat' &&
         Number(activeLeave.late_duration_minutes) > 30));
+
+  const isLeavePendingForToday =
+    activeLeave &&
+    activeLeave.status === 'Menunggu' &&
+    todayStr >= (activeLeave.start_date || '') &&
+    todayStr <= (activeLeave.end_date || activeLeave.start_date || '');
 
   // Geolocation watch
   useEffect(() => {
@@ -400,7 +414,22 @@ export default function HomeDashboard() {
                 <p className="text-[11px] text-amber-800 leading-relaxed mt-0.5">
                   {activeLeave.leave_type === 'Izin Terlambat'
                     ? `Izin terlambat > 30 menit (${activeLeave.late_duration_minutes} mnt). Tombol presensi dinonaktifkan.`
-                    : 'Anda sedang dalam status izin sakit/cuti. Tombol presensi dinonaktifkan.'}
+                    : 'Anda sedang dalam status izin sakit/cuti yang telah disetujui. Tombol presensi dinonaktifkan.'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Pending Leave Notification */}
+          {isLeavePendingForToday && (
+            <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-900 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-blue-600 mt-0.5" />
+              <div>
+                <p className="font-bold">
+                  Pengajuan Izin Sedang Menunggu Persetujuan ({activeLeave.leave_type})
+                </p>
+                <p className="text-[11px] text-blue-800 leading-relaxed mt-0.5">
+                  Pengajuan izin Anda sedang menunggu persetujuan Admin Finance. Tombol presensi tetap aktif sampai disetujui.
                 </p>
               </div>
             </div>

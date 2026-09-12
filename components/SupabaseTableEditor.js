@@ -312,6 +312,39 @@ export default function SupabaseTableEditor() {
         type: 'success',
         text: 'Data presensi berhasil dihapus permanen dari Supabase! Sesi hari ini telah di-reset.',
       });
+    } else if (activeTable === 'payslips') {
+      try {
+        const stored = localStorage.getItem('pwa_payslips_detail');
+        if (stored) {
+          const map = JSON.parse(stored);
+          delete map[id];
+          localStorage.setItem('pwa_payslips_detail', JSON.stringify(map));
+          await supabase.from('admin_settings').upsert(
+            {
+              setting_key: 'payslips_detail_backup',
+              setting_value: map,
+              role: 'payslips_detail',
+              description: JSON.stringify(map),
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'setting_key' }
+          );
+        }
+      } catch (err) {
+        console.warn('Error clearing payslip detail cache:', err);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pwa_payslips_deleted', { detail: { id } }));
+      }
+      setMsg({
+        type: 'success',
+        text: 'Data slip gaji berhasil dihapus dari Supabase & tampilan Kelola Gaji!',
+      });
+    } else if (activeTable === 'leaves') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pwa_leave_deleted', { detail: { id } }));
+      }
+      setMsg({ type: 'success', text: 'Data pengajuan izin berhasil dihapus dari database!' });
     } else {
       setMsg({ type: 'success', text: 'Baris data berhasil dihapus permanen dari Supabase!' });
     }

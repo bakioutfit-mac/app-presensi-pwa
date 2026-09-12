@@ -24,12 +24,15 @@ import {
   Edit3,
   RefreshCw,
   Printer,
+  ClipboardCheck,
+  Eye,
+  Search,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import SupabaseTableEditor from './SupabaseTableEditor';
 import { formatRupiah, CurrencyInput, fetchEmployeeSalaries } from '@/lib/currency';
-import { getPeriodFromDate } from '@/lib/date';
+import { getPeriodFromDate, formatIndonesianDate } from '@/lib/date';
 import PayslipPrintModal from './PayslipPrintModal';
 import { getOvertimeRateByPosition } from '@/lib/overtimeRates';
 
@@ -48,7 +51,7 @@ export default function AdminFinanceDashboard({ onBack }) {
     approveOvertimeRequest,
     rejectOvertimeRequest,
   } = useAuth();
-  const [financeTab, setFinanceTab] = useState('payroll'); // 'payroll' | 'gpsConfig' | 'tableEditor'
+  const [financeTab, setFinanceTab] = useState('payroll'); // 'payroll' | 'leaveApproval' | 'gpsConfig' | 'tableEditor'
   const [payrollSubTab, setPayrollSubTab] = useState('manage'); // 'manage' | 'overtime'
   const [printModalSlip, setPrintModalSlip] = useState(null);
 
@@ -70,6 +73,26 @@ export default function AdminFinanceDashboard({ onBack }) {
   const processedOvertimes = (overtimeRequests || []).filter(
     (ot) => ot.status !== 'Diajukan Leader'
   );
+
+  // ================= 1.5 PERSETUJUAN IZIN / SAKIT STAF =================
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [loadingLeaves, setLoadingLeaves] = useState(false);
+  const [leaveFilter, setLeaveFilter] = useState('pending'); // 'pending' | 'approved' | 'rejected' | 'all'
+  const [leaveSearch, setLeaveSearch] = useState('');
+  const [previewDocUrl, setPreviewDocUrl] = useState(null);
+  const [rejectLeaveModal, setRejectLeaveModal] = useState({
+    open: false,
+    leaveId: null,
+    staffName: '',
+    leaveType: '',
+    reason: '',
+    rejectionNote: '',
+  });
+
+  const pendingLeaves = (leaveRequests || []).filter((l) => l.status === 'Menunggu');
+  const approvedLeaves = (leaveRequests || []).filter((l) => l.status === 'Disetujui');
+  const rejectedLeaves = (leaveRequests || []).filter((l) => l.status === 'Ditolak');
+  const pendingLeavesCount = pendingLeaves.length;
 
   // ================= 1. KELOLA SLIP GAJI 3 OUTLET =================
   const [selectedOutletSalary, setSelectedOutletSalary] = useState('all');
@@ -250,14 +273,128 @@ export default function AdminFinanceDashboard({ onBack }) {
       }
     }
     loadInitialData();
+    fetchLeaves();
 
     // Listener sinkronisasi paket gaji otomatis saat diubah di Tabel Editor
     const handlePackageUpdate = () => {
       fetchEmployeeSalaries().then((pkgs) => setEmployeeSalaries(pkgs || {}));
     };
     window.addEventListener('pwa_salary_package_updated', handlePackageUpdate);
-    return () => window.removeEventListener('pwa_salary_package_updated', handlePackageUpdate);
+
+    // Listener sinkronisasi penghapusan slip gaji dari Tabel Editor
+    const handlePayslipDeleted = (e) => {
+      const deletedId = e.detail?.id;
+      if (deletedId) {
+        setSalaryList((prev) => prev.filter((item) => item.id !== deletedId));
+      }
+    };
+    window.addEventListener('pwa_payslips_deleted', handlePayslipDeleted);
+
+    // Listener sinkronisasi permohonan izin staf
+    const handleLeaveUpdate = () => {
+      fetchLeaves();
+    };
+    window.addEventListener('pwa_leave_submitted', handleLeaveUpdate);
+    window.addEventListener('pwa_leave_status_changed', handleLeaveUpdate);
+    window.addEventListener('pwa_leave_deleted', handleLeaveUpdate);
+
+    return () => {
+      window.removeEventListener('pwa_salary_package_updated', handlePackageUpdate);
+      window.removeEventListener('pwa_payslips_deleted', handlePayslipDeleted);
+      window.removeEventListener('pwa_leave_submitted', handleLeaveUpdate);
+      window.removeEventListener('pwa_leave_status_changed', handleLeaveUpdate);
+      window.removeEventListener('pwa_leave_deleted', handleLeaveUpdate);
+    };
   }, []);
+
+  const fetchLeaves = async () => {
+    setLoadingLeaves(true);
+    try {
+      const { data, error } = await supabase
+        .from('leaves')
+        .select('*, employees(full_name, branch, position)')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        setLeaveRequests(data);
+      }
+    } catch (err) {
+      console.warn('Fetch leaves error:', err);
+    } finally {
+      setLoadingLeaves(false);
+    }
+  };
+
+  const handleApproveLeave = async (leaveId) => {
+    setActionLoading(true);
+    try {
+      const { error } = await supabase
+        .from('leaves')
+        .update({ status: 'Disetujui' })
+        .eq('id', leaveId);
+      if (error) throw error;
+
+      setLeaveRequests((prev) =>
+        prev.map((l) => (l.id === leaveId ? { ...l, status: 'Disetujui' } : l))
+      );
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('pwa_leave_status_changed', {
+            detail: { id: leaveId, status: 'Disetujui' },
+          })
+        );
+      }
+      setSalaryMsg({ type: 'success', text: 'Pengajuan izin staf berhasil disetujui!' });
+    } catch (err) {
+      console.error('Approve leave error:', err);
+      setSalaryMsg({ type: 'error', text: 'Gagal menyetujui izin: ' + err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleConfirmRejectLeave = async () => {
+    if (!rejectLeaveModal.leaveId) return;
+    setActionLoading(true);
+    try {
+      const currentLeave = leaveRequests.find((l) => l.id === rejectLeaveModal.leaveId);
+      const originalReason = currentLeave?.reason || '';
+      const updatedReason = rejectLeaveModal.rejectionNote.trim()
+        ? `${originalReason} (Alasan Tolak: ${rejectLeaveModal.rejectionNote.trim()})`
+        : originalReason;
+
+      const { error } = await supabase
+        .from('leaves')
+        .update({
+          status: 'Ditolak',
+          reason: updatedReason,
+        })
+        .eq('id', rejectLeaveModal.leaveId);
+      if (error) throw error;
+
+      setLeaveRequests((prev) =>
+        prev.map((l) =>
+          l.id === rejectLeaveModal.leaveId
+            ? { ...l, status: 'Ditolak', reason: updatedReason }
+            : l
+        )
+      );
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('pwa_leave_status_changed', {
+            detail: { id: rejectLeaveModal.leaveId, status: 'Ditolak' },
+          })
+        );
+      }
+      setRejectLeaveModal({ open: false, leaveId: null, staffName: '', leaveType: '', reason: '', rejectionNote: '' });
+      setSalaryMsg({ type: 'success', text: 'Pengajuan izin staf telah ditolak.' });
+    } catch (err) {
+      console.error('Reject leave error:', err);
+      setSalaryMsg({ type: 'error', text: 'Gagal menolak izin: ' + err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   // Helper mencari apakah staf sudah memiliki slip gaji di periode tertentu
   const findExistingSlip = (empId, empName, targetPeriod) => {
@@ -858,7 +995,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       </div>
 
       {/* Sub-Tabs */}
-      <div className="grid grid-cols-3 gap-1.5 bg-slate-200/70 p-1.5 rounded-2xl">
+      <div className="grid grid-cols-4 gap-1.5 bg-slate-200/70 p-1.5 rounded-2xl">
         <button
           type="button"
           onClick={() => setFinanceTab('payroll')}
@@ -869,7 +1006,27 @@ export default function AdminFinanceDashboard({ onBack }) {
           }`}
         >
           <Banknote className="w-4 h-4" />
-          <span>Gaji 3 Outlet</span>
+          <span className="truncate">Gaji 3 Outlet</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFinanceTab('leaveApproval')}
+          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 relative ${
+            financeTab === 'leaveApproval'
+              ? 'bg-white text-[#2563EB] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <div className="relative">
+            <ClipboardCheck className="w-4 h-4" />
+            {pendingLeavesCount > 0 && (
+              <span className="absolute -top-1.5 -right-2.5 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white animate-pulse">
+                {pendingLeavesCount > 9 ? '9+' : pendingLeavesCount}
+              </span>
+            )}
+          </div>
+          <span className="truncate">Persetujuan Izin</span>
         </button>
 
         <button
@@ -882,7 +1039,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           }`}
         >
           <MapPin className="w-4 h-4" />
-          <span>Titik GPS Outlet</span>
+          <span className="truncate">Titik GPS</span>
         </button>
 
         <button
@@ -895,7 +1052,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           }`}
         >
           <Database className="w-4 h-4" />
-          <span>Tabel Editor</span>
+          <span className="truncate">Tabel Editor</span>
         </button>
       </div>
 
@@ -1756,6 +1913,354 @@ export default function AdminFinanceDashboard({ onBack }) {
     </div>
   )}
 
+      {/* ================= TAB 1.5: PERSETUJUAN IZIN & SAKIT STAF ================= */}
+      {financeTab === 'leaveApproval' && (
+        <div className="bg-white/90 border border-gray-200 rounded-2xl p-4 shadow-xs space-y-4 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+            <div>
+              <h4 className="text-xs font-bold text-gray-800 flex items-center gap-2">
+                <ClipboardCheck className="w-4 h-4 text-[#2563EB]" />
+                <span>Persetujuan Izin & Sakit Staf 3 Outlet</span>
+              </h4>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                Verifikasi, tinjau bukti surat dokter, dan berikan persetujuan atau penolakan pengajuan izin staf.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchLeaves}
+              disabled={loadingLeaves}
+              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition cursor-pointer flex items-center gap-1 text-[11px] font-bold"
+              title="Segarkan Data"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingLeaves ? 'animate-spin text-[#2563EB]' : ''}`} />
+              <span className="hidden sm:inline">Segarkan</span>
+            </button>
+          </div>
+
+          {/* Sub-filter status dan Search */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setLeaveFilter('pending')}
+                className={`py-1.5 px-3 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 ${
+                  leaveFilter === 'pending'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>Menunggu Approval</span>
+                {pendingLeaves.length > 0 && (
+                  <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${
+                    leaveFilter === 'pending' ? 'bg-white text-amber-600' : 'bg-amber-500 text-white'
+                  }`}>
+                    {pendingLeaves.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLeaveFilter('approved')}
+                className={`py-1.5 px-3 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 ${
+                  leaveFilter === 'approved'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>Disetujui ({approvedLeaves.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLeaveFilter('rejected')}
+                className={`py-1.5 px-3 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 ${
+                  leaveFilter === 'rejected'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>Ditolak ({rejectedLeaves.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLeaveFilter('all')}
+                className={`py-1.5 px-3 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 ${
+                  leaveFilter === 'all'
+                    ? 'bg-slate-800 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>Semua ({leaveRequests.length})</span>
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Cari nama staf, outlet, alasan, atau jenis izin..."
+                value={leaveSearch}
+                onChange={(e) => setLeaveSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB]"
+              />
+              {leaveSearch && (
+                <button
+                  type="button"
+                  onClick={() => setLeaveSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* List Cards Pengajuan Izin */}
+          <div className="space-y-3 pt-1">
+            {loadingLeaves ? (
+              <div className="py-12 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
+                <RefreshCw className="w-6 h-6 animate-spin text-[#2563EB]" />
+                <span>Memuat data pengajuan izin staf...</span>
+              </div>
+            ) : (leaveRequests || []).filter((l) => {
+              if (leaveFilter === 'pending' && l.status !== 'Menunggu') return false;
+              if (leaveFilter === 'approved' && l.status !== 'Disetujui') return false;
+              if (leaveFilter === 'rejected' && l.status !== 'Ditolak') return false;
+              if (leaveSearch.trim()) {
+                const q = leaveSearch.toLowerCase();
+                const name = (l.employees?.full_name || '').toLowerCase();
+                const branch = (l.branch || l.employees?.branch || '').toLowerCase();
+                const reason = (l.reason || '').toLowerCase();
+                const type = (l.leave_type || '').toLowerCase();
+                return name.includes(q) || branch.includes(q) || reason.includes(q) || type.includes(q);
+              }
+              return true;
+            }).length === 0 ? (
+              <div className="py-10 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-center space-y-2">
+                <ClipboardCheck className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="text-xs font-bold text-slate-600">
+                  {leaveFilter === 'pending'
+                    ? 'Tidak ada pengajuan izin yang menunggu persetujuan.'
+                    : 'Tidak ada data pengajuan izin yang sesuai filter.'}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {leaveFilter === 'pending'
+                    ? 'Semua permohonan izin staf telah diproses.'
+                    : 'Coba ubah kata kunci pencarian atau ganti filter di atas.'}
+                </p>
+              </div>
+            ) : (
+              (leaveRequests || [])
+                .filter((l) => {
+                  if (leaveFilter === 'pending' && l.status !== 'Menunggu') return false;
+                  if (leaveFilter === 'approved' && l.status !== 'Disetujui') return false;
+                  if (leaveFilter === 'rejected' && l.status !== 'Ditolak') return false;
+                  if (leaveSearch.trim()) {
+                    const q = leaveSearch.toLowerCase();
+                    const name = (l.employees?.full_name || '').toLowerCase();
+                    const branch = (l.branch || l.employees?.branch || '').toLowerCase();
+                    const reason = (l.reason || '').toLowerCase();
+                    const type = (l.leave_type || '').toLowerCase();
+                    return name.includes(q) || branch.includes(q) || reason.includes(q) || type.includes(q);
+                  }
+                  return true;
+                })
+                .map((leave) => {
+                  const empName = leave.employees?.full_name || 'Staf';
+                  const branchName = leave.branch || leave.employees?.branch || 'LazyBloom';
+                  const position = leave.employees?.position || '-';
+                  const isPending = leave.status === 'Menunggu';
+                  const isApproved = leave.status === 'Disetujui';
+                  const isRejected = leave.status === 'Ditolak';
+
+                  const startDateStr = formatIndonesianDate(leave.start_date);
+                  const endDateStr = formatIndonesianDate(leave.end_date);
+                  const dateDisplay =
+                    leave.start_date === leave.end_date
+                      ? `${startDateStr} (1 hari)`
+                      : `${startDateStr} s/d ${endDateStr}`;
+
+                  return (
+                    <div
+                      key={leave.id}
+                      className={`p-4 rounded-2xl border transition-all ${
+                        isPending
+                          ? 'bg-amber-50/40 border-amber-200 shadow-xs'
+                          : isApproved
+                          ? 'bg-white border-slate-200'
+                          : 'bg-slate-50 border-slate-200 opacity-90'
+                      }`}
+                    >
+                      {/* Header Card */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2563EB] to-indigo-600 text-white font-black text-xs flex items-center justify-center shadow-xs">
+                            {empName.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <h5 className="font-extrabold text-xs text-slate-900 leading-tight">
+                              {empName}
+                            </h5>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-bold rounded-md border border-blue-200">
+                                {branchName}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {position}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          {isPending && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                              <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
+                              <span>Menunggu Approval</span>
+                            </span>
+                          )}
+                          {isApproved && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              <span>Disetujui</span>
+                            </span>
+                          )}
+                          {isRejected && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300">
+                              <XCircle className="w-3 h-3 text-rose-600" />
+                              <span>Ditolak</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Detail Box */}
+                      <div className="mt-3 p-3 bg-white rounded-xl border border-slate-100 text-xs space-y-2">
+                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          <div>
+                            <span className="text-slate-400 block text-[10px]">Kategori Izin</span>
+                            <span className="font-extrabold text-[#2563EB] bg-blue-50 px-2 py-0.5 rounded-md inline-block mt-0.5">
+                              {leave.leave_type}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block text-[10px]">Rentang Tanggal</span>
+                            <span className="font-bold text-slate-800 block mt-0.5">
+                              {dateDisplay}
+                            </span>
+                          </div>
+                        </div>
+
+                        {leave.leave_type === 'Izin Terlambat' && Number(leave.late_duration_minutes) > 0 && (
+                          <div className="p-2 bg-amber-50/70 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-center gap-2">
+                            <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>
+                              Durasi Terlambat: <strong>{leave.late_duration_minutes} Menit</strong>
+                              {Number(leave.late_duration_minutes) > 30 ? ' (Otomatis nonaktifkan presensi)' : ' (Presensi tetap dibuka)'}
+                            </span>
+                          </div>
+                        )}
+
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Alasan / Keterangan:</span>
+                          <p className="text-slate-700 text-[11px] italic bg-slate-50 p-2 rounded-lg mt-0.5 border border-slate-100">
+                            &ldquo;{leave.reason || 'Tidak ada keterangan khusus'}&rdquo;
+                          </p>
+                        </div>
+
+                        {/* Bukti Dokumen */}
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px]">
+                          <span className="text-slate-400">Lampiran Dokumen:</span>
+                          {leave.document_url ? (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDocUrl(leave.document_url)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-[#2563EB] font-bold rounded-lg transition cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Lihat Surat / Bukti</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 italic text-[10px]">
+                              Tanpa lampiran dokumen
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="mt-3 flex items-center gap-2">
+                        {isPending ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={() => handleApproveLeave(leave.id)}
+                              className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Setujui Izin</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={() =>
+                                setRejectLeaveModal({
+                                  open: true,
+                                  leaveId: leave.id,
+                                  staffName: empName,
+                                  leaveType: leave.leave_type,
+                                  reason: leave.reason || '',
+                                  rejectionNote: '',
+                                })
+                              }
+                              className="py-2 px-3 bg-white hover:bg-rose-50 text-rose-600 border border-rose-300 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>Tolak</span>
+                            </button>
+                          </>
+                        ) : (
+                          <div className="w-full flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                            <span>
+                              Status: <strong className={isApproved ? 'text-emerald-600' : 'text-rose-600'}>{leave.status}</strong>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isApproved) {
+                                  setRejectLeaveModal({
+                                    open: true,
+                                    leaveId: leave.id,
+                                    staffName: empName,
+                                    leaveType: leave.leave_type,
+                                    reason: leave.reason || '',
+                                    rejectionNote: '',
+                                  });
+                                } else {
+                                  handleApproveLeave(leave.id);
+                                }
+                              }}
+                              className="text-[10px] text-slate-500 underline hover:text-slate-800 cursor-pointer"
+                            >
+                              {isApproved ? 'Ubah ke Tolak' : 'Ubah ke Setujui'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+            )}
+          </div>
+        </div>
+      )}
+
 
 
 
@@ -2006,6 +2511,128 @@ export default function AdminFinanceDashboard({ onBack }) {
                 type="button"
                 disabled={actionLoading || !rejectModal.reason.trim()}
                 onClick={handleConfirmReject}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>{actionLoading ? 'Menyimpan...' : 'Konfirmasi Tolak'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Preview Surat Dokter / Bukti Dokumen */}
+      {previewDocUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+            <div className="px-5 py-3.5 bg-slate-100 flex items-center justify-between border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-[#2563EB]" />
+                <h4 className="font-extrabold text-xs text-slate-800">
+                  Pratinjau Surat Dokter / Dokumen Izin
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewDocUrl(null)}
+                className="p-1 rounded-full text-slate-500 hover:text-slate-800 hover:bg-slate-200 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 flex items-center justify-center max-h-[70vh] overflow-auto bg-slate-900/5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewDocUrl}
+                alt="Surat Dokter / Bukti Izin"
+                className="max-h-[60vh] w-auto object-contain rounded-xl shadow-md"
+                onError={(e) => {
+                  e.target.onerror = null;
+                  e.target.src = '';
+                }}
+              />
+            </div>
+
+            <div className="p-3 bg-white border-t border-slate-100 flex items-center justify-between">
+              <a
+                href={previewDocUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-bold text-[#2563EB] hover:underline"
+              >
+                Buka di Tab Baru &rarr;
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreviewDocUrl(null)}
+                className="py-1.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Penolakan Izin Staf */}
+      {rejectLeaveModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <XCircle className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-xs text-slate-800">
+                    Tolak Pengajuan Izin
+                  </h4>
+                  <p className="text-[10px] text-slate-500">
+                    {rejectLeaveModal.staffName} ({rejectLeaveModal.leaveType})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setRejectLeaveModal({ open: false, leaveId: null, staffName: '', leaveType: '', reason: '', rejectionNote: '' })
+                }
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <label className="block text-[11px] font-bold text-slate-700">
+                Alasan Penolakan (akan dicatat di sistem):
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Contoh: Bukti surat dokter kurang jelas, atau shift tidak memungkinkan cuti..."
+                value={rejectLeaveModal.rejectionNote}
+                onChange={(e) =>
+                  setRejectLeaveModal((prev) => ({ ...prev, rejectionNote: e.target.value }))
+                }
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setRejectLeaveModal({ open: false, leaveId: null, staffName: '', leaveType: '', reason: '', rejectionNote: '' })
+                }
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={handleConfirmRejectLeave}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <XCircle className="w-3.5 h-3.5" />

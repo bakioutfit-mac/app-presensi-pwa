@@ -108,7 +108,7 @@ export default function LeaveModal({ isOpen, onClose }) {
                 Pengajuan Izin Berhasil Dikirim!
               </h4>
               <p className="text-xs text-gray-500">
-                Status kehadiran Anda hari ini telah diperbarui secara otomatis.
+                Pengajuan izin Anda telah tercatat dan menunggu persetujuan dari Admin Finance.
               </p>
             </div>
           ) : (

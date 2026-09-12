@@ -172,7 +172,23 @@ export function AuthProvider({ children }) {
 
       const storedLeave = localStorage.getItem('pwa_active_leave');
       if (storedLeave) {
-        setActiveLeave(JSON.parse(storedLeave));
+        try {
+          const parsed = JSON.parse(storedLeave);
+          const today = getLocalDateString();
+          const isTodayValid =
+            parsed.status === 'Disetujui' &&
+            today >= (parsed.start_date || '') &&
+            today <= (parsed.end_date || parsed.start_date || '');
+          if (isTodayValid) {
+            setActiveLeave(parsed);
+          } else {
+            localStorage.removeItem('pwa_active_leave');
+            setActiveLeave(null);
+          }
+        } catch {
+          localStorage.removeItem('pwa_active_leave');
+          setActiveLeave(null);
+        }
       }
 
       // Muat PIN admin tersimpan jika ada (dan timpa jika masih memakai pin default lama)
@@ -353,6 +369,10 @@ export function AuthProvider({ children }) {
         if (!leaveError && leaveData) {
           setActiveLeave(leaveData);
           localStorage.setItem('pwa_active_leave', JSON.stringify(leaveData));
+        } else {
+          // Jika tidak ada izin aktif yang disetujui hari ini, bersihkan cache agar presensi bisa jalan
+          setActiveLeave(null);
+          localStorage.removeItem('pwa_active_leave');
         }
       } catch (err) {
         console.warn('Could not fetch attendance/leave from Supabase, using local cache:', err);
@@ -364,6 +384,17 @@ export function AuthProvider({ children }) {
     if (user) {
       loadAttendanceAndLeave(user);
     }
+  }, [user]);
+
+  // Listener event perubahan status izin (misal di-approve/reject oleh Admin Finance)
+  useEffect(() => {
+    const handleLeaveStatusChanged = () => {
+      if (user) {
+        loadAttendanceAndLeave(user);
+      }
+    };
+    window.addEventListener('pwa_leave_status_changed', handleLeaveStatusChanged);
+    return () => window.removeEventListener('pwa_leave_status_changed', handleLeaveStatusChanged);
   }, [user]);
 
   // Verifikasi PIN Admin (Leader atau Finance)
@@ -958,37 +989,81 @@ export function AuthProvider({ children }) {
     return { success: true, data: updatedRecord };
   };
 
-  // Submit leave request
+  // Submit leave request (status awal: 'Menunggu' persetujuan Admin Finance)
   const submitLeave = async (leaveData) => {
     if (!user) return { success: false, error: 'Belum login.' };
 
     const todayStr = getLocalDateString();
     const newLeave = {
       employee_id: user.id,
+      branch: user.branch || 'LazyBloom',
       leave_type: leaveData.leave_type,
       start_date: leaveData.start_date || todayStr,
       end_date: leaveData.end_date || todayStr,
       late_duration_minutes: Number(leaveData.late_duration_minutes || 0),
       reason: leaveData.reason,
       document_url: leaveData.document_url || null,
-      status: 'Disetujui',
+      status: 'Menunggu',
     };
 
     try {
-      await supabase.from('leaves').insert(newLeave);
+      const { data, error } = await supabase.from('leaves').insert(newLeave).select().single();
+      if (!error && data) {
+        newLeave.id = data.id;
+      }
     } catch (err) {
       console.warn('Supabase insert leave error:', err);
     }
 
-    const isToday =
-      todayStr >= newLeave.start_date && todayStr <= newLeave.end_date;
-
-    if (isToday) {
-      setActiveLeave(newLeave);
-      localStorage.setItem('pwa_active_leave', JSON.stringify(newLeave));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('pwa_leave_submitted', { detail: newLeave }));
     }
 
     return { success: true, data: newLeave };
+  };
+
+  // Helper untuk Admin Finance menyetujui pengajuan izin
+  const approveLeaveRequest = async (leaveId) => {
+    try {
+      const { error } = await supabase
+        .from('leaves')
+        .update({ status: 'Disetujui' })
+        .eq('id', leaveId);
+      if (error) throw error;
+
+      if (user) {
+        await loadAttendanceAndLeave(user);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pwa_leave_status_changed', { detail: { id: leaveId, status: 'Disetujui' } }));
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('approveLeaveRequest error:', err);
+      return { success: false, error: err.message };
+    }
+  };
+
+  // Helper untuk Admin Finance menolak pengajuan izin
+  const rejectLeaveRequest = async (leaveId, rejectionReason = '') => {
+    try {
+      const { error } = await supabase
+        .from('leaves')
+        .update({ status: 'Ditolak' })
+        .eq('id', leaveId);
+      if (error) throw error;
+
+      if (user) {
+        await loadAttendanceAndLeave(user);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pwa_leave_status_changed', { detail: { id: leaveId, status: 'Ditolak', rejectionReason } }));
+      }
+      return { success: true };
+    } catch (err) {
+      console.error('rejectLeaveRequest error:', err);
+      return { success: false, error: err.message };
+    }
   };
 
   // Ambil outlet dari profil user dengan koordinat terupdate
@@ -1009,6 +1084,8 @@ export function AuthProvider({ children }) {
         recordAttendance,
         activeLeave,
         submitLeave,
+        approveLeaveRequest,
+        rejectLeaveRequest,
         resetTodayAttendance,
         overtimeRequests,
         loadOvertimeRequests,
