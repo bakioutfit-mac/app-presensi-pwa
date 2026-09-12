@@ -9,6 +9,10 @@ import {
   CheckCircle,
   AlertTriangle,
   X,
+  FileText,
+  CheckCircle2,
+  XCircle,
+  Eye,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -19,7 +23,40 @@ export default function AttendanceHistoryTab() {
   const [history, setHistory] = useState([]);
   const [photoModal, setPhotoModal] = useState(null);
 
+  const mapLeaveItem = (item) => {
+    const dateObj = parseLocalDate(item.start_date);
+    const dayName = !isNaN(dateObj.getTime())
+      ? dateObj.toLocaleDateString('id-ID', { weekday: 'long' })
+      : 'Hari Kerja';
+    const formattedStartDate = !isNaN(dateObj.getTime())
+      ? dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+      : item.start_date;
+    const formattedEndDate =
+      item.end_date && item.end_date !== item.start_date
+        ? parseLocalDate(item.end_date).toLocaleDateString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+          })
+        : null;
 
+    const dateDisplay = formattedEndDate
+      ? `${formattedStartDate} s/d ${formattedEndDate}`
+      : formattedStartDate;
+
+    return {
+      id: item.id || `leave-${item.start_date}`,
+      type: 'leave',
+      raw_date: item.start_date,
+      date: dateDisplay,
+      day: dayName,
+      leave_type: item.leave_type || 'Izin',
+      status: item.status || 'Menunggu',
+      reason: item.reason || 'Tidak ada keterangan khusus',
+      document_url: item.document_url || null,
+      late_duration_minutes: Number(item.late_duration_minutes || 0),
+    };
+  };
 
   const mapAttendanceItem = (item) => {
     const dateObj = parseLocalDate(item.attendance_date);
@@ -71,11 +108,12 @@ export default function AttendanceHistoryTab() {
       if (!user) return;
 
       let baseList = [];
+      let leavesList = [];
       const isValidUUID =
         typeof user.id === 'string' &&
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.id);
 
-      // 1. Ambil dari Supabase jika user.id adalah UUID valid
+      // 1. Ambil data presensi & data pengajuan izin dari Supabase
       if (isValidUUID) {
         try {
           const { data, error } = await supabase
@@ -89,6 +127,20 @@ export default function AttendanceHistoryTab() {
           }
         } catch (err) {
           console.warn('Supabase fetch attendance error:', err);
+        }
+
+        try {
+          const { data: leaveData, error: leaveError } = await supabase
+            .from('leaves')
+            .select('*')
+            .eq('employee_id', user.id)
+            .order('start_date', { ascending: false });
+
+          if (!leaveError && leaveData && leaveData.length > 0) {
+            leavesList = leaveData.map(mapLeaveItem);
+          }
+        } catch (err) {
+          console.warn('Supabase fetch leaves error:', err);
         }
       }
 
@@ -110,9 +162,7 @@ export default function AttendanceHistoryTab() {
         }
       }
 
-      // 3. Jika belum ada riwayat, tetap biarkan baseList kosong (tanpa data dummy)
-
-      // 4. SINKRONKAN REAKTIF DENGAN todayAttendance
+      // 3. SINKRONKAN REAKTIF DENGAN todayAttendance
       let currentToday = todayAttendance;
       if (!currentToday) {
         try {
@@ -141,10 +191,29 @@ export default function AttendanceHistoryTab() {
         }
       }
 
-      setHistory(baseList);
+      // 4. Gabungkan riwayat kehadiran fisik & pengajuan izin, lalu urutkan berdasarkan tanggal terbaru
+      const combined = [...baseList, ...leavesList].sort((a, b) => {
+        const dateA = new Date(a.raw_date || 0).getTime();
+        const dateB = new Date(b.raw_date || 0).getTime();
+        return dateB - dateA;
+      });
+
+      setHistory(combined);
     }
 
     fetchAttendance();
+
+    // Listener otomatis pembaruan izin real-time
+    const handleLeaveUpdate = () => {
+      fetchAttendance();
+    };
+    window.addEventListener('pwa_leave_submitted', handleLeaveUpdate);
+    window.addEventListener('pwa_leave_status_changed', handleLeaveUpdate);
+
+    return () => {
+      window.removeEventListener('pwa_leave_submitted', handleLeaveUpdate);
+      window.removeEventListener('pwa_leave_status_changed', handleLeaveUpdate);
+    };
   }, [user, todayAttendance]);
 
   return (
@@ -165,7 +234,7 @@ export default function AttendanceHistoryTab() {
           </div>
         </div>
         <span className="text-[10px] font-black bg-[#2563EB] text-white px-2.5 py-1 rounded-full shadow-xs">
-          Total: {history.length} Presensi
+          Total: {history.length} Riwayat
         </span>
       </div>
 
@@ -183,13 +252,104 @@ export default function AttendanceHistoryTab() {
       ) : (
         <div className="space-y-2.5">
           {history.map((h) => {
-          const isLate = (h.status || '').toLowerCase().includes('terlambat');
+            // JIKA TIPE ITEM ADALAH PENGAJUAN IZIN / SAKIT
+            if (h.type === 'leave') {
+              const isApproved = h.status === 'Disetujui';
+              const isRejected = h.status === 'Ditolak';
+              const isPending = h.status === 'Menunggu';
 
-          return (
-            <div
-              key={h.id}
-              className="bg-white border border-slate-200/80 rounded-2xl p-3.5 shadow-xs flex items-center justify-between hover:border-slate-300 transition"
-            >
+              return (
+                <div
+                  key={h.id}
+                  className={`border rounded-2xl p-3.5 shadow-xs flex items-center justify-between transition ${
+                    isPending
+                      ? 'bg-amber-50/40 border-amber-200 hover:border-amber-300'
+                      : isApproved
+                      ? 'bg-emerald-50/30 border-emerald-200 hover:border-emerald-300'
+                      : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Thumbnail Dokumen / Izin */}
+                    <button
+                      type="button"
+                      onClick={() => h.document_url && setPhotoModal(h.document_url)}
+                      className={`w-12 h-12 rounded-xl border flex items-center justify-center shrink-0 relative transition ${
+                        h.document_url
+                          ? 'bg-blue-50 border-blue-200 text-[#2563EB] hover:bg-blue-100 cursor-pointer'
+                          : 'bg-slate-100 border-slate-200 text-slate-400 cursor-default'
+                      }`}
+                      title={h.document_url ? 'Klik untuk lihat surat/bukti' : 'Pengajuan Izin'}
+                    >
+                      <FileText className="w-5 h-5" />
+                      {h.document_url && (
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#2563EB] text-white flex items-center justify-center text-[9px] shadow-xs">
+                          <Eye className="w-2.5 h-2.5" />
+                        </div>
+                      )}
+                    </button>
+
+                    <div className="text-left space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-slate-500">{h.day},</span>
+                        <h4 className="text-xs font-black text-slate-900">{h.date}</h4>
+                        <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-sm bg-blue-100 text-blue-800">
+                          {h.leave_type}
+                        </span>
+                        {/* Status Badge */}
+                        <span
+                          className={`text-[9px] font-black px-1.5 py-0.5 rounded-sm flex items-center gap-1 ${
+                            isPending
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                              : isApproved
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-rose-100 text-rose-800 border border-rose-300'
+                          }`}
+                        >
+                          {isPending && <Clock className="w-2.5 h-2.5 text-amber-600 animate-pulse" />}
+                          {isApproved && <CheckCircle className="w-2.5 h-2.5 text-emerald-600" />}
+                          {isRejected && <XCircle className="w-2.5 h-2.5 text-rose-600" />}
+                          <span>
+                            {isPending
+                              ? 'Menunggu Approval'
+                              : isApproved
+                              ? 'Disetujui Finance'
+                              : 'Ditolak'}
+                          </span>
+                        </span>
+                      </div>
+
+                      {/* Detail Keterangan Alasan */}
+                      <p className="text-[11px] text-slate-600 italic">
+                        &ldquo;{h.reason}&rdquo;
+                      </p>
+
+                      <div className="flex items-center gap-2 text-[10px] text-slate-400 pt-0.5">
+                        {h.late_duration_minutes > 0 && (
+                          <span className="text-amber-700 font-bold">
+                            Durasi: {h.late_duration_minutes} mnt •
+                          </span>
+                        )}
+                        <span>
+                          {h.document_url
+                            ? 'Lampiran surat dokter tersedia (klik thumbnail)'
+                            : 'Tanpa lampiran dokumen'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            // JIKA TIPE ITEM ADALAH PRESENSI KERJA BIASA
+            const isLate = (h.status || '').toLowerCase().includes('terlambat');
+
+            return (
+              <div
+                key={h.id}
+                className="bg-white border border-slate-200/80 rounded-2xl p-3.5 shadow-xs flex items-center justify-between hover:border-slate-300 transition"
+              >
               <div className="flex items-center gap-3">
                 {/* Photo Thumbnail */}
                 <button
