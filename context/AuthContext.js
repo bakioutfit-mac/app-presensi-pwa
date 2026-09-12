@@ -1100,13 +1100,6 @@ export function AuthProvider({ children }) {
     };
 
     if (type === 'checkin') {
-      // Aturan Operasional Outlet:
-      // 1. Shift Middle (11:00 - 20:00): Berlaku SEMUA HARI (Senin s/d Minggu)
-      // 2. Senin s/d Kamis (Weekday): Default Shift Weekday (12:00 - 21:00) atau Shift Middle (11:00 - 20:00)
-      // 3. Jumat s/d Minggu (Weekend): Shift Weekend 1 (09:00), Shift Middle (11:00), Shift Weekend 2 (13:00)
-      const dayOfWeek = now.getDay(); // 0 = Minggu, 1 = Senin, ..., 4 = Kamis, 5 = Jumat, 6 = Sabtu
-      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4; // Senin s/d Kamis
-
       let isLate = false;
       let lateMins = 0;
       let disciplinePenalty = 0;
@@ -1115,38 +1108,65 @@ export function AuthProvider({ children }) {
       let shiftStartMin = 0;
       let shiftLabel = 'Shift Weekday (12:00 - 21:00)';
 
-      const shiftStr = (scheduledShift || '').toLowerCase();
+      // 1. PRIORITAS UTAMA: Cek penugasan jadwal shift resmi staf hari ini dari tabel 'shifts' Supabase
+      let leaderAssignedShift = null;
+      try {
+        const { data: dbShift } = await supabase
+          .from('shifts')
+          .select('*')
+          .eq('employee_id', user.id)
+          .eq('shift_date', todayStr)
+          .maybeSingle();
+        if (dbShift) {
+          leaderAssignedShift = dbShift;
+        }
+      } catch (err) {
+        console.warn('Query assigned shift error:', err);
+      }
 
-      // Shift Middle dapat berlaku pada hari apa saja (Senin s/d Minggu)
-      if (shiftStr.includes('11:00') || shiftStr.includes('middle')) {
-        shiftStartHour = 11;
-        shiftStartMin = 0;
-        shiftLabel = 'Shift Middle (11:00 - 20:00)';
-      } else if (isWeekday) {
-        // Senin s/d Kamis: Default Shift Weekday (12:00 - 21:00)
-        shiftStartHour = 12;
-        shiftStartMin = 0;
-        shiftLabel = 'Shift Weekday (12:00 - 21:00)';
+      if (leaderAssignedShift && leaderAssignedShift.start_time) {
+        // Menggunakan jam kerja riil yang diatur Leader (misal: 04:00 - 12:00)
+        const parts = leaderAssignedShift.start_time.split(':');
+        shiftStartHour = parseInt(parts[0], 10);
+        shiftStartMin = parseInt(parts[1] || '0', 10);
+        shiftLabel = leaderAssignedShift.shift_name || `Shift ${leaderAssignedShift.start_time.substring(0, 5)}`;
       } else {
-        // Jumat s/d Minggu (Weekend):
-        if (shiftStr.includes('09:00') || shiftStr.includes('weekend 1')) {
-          shiftStartHour = 9;
-          shiftLabel = 'Shift Weekend 1 (09:00 - 18:00)';
-        } else if (shiftStr.includes('13:00') || shiftStr.includes('weekend 2')) {
-          shiftStartHour = 13;
-          shiftLabel = 'Shift Weekend 2 (13:00 - 22:00)';
+        // 2. JIKA BELUM DISET LEADER: Gunakan aturan shift standar
+        const dayOfWeek = now.getDay(); // 0 = Minggu, 1 = Senin, ..., 4 = Kamis, 5 = Jumat, 6 = Sabtu
+        const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4; // Senin s/d Kamis
+        const shiftStr = (scheduledShift || '').toLowerCase();
+
+        // Shift Middle dapat berlaku pada hari apa saja (Senin s/d Minggu)
+        if (shiftStr.includes('11:00') || shiftStr.includes('middle')) {
+          shiftStartHour = 11;
+          shiftStartMin = 0;
+          shiftLabel = 'Shift Middle (11:00 - 20:00)';
+        } else if (isWeekday) {
+          // Senin s/d Kamis: Default Shift Weekday (12:00 - 21:00)
+          shiftStartHour = 12;
+          shiftStartMin = 0;
+          shiftLabel = 'Shift Weekday (12:00 - 21:00)';
         } else {
-          // Jika belum diset Leader pada Weekend, gunakan smart nearest shift
-          const currentHour = now.getHours();
-          if (currentHour < 10) {
+          // Jumat s/d Minggu (Weekend):
+          if (shiftStr.includes('09:00') || shiftStr.includes('weekend 1')) {
             shiftStartHour = 9;
             shiftLabel = 'Shift Weekend 1 (09:00 - 18:00)';
-          } else if (currentHour >= 10 && currentHour < 12) {
-            shiftStartHour = 11;
-            shiftLabel = 'Shift Middle (11:00 - 20:00)';
-          } else {
+          } else if (shiftStr.includes('13:00') || shiftStr.includes('weekend 2')) {
             shiftStartHour = 13;
             shiftLabel = 'Shift Weekend 2 (13:00 - 22:00)';
+          } else {
+            // Smart nearest shift untuk akhir pekan tanpa penugasan Leader
+            const currentHour = now.getHours();
+            if (currentHour < 10) {
+              shiftStartHour = 9;
+              shiftLabel = 'Shift Weekend 1 (09:00 - 18:00)';
+            } else if (currentHour >= 10 && currentHour < 12) {
+              shiftStartHour = 11;
+              shiftLabel = 'Shift Middle (11:00 - 20:00)';
+            } else {
+              shiftStartHour = 13;
+              shiftLabel = 'Shift Weekend 2 (13:00 - 22:00)';
+            }
           }
         }
       }
