@@ -17,11 +17,13 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getLocalDateString, parseLocalDate } from '@/lib/date';
+import LateCorrectionModal from '@/components/LateCorrectionModal';
 
 export default function AttendanceHistoryTab() {
-  const { user, todayAttendance } = useAuth();
+  const { user, todayAttendance, lateCorrections, refreshAttendance } = useAuth();
   const [history, setHistory] = useState([]);
   const [photoModal, setPhotoModal] = useState(null);
+  const [correctionModal, setCorrectionModal] = useState({ open: false, record: null });
 
   const mapLeaveItem = (item) => {
     const dateObj = parseLocalDate(item.start_date);
@@ -100,6 +102,10 @@ export default function AttendanceHistoryTab() {
       photo: item.check_out_photo || item.check_in_photo,
       location: `${item.branch || user?.branch || 'Outlet'} GPS (Valid)`,
       isWorking: !!isWorking,
+      attendance_date: item.attendance_date,
+      branch: item.branch || user?.branch || 'LazyBloom',
+      check_in_time: item.check_in_time,
+      name: user?.full_name || 'Staff',
     };
   };
 
@@ -344,87 +350,135 @@ export default function AttendanceHistoryTab() {
 
             // JIKA TIPE ITEM ADALAH PRESENSI KERJA BIASA
             const isLate = (h.status || '').toLowerCase().includes('terlambat');
+            const correction = (lateCorrections || []).find(
+              (c) =>
+                (c.attendance_id && c.attendance_id === h.id) ||
+                (c.employee_id === user?.id && c.attendance_date === h.raw_date)
+            );
 
             return (
               <div
                 key={h.id}
-                className="bg-white border border-slate-200/80 rounded-2xl p-3.5 shadow-xs flex items-center justify-between hover:border-slate-300 transition"
+                className="bg-white border border-slate-200/80 rounded-2xl p-3.5 shadow-xs hover:border-slate-300 transition flex flex-col gap-2.5"
               >
-              <div className="flex items-center gap-3">
-                {/* Photo Thumbnail */}
-                <button
-                  type="button"
-                  onClick={() => h.photo && setPhotoModal(h.photo)}
-                  className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden relative group shrink-0"
-                >
-                  {h.photo ? (
-                    <>
-                      <img
-                        src={h.photo}
-                        alt="Selfie Presensi"
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-                        <Camera className="w-3.5 h-3.5 text-white" />
-                      </div>
-                    </>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400">
-                      <Camera className="w-4 h-4" />
-                    </div>
-                  )}
-                </button>
-
-                <div className="text-left space-y-0.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-bold text-slate-500">{h.day},</span>
-                    <h4 className="text-xs font-black text-slate-900">
-                      {h.date}
-                    </h4>
-                    <span
-                      className={`text-[9px] font-black px-1.5 py-0.5 rounded-sm ${
-                        h.isWorking
-                          ? 'bg-blue-100 text-blue-700 animate-pulse'
-                          : isLate
-                          ? 'bg-rose-100 text-rose-700'
-                          : 'bg-emerald-100 text-emerald-800'
-                      }`}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* Photo Thumbnail */}
+                    <button
+                      type="button"
+                      onClick={() => h.photo && setPhotoModal(h.photo)}
+                      className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden relative group shrink-0"
                     >
-                      {h.status}
-                    </span>
-                    {h.discipline_penalty > 0 && (
-                      <span className="text-[9px] bg-amber-100 text-amber-800 font-black px-1.5 py-0.5 rounded-sm">
-                        Denda Rp 10.000
-                      </span>
-                    )}
-                  </div>
+                      {h.photo ? (
+                        <>
+                          <img
+                            src={h.photo}
+                            alt="Selfie Presensi"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                            <Camera className="w-3.5 h-3.5 text-white" />
+                          </div>
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400">
+                          <Camera className="w-4 h-4" />
+                        </div>
+                      )}
+                    </button>
 
-                  <div className="flex items-center gap-3 text-[11px] text-slate-500 font-medium">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      Masuk: {h.check_in}
-                    </span>
-                    <span>
-                      • Pulang:{' '}
-                      <span className={h.isWorking ? 'text-blue-600 font-bold' : ''}>
-                        {h.check_out}
-                      </span>
-                    </span>
-                    {h.duration && h.duration !== '-' && (
-                      <span className="text-[10px] text-slate-400">({h.duration})</span>
-                    )}
-                  </div>
+                    <div className="text-left space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-slate-500">{h.day},</span>
+                        <h4 className="text-xs font-black text-slate-900">
+                          {h.date}
+                        </h4>
+                        <span
+                          className={`text-[9px] font-black px-1.5 py-0.5 rounded-sm ${
+                            h.isWorking
+                              ? 'bg-blue-100 text-blue-700 animate-pulse'
+                              : isLate
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {h.status}
+                        </span>
+                        {h.discipline_penalty > 0 && (
+                          <span className="text-[9px] bg-amber-100 text-amber-800 font-black px-1.5 py-0.5 rounded-sm">
+                            Denda Rp 10.000
+                          </span>
+                        )}
+                      </div>
 
-                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                    <MapPin className="w-2.5 h-2.5 text-emerald-600" />
-                    <span>{h.location}</span>
+                      <div className="flex items-center gap-3 text-[11px] text-slate-500 font-medium">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-slate-400" />
+                          Masuk: {h.check_in}
+                        </span>
+                        <span>
+                          • Pulang:{' '}
+                          <span className={h.isWorking ? 'text-blue-600 font-bold' : ''}>
+                            {h.check_out}
+                          </span>
+                        </span>
+                        {h.duration && h.duration !== '-' && (
+                          <span className="text-[10px] text-slate-400">({h.duration})</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                        <MapPin className="w-2.5 h-2.5 text-emerald-600" />
+                        <span>{h.location}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                {/* Seksi Aksi Koreksi Keterlambatan */}
+                {isLate && (
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                    {correction ? (
+                      correction.status === 'pending' ? (
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-xl">
+                          <span className="animate-spin">⏳</span>
+                          <span>Menunggu Review Leader: <strong>{correction.target_shift}</strong></span>
+                        </div>
+                      ) : correction.status === 'approved' ? (
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-xl">
+                          <span>✅</span>
+                          <span>Koreksi Disetujui ({correction.target_shift}) &bull; Denda Rp 0</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-bold text-rose-800 bg-rose-50 border border-rose-200/80 px-2 py-1 rounded-xl">
+                            ❌ Koreksi Ditolak ({correction.review_notes || 'Jadwal sesuai'})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setCorrectionModal({ open: true, record: h })}
+                            className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer"
+                          >
+                            Ajukan Ulang
+                          </button>
+                        </div>
+                      )
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setCorrectionModal({ open: true, record: h })}
+                        className="text-[10px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 px-2.5 py-1 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-98"
+                      >
+                        <AlertTriangle className="w-3 h-3 text-rose-600" />
+                        <span>Ajukan Koreksi Keterlambatan</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
       )}
 
       {/* Photo Preview Modal */}
@@ -451,6 +505,16 @@ export default function AttendanceHistoryTab() {
           </div>
         </div>
       )}
+
+      {/* Modal Pengajuan Koreksi Keterlambatan */}
+      <LateCorrectionModal
+        isOpen={correctionModal.open}
+        onClose={() => setCorrectionModal({ open: false, record: null })}
+        attendanceRecord={correctionModal.record}
+        onSuccess={() => {
+          if (refreshAttendance) refreshAttendance();
+        }}
+      />
     </div>
   );
 }

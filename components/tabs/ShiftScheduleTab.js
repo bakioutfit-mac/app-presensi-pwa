@@ -38,17 +38,31 @@ export default function ShiftScheduleTab() {
           const assigned = dbShifts.find((s) => s.shift_date === dateStr);
 
           if (isWeekday) {
-            // Senin s/d Kamis: Otomatis Shift Weekday
-            generated.push({
-              id: assigned?.id || `shift-${dateStr}`,
-              shift_date: dateStr,
-              day_name: dayName,
-              shift_name: 'Shift Weekday',
-              time: '12.00 - 21.00 WIB',
-              dresscode: assigned?.notes || null,
-              status: i === 0 ? 'Bertugas Hari Ini' : 'Shift Rutin',
-              is_today: i === 0,
-            });
+            // Senin s/d Kamis: Shift Weekday (atau Shift Middle/Khusus jika ditugaskan Leader)
+            if (assigned) {
+              const isOff = (assigned.shift_name || '').includes('Off') || (assigned.shift_name || '').includes('Libur');
+              generated.push({
+                id: assigned.id,
+                shift_date: dateStr,
+                day_name: dayName,
+                shift_name: assigned.shift_name || 'Shift Weekday',
+                time: isOff ? 'Libur' : (assigned.start_time ? `${assigned.start_time.slice(0, 5).replace(':', '.')} - ${assigned.end_time?.slice(0, 5).replace(':', '.')} WIB` : '12.00 - 21.00 WIB'),
+                dresscode: isOff ? null : (assigned.notes || null),
+                status: isOff ? 'Libur' : i === 0 ? 'Bertugas Hari Ini' : 'Shift Khusus Leader',
+                is_today: i === 0,
+              });
+            } else {
+              generated.push({
+                id: `shift-${dateStr}`,
+                shift_date: dateStr,
+                day_name: dayName,
+                shift_name: 'Shift Weekday',
+                time: '12.00 - 21.00 WIB',
+                dresscode: null,
+                status: i === 0 ? 'Bertugas Hari Ini' : 'Shift Rutin',
+                is_today: i === 0,
+              });
+            }
           } else {
             // Jumat s/d Minggu: Berdasarkan penugasan Leader di Supabase
             if (assigned) {

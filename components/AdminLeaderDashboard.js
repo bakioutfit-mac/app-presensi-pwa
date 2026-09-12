@@ -24,11 +24,13 @@ import {
   UserCheck,
   Coffee,
   Shirt,
+  AlertTriangle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getLocalDateString } from '@/lib/date';
 import { getOvertimeRateByPosition } from '@/lib/overtimeRates';
+import { getOutletShifts } from '@/lib/shifts';
 
 const MONTH_NAMES = [
   'Januari',
@@ -46,9 +48,91 @@ const MONTH_NAMES = [
 ];
 
 export default function AdminLeaderDashboard({ onBack }) {
-  const { user, todayAttendance, overtimeRequests, submitOvertimeRequest } = useAuth();
+  const {
+    user,
+    todayAttendance,
+    overtimeRequests,
+    submitOvertimeRequest,
+    lateCorrections,
+    approveLateCorrection,
+    rejectLateCorrection,
+    loadLateCorrections,
+  } = useAuth();
   const [adminTab, setAdminTab] = useState('assignment'); // 'assignment', 'monitoring', 'overtime', 'addStaff'
   const [selectedOutletFilter, setSelectedOutletFilter] = useState('all');
+
+  // State proses & notifikasi koreksi keterlambatan
+  const [processingCorrectionId, setProcessingCorrectionId] = useState(null);
+  const [correctionSuccessMsg, setCorrectionSuccessMsg] = useState('');
+
+  const handleApproveCorrection = async (correctionId, attId) => {
+    setProcessingCorrectionId(correctionId);
+    try {
+      await approveLateCorrection(correctionId);
+      setTodayAttendanceList((prev) =>
+        prev.map((item) => {
+          if (item.id === attId || (attId && item.id === attId)) {
+            return {
+              ...item,
+              status: 'Hadir (Koreksi Disetujui)',
+              discipline_penalty: 0,
+            };
+          }
+          return item;
+        })
+      );
+      setCorrectionSuccessMsg('Koreksi keterlambatan berhasil disetujui! Denda Rp 10.000 telah dihapus.');
+      setTimeout(() => setCorrectionSuccessMsg(''), 4000);
+    } catch (e) {
+      console.error('Approve correction error:', e);
+    } finally {
+      setProcessingCorrectionId(null);
+    }
+  };
+
+  const handleRejectCorrection = async (correctionId) => {
+    const reason = prompt('Tuliskan alasan penolakan koreksi (opsional):', 'Jadwal shift sesuai sistem') || 'Ditolak Leader';
+    setProcessingCorrectionId(correctionId);
+    try {
+      await rejectLateCorrection(correctionId, reason);
+      setCorrectionSuccessMsg('Pengajuan koreksi telah ditolak.');
+      setTimeout(() => setCorrectionSuccessMsg(''), 4000);
+    } catch (e) {
+      console.error('Reject correction error:', e);
+    } finally {
+      setProcessingCorrectionId(null);
+    }
+  };
+
+  const handleQuickWaivePenalty = async (att) => {
+    const confirmWaive = window.confirm(
+      `Bebaskan denda keterlambatan Rp 10.000 untuk ${att.name}? Status akan diubah menjadi Hadir (Denda Dibebaskan).`
+    );
+    if (!confirmWaive) return;
+
+    try {
+      await supabase
+        .from('attendance')
+        .update({
+          status: 'Hadir (Denda Dibebaskan)',
+          discipline_penalty: 0,
+        })
+        .eq('id', att.id);
+
+      setTodayAttendanceList((prev) =>
+        prev.map((item) =>
+          item.id === att.id
+            ? { ...item, status: 'Hadir (Denda Dibebaskan)', discipline_penalty: 0 }
+            : item
+        )
+      );
+
+      setCorrectionSuccessMsg(`Denda untuk ${att.name} berhasil dibebaskan.`);
+      setTimeout(() => setCorrectionSuccessMsg(''), 4000);
+    } catch (e) {
+      console.error('Waive penalty error:', e);
+    }
+  };
 
   // 1. PENUGASAN SHIFT (Scroll/Wheel [Jam:Menit] - [Jam:Menit])
   const [assignDate, setAssignDate] = useState(getLocalDateString());
@@ -213,6 +297,8 @@ export default function AdminLeaderDashboard({ onBack }) {
         if (atts && atts.length > 0) {
           const mapped = atts.map((a) => ({
             id: a.id,
+            employee_id: a.employee_id,
+            attendance_date: a.attendance_date,
             name: a.employees?.full_name || a.employee_id,
             role: a.employees?.position || 'Staff',
             branch: a.branch,
@@ -524,7 +610,7 @@ export default function AdminLeaderDashboard({ onBack }) {
         <button
           type="button"
           onClick={() => setAdminTab('monitoring')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
+          className={`relative py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             adminTab === 'monitoring'
               ? 'bg-white text-[#EA580C] shadow-xs font-black'
               : 'text-slate-600 hover:text-slate-900'
@@ -532,6 +618,11 @@ export default function AdminLeaderDashboard({ onBack }) {
         >
           <Activity className="w-4 h-4" />
           <span>Monitoring</span>
+          {(lateCorrections || []).filter((c) => c.status === 'pending').length > 0 && (
+            <span className="absolute top-1 right-1.5 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-pulse">
+              {(lateCorrections || []).filter((c) => c.status === 'pending').length}
+            </span>
+          )}
         </button>
 
         <button
@@ -733,6 +824,28 @@ export default function AdminLeaderDashboard({ onBack }) {
                       </div>
                     </div>
                   )}
+
+                  {/* Preset Cepat Shift Outlet */}
+                  {!isAssignOff && (
+                    <div className="flex items-center gap-1 flex-wrap mt-2">
+                      <span className="text-[9px] font-bold text-slate-400">Preset:</span>
+                      {getOutletShifts(selectedOutletFilter === 'all' ? 'LazyBloom' : selectedOutletFilter)
+                        .filter((s) => s.startTime && s.endTime)
+                        .map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              setShiftStartTime(s.startTime);
+                              setShiftEndTime(s.endTime);
+                            }}
+                            className="text-[9px] font-bold px-2 py-0.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#EA580C] border border-orange-200 transition cursor-pointer"
+                          >
+                            {s.name.split(' ')[0]} {s.name.split(' ')[1]} ({s.startTime})
+                          </button>
+                        ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -761,8 +874,9 @@ export default function AdminLeaderDashboard({ onBack }) {
                   <span>Aturan Operasional Shift Outlet:</span>
                 </div>
                 <p className="text-[10px] text-slate-600">
-                  &bull; <strong>Senin s/d Kamis (Weekday)</strong>: Otomatis 1 shift tunggal yaitu <em>Shift Weekday (12:00 - 21:00)</em>. Leader tidak perlu input rutin.<br />
-                  &bull; <strong>Jumat s/d Minggu (Weekend)</strong>: <strong>Wajib diatur oleh Leader</strong> (Pilih Weekend 1 [09:00], Weekend 2 [13:00], Middle [11:00], atau Libur).
+                  &bull; <strong>Shift Middle (11:00 - 20:00)</strong>: Berlaku <strong>setiap hari</strong> (Senin s/d Minggu).<br />
+                  &bull; <strong>Senin s/d Kamis (Weekday)</strong>: Default <em>Shift Weekday (12:00 - 21:00)</em> atau <em>Shift Middle</em>.<br />
+                  &bull; <strong>Jumat s/d Minggu (Weekend)</strong>: <strong>Diatur oleh Leader</strong> (Shift Weekend 1 [09:00], Middle [11:00], Weekend 2 [13:00], atau Libur).
                 </p>
               </div>
 
@@ -1094,7 +1208,7 @@ export default function AdminLeaderDashboard({ onBack }) {
       </div>
     )}
 
-      {/* ================= 2. TAB MONITORING KEHADIRAN (LIVE PENALTY) ================= */}
+      {/* ================= 2. TAB MONITORING KEHADIRAN (LIVE PENALTY & KOREKSI) ================= */}
       {adminTab === 'monitoring' && (
         <div className="space-y-3 animate-in fade-in">
           <div className="flex items-center justify-between px-1">
@@ -1110,6 +1224,92 @@ export default function AdminLeaderDashboard({ onBack }) {
               {todayAttendanceList.filter((a) => a.status.includes('Hadir') || a.status.includes('Terlambat')).length} / {todayAttendanceList.length} Masuk
             </span>
           </div>
+
+          {/* Notifikasi Sukses Koreksi */}
+          {correctionSuccessMsg && (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in shadow-2xs">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{correctionSuccessMsg}</span>
+            </div>
+          )}
+
+          {/* SEKSI KHUSUS DI MONITORING: PERSETUJUAN KOREKSI KETERLAMBATAN */}
+          {(() => {
+            const pendingCorrections = (lateCorrections || []).filter(
+              (c) =>
+                c.status === 'pending' &&
+                (selectedOutletFilter === 'all' ||
+                  (c.branch || '').toLowerCase() === selectedOutletFilter.toLowerCase())
+            );
+
+            if (pendingCorrections.length === 0) return null;
+
+            return (
+              <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/5 border-2 border-amber-300 rounded-2xl p-3.5 space-y-2.5 shadow-xs animate-in slide-in-from-top-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    </div>
+                    <h5 className="text-xs font-black text-amber-950 uppercase tracking-wide">
+                      Pengajuan Koreksi Keterlambatan
+                    </h5>
+                  </div>
+                  <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded-full">
+                    {pendingCorrections.length} Menunggu Review
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {pendingCorrections.map((corr) => (
+                    <div
+                      key={corr.id}
+                      className="bg-white rounded-xl p-3 border border-amber-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-extrabold text-xs text-slate-900">
+                            {corr.employee_name}
+                          </span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-700">
+                            {corr.branch}
+                          </span>
+                          <span className="text-[9px] font-bold text-slate-400">
+                            • {corr.attendance_date}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-700">
+                          Klaim Shift: <strong className="text-[#EA580C]">{corr.target_shift}</strong>
+                        </p>
+                        <p className="text-[10px] text-slate-600 italic bg-slate-50 p-2 rounded-lg border border-slate-100">
+                          "{corr.reason}"
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                        <button
+                          type="button"
+                          disabled={processingCorrectionId === corr.id}
+                          onClick={() => handleRejectCorrection(corr.id)}
+                          className="px-2.5 py-1.5 rounded-xl border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-bold transition disabled:opacity-50 cursor-pointer"
+                        >
+                          Tolak
+                        </button>
+                        <button
+                          type="button"
+                          disabled={processingCorrectionId === corr.id}
+                          onClick={() => handleApproveCorrection(corr.id, corr.attendance_id)}
+                          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black shadow-xs transition flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                        >
+                          {processingCorrectionId === corr.id ? 'Memproses...' : '✅ Setujui (Hapus Denda)'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="space-y-2.5">
             {todayAttendanceList.filter(
@@ -1132,80 +1332,147 @@ export default function AdminLeaderDashboard({ onBack }) {
                 )
                 .map((att) => {
                 const isLate = att.status.includes('Terlambat');
+                const matchingCorr = (lateCorrections || []).find(
+                  (c) =>
+                    (c.attendance_id && c.attendance_id === att.id) ||
+                    (c.employee_id === att.employee_id && c.attendance_date === att.attendance_date) ||
+                    (c.employee_name && c.employee_name.toLowerCase() === att.name?.toLowerCase())
+                );
+
                 return (
                   <div
                     key={att.id}
-                    className={`bg-white rounded-2xl p-3.5 border transition shadow-xs flex items-center justify-between gap-3 ${
+                    className={`bg-white rounded-2xl p-3.5 border transition shadow-xs flex flex-col gap-2.5 ${
                       isLate ? 'border-rose-300 bg-rose-50/30' : 'border-slate-100'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      {/* Avatar Selfie */}
-                      <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
-                        {att.photo ? (
-                          <img
-                            src={att.photo}
-                            alt={att.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <Users className="w-6 h-6 text-slate-400" />
-                        )}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h5 className="font-extrabold text-xs text-slate-900">{att.name}</h5>
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
-                              att.branch === 'Deru Ombak'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : att.branch === 'Sea Cafe'
-                                ? 'bg-sky-100 text-sky-800'
-                                : att.branch === 'Mobile / Lapangan' || att.branch?.includes('Mobile')
-                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                                : 'bg-orange-100 text-orange-800'
-                            }`}
-                          >
-                            {att.branch}
-                          </span>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        {/* Avatar Selfie */}
+                        <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
+                          {att.photo ? (
+                            <img
+                              src={att.photo}
+                              alt={att.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <Users className="w-6 h-6 text-slate-400" />
+                          )}
                         </div>
-                        <p className="text-[10px] text-slate-500 mt-0.5">{att.shift}</p>
-                        <p className="text-[10px] font-medium text-slate-700">
-                          Masuk: <span className="font-bold">{att.check_in}</span>
-                        </p>
-                        {att.check_in_lat && att.check_in_lng && (
-                          <a
-                            href={`https://www.google.com/maps?q=${att.check_in_lat},${att.check_in_lng}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 hover:underline mt-0.5 font-bold"
-                          >
-                            <span>📍 Buka Titik GPS</span>
-                          </a>
+
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h5 className="font-extrabold text-xs text-slate-900">{att.name}</h5>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
+                                att.branch === 'Deru Ombak'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : att.branch === 'Sea Cafe'
+                                  ? 'bg-sky-100 text-sky-800'
+                                  : att.branch === 'Mobile / Lapangan' || att.branch?.includes('Mobile')
+                                  ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                  : 'bg-orange-100 text-orange-800'
+                              }`}
+                            >
+                              {att.branch}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{att.shift}</p>
+                          <p className="text-[10px] font-medium text-slate-700">
+                            Masuk: <span className="font-bold">{att.check_in}</span>
+                          </p>
+                          {att.check_in_lat && att.check_in_lng && (
+                            <a
+                              href={`https://www.google.com/maps?q=${att.check_in_lat},${att.check_in_lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 hover:underline mt-0.5 font-bold"
+                            >
+                              <span>📍 Buka Titik GPS</span>
+                            </a>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Status & Denda Badge */}
+                      <div className="text-right shrink-0">
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
+                            isLate
+                              ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                              : att.status.includes('Hadir')
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {att.status}
+                        </span>
+                        {isLate && att.discipline_penalty > 0 && (
+                          <p className="text-[10px] font-black text-rose-600 mt-1">
+                            Denda: Rp 10.000
+                          </p>
+                        )}
+                        {isLate && att.discipline_penalty === 0 && (
+                          <p className="text-[10px] font-black text-emerald-600 mt-1">
+                            Denda: Rp 0 (Bebas)
+                          </p>
                         )}
                       </div>
                     </div>
 
-                    {/* Status & Denda Badge */}
-                    <div className="text-right shrink-0">
-                      <span
-                        className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
-                          isLate
-                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                            : att.status.includes('Hadir')
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {att.status}
-                      </span>
-                      {isLate && (
-                        <p className="text-[10px] font-black text-rose-600 mt-1">
-                          Denda: Rp 10.000
-                        </p>
-                      )}
-                    </div>
+                    {/* Aksi Persetujuan / Bebaskan Denda di Sub-Tab Monitoring */}
+                    {isLate && (
+                      <div className="pt-2 border-t border-rose-200/80 flex items-center justify-between gap-2 flex-wrap bg-white/70 p-2.5 rounded-xl">
+                        {matchingCorr ? (
+                          matchingCorr.status === 'pending' ? (
+                            <div className="w-full flex items-center justify-between gap-2 flex-wrap">
+                              <div className="text-[10px] text-amber-950 font-bold">
+                                ⚠️ Mengajukan koreksi: <strong className="text-[#EA580C]">{matchingCorr.target_shift}</strong>
+                                <span className="block text-[9px] font-normal text-slate-500 italic">"{matchingCorr.reason}"</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={processingCorrectionId === matchingCorr.id}
+                                  onClick={() => handleRejectCorrection(matchingCorr.id)}
+                                  className="px-2 py-1 rounded-lg border border-rose-300 text-rose-700 text-[10px] font-bold hover:bg-rose-50 cursor-pointer disabled:opacity-50"
+                                >
+                                  Tolak
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={processingCorrectionId === matchingCorr.id}
+                                  onClick={() => handleApproveCorrection(matchingCorr.id, att.id)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black cursor-pointer disabled:opacity-50"
+                                >
+                                  {processingCorrectionId === matchingCorr.id ? 'Memproses...' : '✅ Setujui'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : matchingCorr.status === 'approved' ? (
+                            <div className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                              <span>✅ Koreksi Disetujui ({matchingCorr.target_shift}) &bull; Denda Rp 0</span>
+                            </div>
+                          ) : (
+                            <div className="text-[10px] font-bold text-rose-600">
+                              <span>❌ Koreksi Ditolak ({matchingCorr.review_notes || 'Sesuai jadwal'})</span>
+                            </div>
+                          )
+                        ) : (
+                          <div className="w-full flex items-center justify-between">
+                            <span className="text-[10px] text-slate-500">Staf belum mengajukan koreksi</span>
+                            <button
+                              type="button"
+                              onClick={() => handleQuickWaivePenalty(att)}
+                              className="text-[10px] font-black text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                            >
+                              ✏️ Bebaskan Denda Manual
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })

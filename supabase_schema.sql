@@ -351,3 +351,26 @@ BEGIN
         ON CONFLICT (employee_id, shift_date) DO NOTHING;
     END IF;
 END $$;
+
+-- 8. TABEL ATTENDANCE_CORRECTIONS (PENGAJUAN KOREKSI KETERLAMBATAN / SHIFT)
+CREATE TABLE IF NOT EXISTS public.attendance_corrections (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    attendance_id UUID REFERENCES public.attendance(id) ON DELETE CASCADE,
+    employee_id UUID REFERENCES public.employees(id) ON DELETE CASCADE,
+    branch VARCHAR(100) DEFAULT 'LazyBloom',
+    attendance_date DATE NOT NULL,
+    check_in_time TIMESTAMP WITH TIME ZONE,
+    original_status VARCHAR(50),
+    original_penalty NUMERIC DEFAULT 10000,
+    target_shift VARCHAR(100) NOT NULL,
+    reason TEXT NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
+    reviewed_by VARCHAR(100),
+    review_notes TEXT,
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.attendance_corrections ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public all on attendance_corrections" ON public.attendance_corrections;
+CREATE POLICY "Allow public all on attendance_corrections" ON public.attendance_corrections FOR ALL USING (true) WITH CHECK (true);

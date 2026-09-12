@@ -65,6 +65,9 @@ export function AuthProvider({ children }) {
   // State pengajuan lembur dari Admin Leader ke Admin Finance
   const [overtimeRequests, setOvertimeRequests] = useState([]);
 
+  // State pengajuan koreksi keterlambatan dari Staf ke Admin Leader
+  const [lateCorrections, setLateCorrections] = useState([]);
+
   // 1. Sinkronisasi daftar pengajuan lembur dari Cloud (Supabase overtimes / admin_settings)
   const loadOvertimeRequests = async () => {
     let allRequests = [];
@@ -150,6 +153,84 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // 2. Sinkronisasi daftar pengajuan koreksi keterlambatan (Supabase attendance_corrections / admin_settings)
+  const loadLateCorrections = async () => {
+    let all = [];
+    try {
+      const { data, error } = await supabase
+        .from('attendance_corrections')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && data && data.length > 0) {
+        all = data;
+      }
+    } catch (e) {}
+
+    // Fallback sync via admin_settings
+    try {
+      const { data: settingRow } = await supabase
+        .from('admin_settings')
+        .select('description')
+        .eq('role', 'attendance_corrections')
+        .maybeSingle();
+      if (settingRow?.description) {
+        const parsed = JSON.parse(settingRow.description);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingIds = new Set(all.map((r) => r.id));
+          parsed.forEach((item) => {
+            if (!existingIds.has(item.id)) {
+              all.push(item);
+              existingIds.add(item.id);
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // Fallback localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const local = JSON.parse(localStorage.getItem('pwa_late_corrections') || '[]');
+        if (Array.isArray(local) && local.length > 0) {
+          const existingIds = new Set(all.map((r) => r.id));
+          local.forEach((item) => {
+            if (!existingIds.has(item.id)) {
+              all.push(item);
+              existingIds.add(item.id);
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
+    all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    setLateCorrections(all);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pwa_late_corrections', JSON.stringify(all));
+    }
+    return all;
+  };
+
+  const syncLateCorrectionsToCloud = async (correctionsList) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pwa_late_corrections', JSON.stringify(correctionsList));
+    }
+    try {
+      await supabase.from('admin_settings').upsert(
+        {
+          role: 'attendance_corrections',
+          pin: '000000',
+          name: 'Daftar Pengajuan Koreksi Keterlambatan',
+          description: JSON.stringify(correctionsList),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'role' }
+      );
+    } catch (e) {
+      console.warn('Sync late corrections to admin_settings error:', e);
+    }
+  };
+
   // Initialize session and admin PINs on mount
   useEffect(() => {
     try {
@@ -191,14 +272,13 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // Muat PIN admin tersimpan jika ada (dan timpa jika masih memakai pin default lama)
+      // Muat PIN admin tersimpan jika ada
       const storedPins = localStorage.getItem('pwa_admin_pins');
       if (storedPins) {
-        const parsedPins = JSON.parse(storedPins);
-        if (parsedPins.leader === '112233') parsedPins.leader = '987321';
-        if (parsedPins.finance === '445566') parsedPins.finance = '020103';
-        setAdminPins(parsedPins);
-        localStorage.setItem('pwa_admin_pins', JSON.stringify(parsedPins));
+        try {
+          const parsedPins = JSON.parse(storedPins);
+          setAdminPins(parsedPins);
+        } catch (e) {}
       } else {
         localStorage.setItem('pwa_admin_pins', JSON.stringify({ leader: '987321', finance: '020103' }));
       }
@@ -217,10 +297,22 @@ export function AuthProvider({ children }) {
         } catch (e) {}
       }
 
-      // Sync data admin PIN, outlets & pengajuan lembur dari Supabase jika ada
+      // Muat pengajuan koreksi keterlambatan tersimpan
+      const storedCorrections = localStorage.getItem('pwa_late_corrections');
+      if (storedCorrections) {
+        try {
+          setLateCorrections(JSON.parse(storedCorrections));
+        } catch (e) {}
+      }
+
+      // Sync data admin PIN, outlets & pengajuan lembur/koreksi dari Supabase jika ada
       (async () => {
         try {
           await loadOvertimeRequests();
+        } catch (e) {}
+
+        try {
+          await loadLateCorrections();
         } catch (e) {}
 
         try {
@@ -400,13 +492,10 @@ export function AuthProvider({ children }) {
   // Verifikasi PIN Admin (Leader atau Finance)
   const verifyAdminPin = (role, inputPin) => {
     const cleanPin = (inputPin || '').trim();
-    if (role === 'leader' && (cleanPin === adminPins.leader || cleanPin === '987321')) {
-      setAdminRole('leader');
-      return { success: true, role: 'leader' };
-    }
-    if (role === 'finance' && (cleanPin === adminPins.finance || cleanPin === '020103')) {
-      setAdminRole('finance');
-      return { success: true, role: 'finance' };
+    const currentPin = adminPins?.[role] || (role === 'leader' ? '987321' : '020103');
+    if (cleanPin === currentPin) {
+      setAdminRole(role);
+      return { success: true, role };
     }
     return {
       success: false,
@@ -427,13 +516,16 @@ export function AuthProvider({ children }) {
     };
 
     setAdminPins(updated);
-    localStorage.setItem('pwa_admin_pins', JSON.stringify(updated));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pwa_admin_pins', JSON.stringify(updated));
+    }
 
-    // 1. Simpan / upsert ke Supabase tabel admin_settings
+    // 1. Simpan / upsert ke Supabase tabel admin_settings dengan field 'name' yang wajib ada
     try {
-      await supabase.from('admin_settings').upsert(
+      const { error: upsertErr } = await supabase.from('admin_settings').upsert(
         {
           role,
+          name: role === 'leader' ? 'Admin Leader' : 'Admin Finance',
           pin: cleanPin,
           description:
             role === 'leader'
@@ -443,8 +535,11 @@ export function AuthProvider({ children }) {
         },
         { onConflict: 'role' }
       );
+      if (upsertErr) {
+        console.warn('Supabase admin_settings upsert error:', upsertErr);
+      }
     } catch (e) {
-      console.warn('Supabase admin_settings upsert error:', e);
+      console.warn('Supabase admin_settings upsert exception:', e);
     }
 
     // 2. Simpan juga ke tabel employees jika akun admin terdaftar
@@ -831,6 +926,164 @@ export function AuthProvider({ children }) {
     return approveOvertimeRequest(otId, nominalAmount);
   };
 
+  // Submit pengajuan koreksi keterlambatan oleh Staf
+  const submitLateCorrection = async ({
+    attendanceId,
+    employeeId,
+    employeeName,
+    branch,
+    attendanceDate,
+    checkInTime,
+    originalStatus,
+    targetShift,
+    reason,
+  }) => {
+    const newCorrection = {
+      id: 'corr-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      attendance_id: attendanceId,
+      employee_id: employeeId || user?.id,
+      employee_name: employeeName || user?.full_name || 'Staff',
+      branch: branch || user?.branch || 'LazyBloom',
+      attendance_date: attendanceDate || getLocalDateString(),
+      check_in_time: checkInTime || null,
+      original_status: originalStatus || 'Terlambat',
+      original_penalty: 10000,
+      target_shift: targetShift,
+      reason: reason,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      await supabase.from('attendance_corrections').insert([newCorrection]);
+    } catch (e) {
+      console.warn('Insert correction to Supabase error:', e);
+    }
+
+    const updated = [newCorrection, ...lateCorrections];
+    setLateCorrections(updated);
+    await syncLateCorrectionsToCloud(updated);
+    return { success: true, data: newCorrection };
+  };
+
+  // Persetujuan koreksi keterlambatan oleh Leader
+  const approveLateCorrection = async (correctionId, reviewNotes = 'Koreksi disetujui Leader') => {
+    let targetCorrection = null;
+    const updated = lateCorrections.map((c) => {
+      if (c.id === correctionId) {
+        targetCorrection = {
+          ...c,
+          status: 'approved',
+          reviewed_by: user?.full_name || 'Admin Leader',
+          review_notes: reviewNotes,
+          reviewed_at: new Date().toISOString(),
+        };
+        return targetCorrection;
+      }
+      return c;
+    });
+
+    setLateCorrections(updated);
+    await syncLateCorrectionsToCloud(updated);
+
+    if (targetCorrection) {
+      try {
+        await supabase
+          .from('attendance_corrections')
+          .update({
+            status: 'approved',
+            reviewed_by: targetCorrection.reviewed_by,
+            review_notes: targetCorrection.review_notes,
+            reviewed_at: targetCorrection.reviewed_at,
+          })
+          .eq('id', correctionId);
+      } catch (e) {}
+
+      // Update tabel attendance di database: status -> Hadir (Koreksi Disetujui), denda -> 0
+      try {
+        if (targetCorrection.attendance_id) {
+          await supabase
+            .from('attendance')
+            .update({
+              status: 'Hadir (Koreksi Disetujui)',
+              discipline_penalty: 0,
+            })
+            .eq('id', targetCorrection.attendance_id);
+        } else if (targetCorrection.employee_id && targetCorrection.attendance_date) {
+          await supabase
+            .from('attendance')
+            .update({
+              status: 'Hadir (Koreksi Disetujui)',
+              discipline_penalty: 0,
+            })
+            .match({
+              employee_id: targetCorrection.employee_id,
+              attendance_date: targetCorrection.attendance_date,
+            });
+        }
+      } catch (e) {
+        console.warn('Update attendance on approval error:', e);
+      }
+
+      // Update state todayAttendance jika record adalah presensi hari ini
+      if (
+        todayAttendance &&
+        (todayAttendance.id === targetCorrection.attendance_id ||
+          todayAttendance.attendance_date === targetCorrection.attendance_date)
+      ) {
+        const updatedToday = {
+          ...todayAttendance,
+          status: 'Hadir (Koreksi Disetujui)',
+          is_late: false,
+          discipline_penalty: 0,
+        };
+        setTodayAttendance(updatedToday);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('pwa_today_attendance', JSON.stringify(updatedToday));
+        }
+      }
+    }
+
+    return { success: true };
+  };
+
+  // Penolakan koreksi keterlambatan oleh Leader
+  const rejectLateCorrection = async (correctionId, reviewNotes = 'Ditolak Leader') => {
+    let targetCorrection = null;
+    const updated = lateCorrections.map((c) => {
+      if (c.id === correctionId) {
+        targetCorrection = {
+          ...c,
+          status: 'rejected',
+          reviewed_by: user?.full_name || 'Admin Leader',
+          review_notes: reviewNotes,
+          reviewed_at: new Date().toISOString(),
+        };
+        return targetCorrection;
+      }
+      return c;
+    });
+
+    setLateCorrections(updated);
+    await syncLateCorrectionsToCloud(updated);
+
+    if (targetCorrection) {
+      try {
+        await supabase
+          .from('attendance_corrections')
+          .update({
+            status: 'rejected',
+            reviewed_by: targetCorrection.reviewed_by,
+            review_notes: targetCorrection.review_notes,
+            reviewed_at: targetCorrection.reviewed_at,
+          })
+          .eq('id', correctionId);
+      } catch (e) {}
+    }
+
+    return { success: true };
+  };
+
   // Record attendance check-in / check-out
   const recordAttendance = async ({ type, photoUrl, coords, outletName, scheduledShift }) => {
     if (!user) return { success: false, error: 'Belum login.' };
@@ -847,9 +1100,10 @@ export function AuthProvider({ children }) {
     };
 
     if (type === 'checkin') {
-      // Aturan Operasional:
-      // - Senin s/d Kamis (Weekday): Hanya 1 shift tunggal yaitu Shift Weekday (12:00 - 21:00)
-      // - Jumat s/d Minggu (Weekend): Mengikuti jadwal yang diset Leader (Shift Weekend 1 09:00, Weekend 2 13:00, atau Middle 11:00)
+      // Aturan Operasional Outlet:
+      // 1. Shift Middle (11:00 - 20:00): Berlaku SEMUA HARI (Senin s/d Minggu)
+      // 2. Senin s/d Kamis (Weekday): Default Shift Weekday (12:00 - 21:00) atau Shift Middle (11:00 - 20:00)
+      // 3. Jumat s/d Minggu (Weekend): Shift Weekend 1 (09:00), Shift Middle (11:00), Shift Weekend 2 (13:00)
       const dayOfWeek = now.getDay(); // 0 = Minggu, 1 = Senin, ..., 4 = Kamis, 5 = Jumat, 6 = Sabtu
       const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4; // Senin s/d Kamis
 
@@ -861,25 +1115,28 @@ export function AuthProvider({ children }) {
       let shiftStartMin = 0;
       let shiftLabel = 'Shift Weekday (12:00 - 21:00)';
 
-      if (isWeekday) {
-        // Senin s/d Kamis: Selalu Shift Weekday (12:00 - 21:00)
+      const shiftStr = (scheduledShift || '').toLowerCase();
+
+      // Shift Middle dapat berlaku pada hari apa saja (Senin s/d Minggu)
+      if (shiftStr.includes('11:00') || shiftStr.includes('middle')) {
+        shiftStartHour = 11;
+        shiftStartMin = 0;
+        shiftLabel = 'Shift Middle (11:00 - 20:00)';
+      } else if (isWeekday) {
+        // Senin s/d Kamis: Default Shift Weekday (12:00 - 21:00)
         shiftStartHour = 12;
         shiftStartMin = 0;
         shiftLabel = 'Shift Weekday (12:00 - 21:00)';
       } else {
-        // Jumat s/d Minggu: Berdasarkan penugasan Leader
-        const shiftStr = (scheduledShift || '').toLowerCase();
+        // Jumat s/d Minggu (Weekend):
         if (shiftStr.includes('09:00') || shiftStr.includes('weekend 1')) {
           shiftStartHour = 9;
           shiftLabel = 'Shift Weekend 1 (09:00 - 18:00)';
         } else if (shiftStr.includes('13:00') || shiftStr.includes('weekend 2')) {
           shiftStartHour = 13;
           shiftLabel = 'Shift Weekend 2 (13:00 - 22:00)';
-        } else if (shiftStr.includes('11:00') || shiftStr.includes('middle')) {
-          shiftStartHour = 11;
-          shiftLabel = 'Shift Middle (11:00 - 20:00)';
         } else {
-          // Jika belum diset Leader pada Jumat-Minggu, gunakan smart nearest shift
+          // Jika belum diset Leader pada Weekend, gunakan smart nearest shift
           const currentHour = now.getHours();
           if (currentHour < 10) {
             shiftStartHour = 9;
@@ -1093,6 +1350,11 @@ export function AuthProvider({ children }) {
         approveOvertimeRequest,
         rejectOvertimeRequest,
         updateOvertimeNominal,
+        lateCorrections,
+        loadLateCorrections,
+        submitLateCorrection,
+        approveLateCorrection,
+        rejectLateCorrection,
         adminRole,
         setAdminRole,
         adminPins,
