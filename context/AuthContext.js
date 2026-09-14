@@ -53,10 +53,11 @@ export function AuthProvider({ children }) {
   // 2 Mode Admin: 'leader' | 'finance' | null
   const [adminRole, setAdminRole] = useState(null);
 
-  // PIN Admin Baru (Leader: 987321 | Finance: 020103)
+  // PIN Admin Baru (Leader: 987321 | Finance: 020103 | Monitoring: 654321)
   const [adminPins, setAdminPins] = useState({
     leader: '987321', // PIN Admin Leader
     finance: '020103', // PIN Admin Finance
+    monitoring: '654321', // PIN Khusus Tab Monitoring Admin Leader
   });
 
   // Outlets state (disinkronkan dengan koordinat GPS terbaru)
@@ -277,10 +278,10 @@ export function AuthProvider({ children }) {
       if (storedPins) {
         try {
           const parsedPins = JSON.parse(storedPins);
-          setAdminPins(parsedPins);
+          setAdminPins((prev) => ({ ...prev, ...parsedPins }));
         } catch (e) {}
       } else {
-        localStorage.setItem('pwa_admin_pins', JSON.stringify({ leader: '987321', finance: '020103' }));
+        localStorage.setItem('pwa_admin_pins', JSON.stringify({ leader: '987321', finance: '020103', monitoring: '654321' }));
       }
 
       // Muat koordinat outlet tersimpan
@@ -489,17 +490,23 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('pwa_leave_status_changed', handleLeaveStatusChanged);
   }, [user]);
 
-  // Verifikasi PIN Admin (Leader atau Finance)
+  // Verifikasi PIN Admin (Leader, Finance, atau Tab Monitoring)
   const verifyAdminPin = (role, inputPin) => {
     const cleanPin = (inputPin || '').trim();
-    const currentPin = adminPins?.[role] || (role === 'leader' ? '987321' : '020103');
+    const fallbackPin =
+      role === 'leader' ? '987321' : role === 'finance' ? '020103' : role === 'monitoring' ? '654321' : '123456';
+    const currentPin = adminPins?.[role] || fallbackPin;
     if (cleanPin === currentPin) {
-      setAdminRole(role);
+      if (role === 'leader' || role === 'finance') {
+        setAdminRole(role);
+      }
       return { success: true, role };
     }
     return {
       success: false,
-      error: `PIN Admin ${role === 'leader' ? 'Leader' : 'Finance'} salah! Silakan periksa kembali.`,
+      error: `PIN ${
+        role === 'monitoring' ? 'Akses Monitoring' : role === 'leader' ? 'Admin Leader' : 'Finance'
+      } salah! Silakan periksa kembali.`,
     };
   };
 
@@ -522,15 +529,25 @@ export function AuthProvider({ children }) {
 
     // 1. Simpan / upsert ke Supabase tabel admin_settings dengan field 'name' yang wajib ada
     try {
+      const roleName =
+        role === 'leader'
+          ? 'Admin Leader'
+          : role === 'finance'
+          ? 'Admin Finance'
+          : 'PIN Monitoring Presensi';
+      const roleDesc =
+        role === 'leader'
+          ? 'PIN Verifikasi Admin Leader (Shift, Monitoring, Staf)'
+          : role === 'finance'
+          ? 'PIN Verifikasi Admin Finance (Gaji & Lokasi GPS)'
+          : 'PIN Khusus Akses Tab Monitoring Admin Leader';
+
       const { error: upsertErr } = await supabase.from('admin_settings').upsert(
         {
           role,
-          name: role === 'leader' ? 'Admin Leader' : 'Admin Finance',
+          name: roleName,
           pin: cleanPin,
-          description:
-            role === 'leader'
-              ? 'PIN Verifikasi Admin Leader (Shift, Monitoring, Staf)'
-              : 'PIN Verifikasi Admin Finance (Gaji & Lokasi GPS)',
+          description: roleDesc,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'role' }

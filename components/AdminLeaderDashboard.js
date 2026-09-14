@@ -25,7 +25,11 @@ import {
   Coffee,
   Shirt,
   AlertTriangle,
+  Lock,
+  ShieldCheck,
+  KeyRound,
 } from 'lucide-react';
+import MonitoringPinModal from './MonitoringPinModal';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getLocalDateString } from '@/lib/date';
@@ -60,6 +64,11 @@ export default function AdminLeaderDashboard({ onBack }) {
   } = useAuth();
   const [adminTab, setAdminTab] = useState('assignment'); // 'assignment', 'monitoring', 'overtime', 'addStaff'
   const [selectedOutletFilter, setSelectedOutletFilter] = useState('all');
+
+  // State keamanan PIN khusus tab Monitoring
+  const [isMonitoringUnlocked, setIsMonitoringUnlocked] = useState(false);
+  const [isMonitoringPinModalOpen, setIsMonitoringPinModalOpen] = useState(false);
+  const [monitoringPinModalMode, setMonitoringPinModalMode] = useState('verify');
 
   // State proses & notifikasi koreksi keterlambatan
   const [processingCorrectionId, setProcessingCorrectionId] = useState(null);
@@ -609,7 +618,14 @@ export default function AdminLeaderDashboard({ onBack }) {
 
         <button
           type="button"
-          onClick={() => setAdminTab('monitoring')}
+          onClick={() => {
+            if (!isMonitoringUnlocked) {
+              setMonitoringPinModalMode('verify');
+              setIsMonitoringPinModalOpen(true);
+            } else {
+              setAdminTab('monitoring');
+            }
+          }}
           className={`relative py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
             adminTab === 'monitoring'
               ? 'bg-white text-[#EA580C] shadow-xs font-black'
@@ -617,7 +633,10 @@ export default function AdminLeaderDashboard({ onBack }) {
           }`}
         >
           <Activity className="w-4 h-4" />
-          <span>Monitoring</span>
+          <span className="flex items-center gap-1">
+            <span>Monitoring</span>
+            {!isMonitoringUnlocked && <Lock className="w-2.5 h-2.5 text-slate-400" />}
+          </span>
           {(lateCorrections || []).filter((c) => c.status === 'pending').length > 0 && (
             <span className="absolute top-1 right-1.5 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-pulse">
               {(lateCorrections || []).filter((c) => c.status === 'pending').length}
@@ -1209,13 +1228,52 @@ export default function AdminLeaderDashboard({ onBack }) {
     )}
 
       {/* ================= 2. TAB MONITORING KEHADIRAN (LIVE PENALTY & KOREKSI) ================= */}
-      {adminTab === 'monitoring' && (
+      {adminTab === 'monitoring' && !isMonitoringUnlocked && (
+        <div className="bg-white rounded-3xl p-8 border border-slate-100 text-center space-y-4 shadow-sm animate-in fade-in">
+          <div className="w-12 h-12 rounded-2xl bg-orange-50 text-[#EA580C] mx-auto flex items-center justify-center shadow-xs">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="font-extrabold text-sm text-slate-900">Tab Monitoring Terkunci</h4>
+            <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+              Silakan masukkan PIN otorisasi untuk melihat data monitoring presensi dan persetujuan koreksi.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setMonitoringPinModalMode('verify');
+              setIsMonitoringPinModalOpen(true);
+            }}
+            className="py-2.5 px-5 bg-[#EA580C] hover:bg-orange-600 text-white rounded-xl text-xs font-bold shadow-md shadow-orange-500/20 transition inline-flex items-center gap-2 cursor-pointer"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Masukkan PIN Monitoring</span>
+          </button>
+        </div>
+      )}
+
+      {adminTab === 'monitoring' && isMonitoringUnlocked && (
         <div className="space-y-3 animate-in fade-in">
           <div className="flex items-center justify-between px-1">
             <div>
-              <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                Monitoring Presensi Harian (Live)
-              </h4>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                  Monitoring Presensi Harian (Live)
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMonitoringPinModalMode('change');
+                    setIsMonitoringPinModalOpen(true);
+                  }}
+                  title="Ganti PIN Monitoring"
+                  className="px-2 py-0.5 rounded-lg text-slate-500 hover:text-orange-600 hover:bg-orange-50 transition flex items-center gap-1 text-[10px] font-bold border border-slate-200 cursor-pointer"
+                >
+                  <KeyRound className="w-3 h-3" />
+                  <span>Ganti PIN</span>
+                </button>
+              </div>
               <p className="text-[10px] text-slate-500">
                 Toleransi keterlambatan 10 menit &bull; Denda Flat Rp 10.000
               </p>
@@ -1965,6 +2023,17 @@ export default function AdminLeaderDashboard({ onBack }) {
           </form>
         </div>
       )}
+      {/* Modal PIN Khusus Tab Monitoring */}
+      <MonitoringPinModal
+        isOpen={isMonitoringPinModalOpen}
+        initialMode={monitoringPinModalMode}
+        onClose={() => setIsMonitoringPinModalOpen(false)}
+        onSuccess={() => {
+          setIsMonitoringUnlocked(true);
+          setAdminTab('monitoring');
+          setIsMonitoringPinModalOpen(false);
+        }}
+      />
     </div>
   );
 }
