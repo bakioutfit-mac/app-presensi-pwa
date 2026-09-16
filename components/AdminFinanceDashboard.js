@@ -2559,7 +2559,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       )}
 
       {/* ================= TAB 3: TABEL EDITOR SUPABASE ================= */}
-      {financeTab === 'tableEditor' && <SupabaseTableEditor />}
+      {financeTab === 'tableEditor' && <SupabaseTableEditor role="finance" />}
 
       {/* ================= MODAL PENOLAKAN LEMBUR ================= */}
       {rejectModal.open && (

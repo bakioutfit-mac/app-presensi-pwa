@@ -29,7 +29,7 @@ import { OUTLETS } from '@/lib/outlets';
 import { useAuth } from '@/context/AuthContext';
 import { formatRupiah, CurrencyInput, fetchEmployeeSalaries, saveEmployeeSalaries } from '@/lib/currency';
 
-export default function SupabaseTableEditor() {
+export default function SupabaseTableEditor({ role = 'all', hideTables = [] }) {
   const { adminPins, updateAdminPin, outlets, updateOutletCoords, resetTodayAttendance } = useAuth();
 
   const [activeTable, setActiveTable] = useState('admin_settings');
@@ -127,7 +127,7 @@ export default function SupabaseTableEditor() {
     }
   };
 
-  const tables = [
+  const allTables = [
     { id: 'admin_settings', label: 'Admin PIN Settings (Kunci Akses)', icon: '🔐' },
     { id: 'outlets_config', label: 'Outlets GPS Config (Titik Lokasi)', icon: '📍' },
     { id: 'employees', label: 'Employees (Karyawan)', icon: '👥' },
@@ -136,6 +136,12 @@ export default function SupabaseTableEditor() {
     { id: 'shifts', label: 'Shifts (Jadwal Kerja)', icon: '📅' },
     { id: 'payslips', label: 'Payslips (Slip Gaji)', icon: '💰' },
   ];
+
+  const tables = allTables.filter((tbl) => {
+    if (role === 'finance' && tbl.id === 'leaves') return false;
+    if (hideTables.includes(tbl.id)) return false;
+    return true;
+  });
 
   // Default fallback data (kosong tanpa data dummy)
   const fallbackData = {
