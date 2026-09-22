@@ -41,8 +41,14 @@ CREATE TABLE IF NOT EXISTS public.employees (
     birth_date VARCHAR(50) DEFAULT '21 November 1998',
     address TEXT DEFAULT 'Jl. Ir Moh Hatta, Candiareng Perumahan candi wanamas',
     avatar_url TEXT,
+    status VARCHAR(30) DEFAULT 'active',      -- 'active' | 'inactive' (nonaktif / keluar / resign)
+    is_active BOOLEAN DEFAULT true,           -- false jika karyawan sudah keluar / resign
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Migrasi jika tabel employees sudah ada sebelumnya
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'active';
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 
 -- 5. TABEL ATTENDANCE (PRESENSI SELFIE & GPS)
 CREATE TABLE IF NOT EXISTS public.attendance (
@@ -374,3 +380,37 @@ CREATE TABLE IF NOT EXISTS public.attendance_corrections (
 ALTER TABLE public.attendance_corrections ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public all on attendance_corrections" ON public.attendance_corrections;
 CREATE POLICY "Allow public all on attendance_corrections" ON public.attendance_corrections FOR ALL USING (true) WITH CHECK (true);
+
+-- 9. TABEL OUTLET_CASH_REPORTS (LAPORAN PENDAPATAN & PENGELUARAN KASIR OUTLET)
+CREATE TABLE IF NOT EXISTS public.outlet_cash_reports (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    branch VARCHAR(100) NOT NULL,          -- 'LazyBloom', 'Deru Ombak', 'Sea Cafe'
+    report_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    shift_name VARCHAR(50) DEFAULT 'Shift Pagi', -- 'Shift Pagi', 'Shift Siang', 'Full Day'
+    cashier_id UUID REFERENCES public.employees(id) ON DELETE SET NULL,
+    cashier_name VARCHAR(150) NOT NULL,
+    
+    -- Kas & Pemasukan
+    starting_cash NUMERIC DEFAULT 0,       -- Modal Awal Laci
+    income_cash NUMERIC DEFAULT 0,         -- Pemasukan Tunai / Cash
+    income_qris NUMERIC DEFAULT 0,         -- Pemasukan Non-Tunai (QRIS / Transfer / EDC)
+    total_income NUMERIC DEFAULT 0,        -- Total Pemasukan (Cash + QRIS)
+    
+    -- Pengeluaran Kas Kecil (Petty Cash Operasional)
+    expense_amount NUMERIC DEFAULT 0,      -- Total Pengeluaran
+    expense_notes TEXT,                    -- Rincian Pengeluaran (es batu, galon, dsb)
+    
+    -- Rekonsiliasi Kas Laci (Closing)
+    actual_cash_counted NUMERIC DEFAULT 0, -- Kas fisik hasil hitung di laci
+    expected_cash NUMERIC DEFAULT 0,       -- Ekspektasi kas: (starting_cash + income_cash - expense_amount)
+    cash_difference NUMERIC DEFAULT 0,     -- Selisih kas (actual_cash_counted - expected_cash)
+    
+    notes TEXT,                            -- Catatan tambahan kasir
+    status VARCHAR(30) DEFAULT 'Terkirim', -- 'Terkirim', 'Diverifikasi Leader', 'Diverifikasi Finance'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.outlet_cash_reports ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public all on outlet_cash_reports" ON public.outlet_cash_reports;
+CREATE POLICY "Allow public all on outlet_cash_reports" ON public.outlet_cash_reports FOR ALL USING (true) WITH CHECK (true);
+

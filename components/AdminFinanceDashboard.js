@@ -28,11 +28,16 @@ import {
   Eye,
   Search,
   Trash2,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Zap,
+  Sliders,
+  Sparkles,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import SupabaseTableEditor from './SupabaseTableEditor';
-import { formatRupiah, CurrencyInput, fetchEmployeeSalaries } from '@/lib/currency';
+import { formatRupiah, CurrencyInput, fetchEmployeeSalaries, saveEmployeeSalaries } from '@/lib/currency';
 import { getPeriodFromDate, formatIndonesianDate } from '@/lib/date';
 import PayslipPrintModal from './PayslipPrintModal';
 import { getOvertimeRateByPosition } from '@/lib/overtimeRates';
@@ -46,13 +51,10 @@ const YEARS = [currentYearNum - 1, currentYearNum, currentYearNum + 1, currentYe
 
 export default function AdminFinanceDashboard({ onBack }) {
   const {
-    outlets,
-    updateOutletCoords,
     overtimeRequests,
     approveOvertimeRequest,
     rejectOvertimeRequest,
   } = useAuth();
-  const [financeTab, setFinanceTab] = useState('payroll'); // 'payroll' | 'leaveApproval' | 'gpsConfig' | 'tableEditor'
   const [payrollSubTab, setPayrollSubTab] = useState('manage'); // 'manage' | 'overtime'
   const [printModalSlip, setPrintModalSlip] = useState(null);
 
@@ -74,26 +76,6 @@ export default function AdminFinanceDashboard({ onBack }) {
   const processedOvertimes = (overtimeRequests || []).filter(
     (ot) => ot.status !== 'Diajukan Leader'
   );
-
-  // ================= 1.5 PERSETUJUAN IZIN / SAKIT STAF =================
-  const [leaveRequests, setLeaveRequests] = useState([]);
-  const [loadingLeaves, setLoadingLeaves] = useState(false);
-  const [leaveFilter, setLeaveFilter] = useState('pending'); // 'pending' | 'approved' | 'rejected' | 'all'
-  const [leaveSearch, setLeaveSearch] = useState('');
-  const [previewDocUrl, setPreviewDocUrl] = useState(null);
-  const [rejectLeaveModal, setRejectLeaveModal] = useState({
-    open: false,
-    leaveId: null,
-    staffName: '',
-    leaveType: '',
-    reason: '',
-    rejectionNote: '',
-  });
-
-  const pendingLeaves = (leaveRequests || []).filter((l) => l.status === 'Menunggu');
-  const approvedLeaves = (leaveRequests || []).filter((l) => l.status === 'Disetujui');
-  const rejectedLeaves = (leaveRequests || []).filter((l) => l.status === 'Ditolak');
-  const pendingLeavesCount = pendingLeaves.length;
 
   // ================= 1. KELOLA SLIP GAJI 3 OUTLET =================
   const [selectedOutletSalary, setSelectedOutletSalary] = useState('all');
@@ -136,6 +118,25 @@ export default function AdminFinanceDashboard({ onBack }) {
   });
 
   const [salaryList, setSalaryList] = useState([]);
+  const [showDetailedComponents, setShowDetailedComponents] = useState(false);
+  const [autoLateCount, setAutoLateCount] = useState(0);
+  const [isBulkGenerating, setIsBulkGenerating] = useState(false);
+
+  // State Tab Master Data Gaji Staf
+  const [selectedOutletMaster, setSelectedOutletMaster] = useState('all');
+  const [masterSearchQuery, setMasterSearchQuery] = useState('');
+  const [editingStaffSalary, setEditingStaffSalary] = useState(null);
+  const [savingMaster, setSavingMaster] = useState(false);
+
+  // Helper mendapatkan periode bulan sebelumnya
+  const getPreviousPeriod = (m, y) => {
+    const idx = MONTHS.indexOf(m);
+    if (idx === -1) return null;
+    if (idx === 0) {
+      return `Desember ${Number(y) - 1}`;
+    }
+    return `${MONTHS[idx - 1]} ${y}`;
+  };
 
   // Fetch real payslips & employees from Supabase on mount
   useEffect(() => {
@@ -304,7 +305,6 @@ export default function AdminFinanceDashboard({ onBack }) {
       }
     }
     loadInitialData();
-    fetchLeaves();
 
     // Listener sinkronisasi paket gaji otomatis saat diubah di Tabel Editor
     const handlePackageUpdate = () => {
@@ -321,111 +321,11 @@ export default function AdminFinanceDashboard({ onBack }) {
     };
     window.addEventListener('pwa_payslips_deleted', handlePayslipDeleted);
 
-    // Listener sinkronisasi permohonan izin staf
-    const handleLeaveUpdate = () => {
-      fetchLeaves();
-    };
-    window.addEventListener('pwa_leave_submitted', handleLeaveUpdate);
-    window.addEventListener('pwa_leave_status_changed', handleLeaveUpdate);
-    window.addEventListener('pwa_leave_deleted', handleLeaveUpdate);
-
     return () => {
       window.removeEventListener('pwa_salary_package_updated', handlePackageUpdate);
       window.removeEventListener('pwa_payslips_deleted', handlePayslipDeleted);
-      window.removeEventListener('pwa_leave_submitted', handleLeaveUpdate);
-      window.removeEventListener('pwa_leave_status_changed', handleLeaveUpdate);
-      window.removeEventListener('pwa_leave_deleted', handleLeaveUpdate);
     };
   }, []);
-
-  const fetchLeaves = async () => {
-    setLoadingLeaves(true);
-    try {
-      const { data, error } = await supabase
-        .from('leaves')
-        .select('*, employees(full_name, branch, position)')
-        .order('created_at', { ascending: false });
-
-      if (!error && data) {
-        setLeaveRequests(data);
-      }
-    } catch (err) {
-      console.warn('Fetch leaves error:', err);
-    } finally {
-      setLoadingLeaves(false);
-    }
-  };
-
-  const handleApproveLeave = async (leaveId) => {
-    setActionLoading(true);
-    try {
-      const { error } = await supabase
-        .from('leaves')
-        .update({ status: 'Disetujui' })
-        .eq('id', leaveId);
-      if (error) throw error;
-
-      setLeaveRequests((prev) =>
-        prev.map((l) => (l.id === leaveId ? { ...l, status: 'Disetujui' } : l))
-      );
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('pwa_leave_status_changed', {
-            detail: { id: leaveId, status: 'Disetujui' },
-          })
-        );
-      }
-      setSalaryMsg({ type: 'success', text: 'Pengajuan izin staf berhasil disetujui!' });
-    } catch (err) {
-      console.error('Approve leave error:', err);
-      setSalaryMsg({ type: 'error', text: 'Gagal menyetujui izin: ' + err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleConfirmRejectLeave = async () => {
-    if (!rejectLeaveModal.leaveId) return;
-    setActionLoading(true);
-    try {
-      const currentLeave = leaveRequests.find((l) => l.id === rejectLeaveModal.leaveId);
-      const originalReason = currentLeave?.reason || '';
-      const updatedReason = rejectLeaveModal.rejectionNote.trim()
-        ? `${originalReason} (Alasan Tolak: ${rejectLeaveModal.rejectionNote.trim()})`
-        : originalReason;
-
-      const { error } = await supabase
-        .from('leaves')
-        .update({
-          status: 'Ditolak',
-          reason: updatedReason,
-        })
-        .eq('id', rejectLeaveModal.leaveId);
-      if (error) throw error;
-
-      setLeaveRequests((prev) =>
-        prev.map((l) =>
-          l.id === rejectLeaveModal.leaveId
-            ? { ...l, status: 'Ditolak', reason: updatedReason }
-            : l
-        )
-      );
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('pwa_leave_status_changed', {
-            detail: { id: rejectLeaveModal.leaveId, status: 'Ditolak' },
-          })
-        );
-      }
-      setRejectLeaveModal({ open: false, leaveId: null, staffName: '', leaveType: '', reason: '', rejectionNote: '' });
-      setSalaryMsg({ type: 'success', text: 'Pengajuan izin staf telah ditolak.' });
-    } catch (err) {
-      console.error('Reject leave error:', err);
-      setSalaryMsg({ type: 'error', text: 'Gagal menolak izin: ' + err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
 
   // Helper mencari apakah staf sudah memiliki slip gaji di periode tertentu
   const findExistingSlip = (empId, empName, targetPeriod) => {
@@ -439,7 +339,7 @@ export default function AdminFinanceDashboard({ onBack }) {
   };
 
   // Helper mengisi form slip gaji: Jika sudah ada slip di bulan tersebut, otomatis beralih ke Mode Edit (Opsi A)
-  const populateSalaryForm = (empName, branch, targetMonth, targetYear) => {
+  const populateSalaryForm = async (empName, branch, targetMonth, targetYear) => {
     const staff = employeesList.find((e) => e.full_name === empName);
     const empId = staff?.id || null;
     const targetPeriod = `${targetMonth} ${targetYear}`;
@@ -468,10 +368,15 @@ export default function AdminFinanceDashboard({ onBack }) {
         cash_bon: existingSlip.cash_bon ?? 0,
         is_released: existingSlip.is_released ?? true,
       });
+      setAutoLateCount(0);
       return true;
     } else {
       // 2. JIKA BELUM ADA: Mode Buat Baru
+      // Cek apakah ada slip bulan lalu sebagai acuan otomatis
+      const prevPeriod = getPreviousPeriod(targetMonth, targetYear);
+      const prevSlip = prevPeriod ? findExistingSlip(empId, empName, prevPeriod) : null;
       const pkg = staff ? (employeeSalaries[staff.id] || employeeSalaries[staff.full_name] || null) : null;
+
       const approvedOtSum = (overtimeRequests || [])
         .filter((ot) => {
           const matchEmp = (staff && ot.employee_id === staff.id) || ot.employee_name === empName;
@@ -480,24 +385,56 @@ export default function AdminFinanceDashboard({ onBack }) {
         })
         .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
 
+      // Hitung otomatis denda presensi dari tabel attendance di periode ini
+      let autoLateFee = 0;
+      let lateTimes = 0;
+      if (empId) {
+        try {
+          const monthIdx = MONTHS.indexOf(targetMonth);
+          if (monthIdx !== -1) {
+            const mStr = String(monthIdx + 1).padStart(2, '0');
+            const { data: attRecords } = await supabase
+              .from('attendance')
+              .select('discipline_penalty, is_late, status')
+              .eq('employee_id', empId)
+              .gte('attendance_date', `${targetYear}-${mStr}-01`)
+              .lte('attendance_date', `${targetYear}-${mStr}-31`);
+
+            if (attRecords && attRecords.length > 0) {
+              attRecords.forEach((a) => {
+                const isLate = a.is_late || (typeof a.status === 'string' && a.status.includes('Terlambat'));
+                if (isLate) {
+                  lateTimes += 1;
+                  autoLateFee += Number(a.discipline_penalty) > 0 ? Number(a.discipline_penalty) : 10000;
+                }
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('Calculate late penalty error:', e);
+        }
+      }
+
+      setAutoLateCount(lateTimes);
+
       setNewSalary({
         existing_slip_id: null,
         employee_name: empName,
         employee_id: empId,
         branch: staff?.branch || branch,
         period: targetPeriod,
-        basic_salary: pkg?.basic_salary ?? 0,
-        child_allowance: pkg?.child_allowance ?? 0,
-        spouse_allowance: pkg?.spouse_allowance ?? 0,
-        position_allowance: pkg?.position_allowance ?? 0,
-        meal_allowance: pkg?.meal_allowance ?? 0,
+        basic_salary: (pkg && Number(pkg.basic_salary) > 0) ? pkg.basic_salary : (prevSlip?.basic_salary ?? 0),
+        child_allowance: (pkg && pkg.child_allowance !== undefined) ? pkg.child_allowance : (prevSlip?.child_allowance ?? 0),
+        spouse_allowance: (pkg && pkg.spouse_allowance !== undefined) ? pkg.spouse_allowance : (prevSlip?.spouse_allowance ?? 0),
+        position_allowance: (pkg && pkg.position_allowance !== undefined) ? pkg.position_allowance : (prevSlip?.position_allowance ?? 0),
+        meal_allowance: (pkg && pkg.meal_allowance !== undefined) ? pkg.meal_allowance : (prevSlip?.meal_allowance ?? 0),
         overtime_pay: approvedOtSum,
         plus_day_count: 0,
         plus_day_pay: 0,
         plus_day_note: '',
         meal_deduction: 0,
         attendance_deduction: 0,
-        discipline_deduction: 0,
+        discipline_deduction: autoLateFee,
         cash_bon: 0,
         is_released: true,
       });
@@ -529,13 +466,240 @@ export default function AdminFinanceDashboard({ onBack }) {
         plus_day_count: 0,
         plus_day_pay: 0,
         plus_day_note: '',
+        meal_deduction: 0,
+        attendance_deduction: 0,
+        discipline_deduction: 0,
+        cash_bon: 0,
       }));
+      setAutoLateCount(0);
     }
   };
 
   // Handler saat nama karyawan di dropdown form slip gaji dipilih
   const handleSelectEmployee = (empName) => {
     populateSalaryForm(empName, newSalary.branch, salaryMonth, salaryYear);
+  };
+
+  // Handler Salin Gaji dari Bulan Sebelumnya
+  const handleCopyPreviousSalary = () => {
+    const prevPeriod = getPreviousPeriod(salaryMonth, salaryYear);
+    if (!prevPeriod || !newSalary.employee_name) return;
+    const prevSlip = findExistingSlip(newSalary.employee_id, newSalary.employee_name, prevPeriod);
+    if (!prevSlip) {
+      setSalaryMsg({
+        type: 'error',
+        text: `Tidak ada data slip gaji ${newSalary.employee_name} di periode sebelumnya (${prevPeriod}).`,
+      });
+      return;
+    }
+    setNewSalary((prev) => ({
+      ...prev,
+      basic_salary: prevSlip.basic_salary ?? prev.basic_salary,
+      child_allowance: prevSlip.child_allowance ?? prev.child_allowance,
+      spouse_allowance: prevSlip.spouse_allowance ?? prev.spouse_allowance,
+      position_allowance: prevSlip.position_allowance ?? prev.position_allowance,
+      meal_allowance: prevSlip.meal_allowance ?? prev.meal_allowance,
+      meal_deduction: prevSlip.meal_deduction ?? prev.meal_deduction,
+      attendance_deduction: prevSlip.attendance_deduction ?? prev.attendance_deduction,
+      cash_bon: prevSlip.cash_bon ?? 0,
+    }));
+    setSalaryMsg({
+      type: 'success',
+      text: `Berhasil menyalin data gaji ${newSalary.employee_name} dari periode ${prevPeriod}!`,
+    });
+  };
+
+  // Handler Generate Draft Gaji Otomatis untuk Semua Staf Outlet Terpilih
+  const handleBulkGenerateSalary = async () => {
+    const targetPeriod = `${salaryMonth} ${salaryYear}`;
+    const targetBranch = selectedOutletSalary;
+    const branchStaff = employeesList.filter(
+      (e) => targetBranch === 'all' || e.branch?.toLowerCase() === targetBranch.toLowerCase()
+    );
+
+    const ungenerated = branchStaff.filter(
+      (emp) =>
+        !salaryList.some(
+          (s) =>
+            (s.employee_id === emp.id || s.employee_name === emp.full_name) &&
+            s.period === targetPeriod
+        )
+    );
+
+    if (ungenerated.length === 0) {
+      setSalaryMsg({
+        type: 'error',
+        text: `Semua staf di ${targetBranch === 'all' ? 'Semua Outlet' : targetBranch} sudah memiliki slip gaji periode ${targetPeriod}.`,
+      });
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Generate draf slip gaji otomatis untuk ${ungenerated.length} staf ${
+          targetBranch === 'all' ? 'Semua Outlet' : targetBranch
+        } periode ${targetPeriod}?`
+      )
+    ) {
+      return;
+    }
+
+    setIsBulkGenerating(true);
+    setSalaryMsg({ type: '', text: '' });
+
+    try {
+      const prevPeriod = getPreviousPeriod(salaryMonth, salaryYear);
+      let newSlips = [];
+
+      for (const emp of ungenerated) {
+        const prevSlip = prevPeriod ? findExistingSlip(emp.id, emp.full_name, prevPeriod) : null;
+        const pkg = employeeSalaries[emp.id] || employeeSalaries[emp.full_name] || null;
+
+        const basic = Number(prevSlip?.basic_salary ?? pkg?.basic_salary ?? 2000000);
+        const child = Number(prevSlip?.child_allowance ?? pkg?.child_allowance ?? 0);
+        const spouse = Number(prevSlip?.spouse_allowance ?? pkg?.spouse_allowance ?? 0);
+        const pos = Number(prevSlip?.position_allowance ?? pkg?.position_allowance ?? 0);
+        const meal = Number(prevSlip?.meal_allowance ?? pkg?.meal_allowance ?? 0);
+
+        const approvedOtSum = (overtimeRequests || [])
+          .filter((ot) => {
+            const matchEmp = (emp.id && ot.employee_id === emp.id) || ot.employee_name === emp.full_name;
+            const matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+            return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
+          })
+          .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
+
+        let lateDeduction = 0;
+        try {
+          const monthIdx = MONTHS.indexOf(salaryMonth);
+          if (monthIdx !== -1 && emp.id) {
+            const mStr = String(monthIdx + 1).padStart(2, '0');
+            const { data: attRecords } = await supabase
+              .from('attendance')
+              .select('discipline_penalty, is_late, status')
+              .eq('employee_id', emp.id)
+              .gte('attendance_date', `${salaryYear}-${mStr}-01`)
+              .lte('attendance_date', `${salaryYear}-${mStr}-31`);
+
+            if (attRecords && attRecords.length > 0) {
+              attRecords.forEach((a) => {
+                const isLate = a.is_late || (typeof a.status === 'string' && a.status.includes('Terlambat'));
+                if (isLate) {
+                  lateDeduction += Number(a.discipline_penalty) > 0 ? Number(a.discipline_penalty) : 10000;
+                }
+              });
+            }
+          }
+        } catch (e) {}
+
+        const net = basic + child + spouse + pos + meal + approvedOtSum - lateDeduction;
+
+        const basePayload = {
+          employee_id: emp.id,
+          period: targetPeriod,
+          basic_salary: basic,
+          net_salary: net,
+          is_released: false, // Draf agar Finance bisa cek & sesuaikan
+        };
+
+        const { data: inserted } = await supabase
+          .from('payslips')
+          .insert(basePayload)
+          .select('*, employees(full_name, branch)')
+          .single();
+
+        const slipId = inserted?.id || `gen-${emp.id}-${Date.now()}`;
+        const item = {
+          id: slipId,
+          employee_id: emp.id,
+          employee_name: emp.full_name,
+          branch: emp.branch,
+          period: targetPeriod,
+          basic_salary: basic,
+          child_allowance: child,
+          spouse_allowance: spouse,
+          position_allowance: pos,
+          meal_allowance: meal,
+          overtime_pay: approvedOtSum,
+          plus_day_count: 0,
+          plus_day_pay: 0,
+          plus_day_note: '',
+          meal_deduction: 0,
+          attendance_deduction: 0,
+          discipline_deduction: lateDeduction,
+          cash_bon: 0,
+          net_salary: net,
+          is_released: false,
+          created_at: inserted?.created_at || new Date().toISOString(),
+        };
+
+        newSlips.push(item);
+
+        try {
+          let savedDetails = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+          savedDetails[slipId] = item;
+          localStorage.setItem('pwa_payslips_detail', JSON.stringify(savedDetails));
+        } catch (e) {}
+      }
+
+      if (newSlips.length > 0) {
+        setSalaryList((prev) => [...newSlips, ...prev]);
+        setSalaryMsg({
+          type: 'success',
+          text: `⚡ Berhasil membuat ${newSlips.length} draft slip gaji untuk periode ${targetPeriod}!`,
+        });
+      }
+    } catch (err) {
+      console.error('Bulk generate error:', err);
+      setSalaryMsg({ type: 'error', text: `Gagal generate massal: ${err.message}` });
+    } finally {
+      setIsBulkGenerating(false);
+    }
+  };
+
+  // Handler Simpan / Perbarui Paket Master Gaji Karyawan
+  const handleSaveStaffPackage = async (e) => {
+    e.preventDefault();
+    if (!editingStaffSalary) return;
+    setSavingMaster(true);
+    try {
+      const empId = editingStaffSalary.id;
+      const empName = editingStaffSalary.full_name;
+
+      const updatedMap = {
+        ...employeeSalaries,
+        [empId]: {
+          basic_salary: Number(editingStaffSalary.basic_salary || 0),
+          position_allowance: Number(editingStaffSalary.position_allowance || 0),
+          meal_allowance: Number(editingStaffSalary.meal_allowance || 0),
+          child_allowance: Number(editingStaffSalary.child_allowance || 0),
+          spouse_allowance: Number(editingStaffSalary.spouse_allowance || 0),
+        },
+        [empName]: {
+          basic_salary: Number(editingStaffSalary.basic_salary || 0),
+          position_allowance: Number(editingStaffSalary.position_allowance || 0),
+          meal_allowance: Number(editingStaffSalary.meal_allowance || 0),
+          child_allowance: Number(editingStaffSalary.child_allowance || 0),
+          spouse_allowance: Number(editingStaffSalary.spouse_allowance || 0),
+        },
+      };
+
+      await saveEmployeeSalaries(updatedMap);
+      setEmployeeSalaries(updatedMap);
+      setEditingStaffSalary(null);
+      setSalaryMsg({
+        type: 'success',
+        text: `Berhasil memperbarui paket gaji master untuk ${empName}!`,
+      });
+    } catch (err) {
+      console.error('Save staff package error:', err);
+      setSalaryMsg({
+        type: 'error',
+        text: `Gagal menyimpan paket gaji master: ${err.message}`,
+      });
+    } finally {
+      setSavingMaster(false);
+    }
   };
 
   // Handler tombol [Edit] pada kartu slip gaji yang ada di daftar
@@ -991,75 +1155,6 @@ export default function AdminFinanceDashboard({ onBack }) {
     }
   };
 
-
-  // ================= 2. PENGATURAN TITIK GPS 3 OUTLET =================
-  const safeOutlets = Array.isArray(outlets) && outlets.length > 0 ? outlets : [];
-  const [gpsForm, setGpsForm] = useState(() => {
-    return safeOutlets.reduce((acc, o) => {
-      acc[o.id] = {
-        lat: o.coords?.lat ?? o.latitude ?? -6.2088,
-        lng: o.coords?.lng ?? o.longitude ?? 106.8456,
-        radiusMeters: o.coords?.radiusMeters ?? o.radius_meters ?? 50,
-        address: o.address || '',
-      };
-      return acc;
-    }, {});
-  });
-
-  const [activeGpsOutlet, setActiveGpsOutlet] = useState(() => safeOutlets[0]?.id || 'lazybloom');
-  const [gpsMsg, setGpsMsg] = useState({ type: '', text: '' });
-  const [detectingGps, setDetectingGps] = useState(false);
-
-  // Auto Detect GPS perangkat saat berada di outlet fisik
-  const handleDetectCurrentGPS = (outletId) => {
-    if (!navigator.geolocation) {
-      alert('Browser tidak mendukung geolokasi.');
-      return;
-    }
-
-    setDetectingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const curLat = pos.coords.latitude.toFixed(6);
-        const curLng = pos.coords.longitude.toFixed(6);
-
-        setGpsForm((prev) => ({
-          ...prev,
-          [outletId]: {
-            ...prev[outletId],
-            lat: curLat,
-            lng: curLng,
-          },
-        }));
-        setDetectingGps(false);
-        setGpsMsg({
-          type: 'success',
-          text: `Koordinat GPS saat ini berhasil diambil: ${curLat}, ${curLng}`,
-        });
-      },
-      (err) => {
-        setDetectingGps(false);
-        alert('Gagal mengambil GPS: ' + err.message);
-      },
-      { enableHighAccuracy: true }
-    );
-  };
-
-  const handleSaveGps = (outletId) => {
-    const data = gpsForm[outletId];
-    if (!data.lat || !data.lng) {
-      setGpsMsg({ type: 'error', text: 'Latitude dan Longitude wajib diisi desimal valid!' });
-      return;
-    }
-
-    updateOutletCoords(outletId, data);
-    setGpsMsg({
-      type: 'success',
-      text: `Titik koordinat GPS ${outlets.find((o) => o.id === outletId)?.name} berhasil diperbarui!`,
-    });
-    setTimeout(() => setGpsMsg({ type: '', text: '' }), 3500);
-  };
-
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Header Bar */}
@@ -1078,109 +1173,58 @@ export default function AdminFinanceDashboard({ onBack }) {
               <DollarSign className="w-4 h-4 text-[#2563EB]" />
               <span>Dashboard Admin Finance</span>
               <span className="text-[9px] bg-[#2563EB] text-white px-2 py-0.5 rounded-full font-black">
-                Keuangan &amp; GPS
+                Keuangan &amp; Payroll
               </span>
             </h3>
             <p className="text-[10px] text-slate-500">
-              Kelola gaji 3 outlet &amp; atur koordinat latitude/longitude
+              Kelola gaji 3 outlet &amp; persetujuan pengajuan lembur staf
             </p>
           </div>
         </div>
       </div>
 
-      {/* Sub-Tabs */}
-      <div className="grid grid-cols-4 gap-1.5 bg-slate-200/70 p-1.5 rounded-2xl">
-        <button
-          type="button"
-          onClick={() => setFinanceTab('payroll')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
-            financeTab === 'payroll'
-              ? 'bg-white text-[#2563EB] shadow-xs font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Banknote className="w-4 h-4" />
-          <span className="truncate">Gaji 3 Outlet</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setFinanceTab('leaveApproval')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 relative ${
-            financeTab === 'leaveApproval'
-              ? 'bg-white text-[#2563EB] shadow-xs font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <div className="relative">
-            <ClipboardCheck className="w-4 h-4" />
-            {pendingLeavesCount > 0 && (
-              <span className="absolute -top-1.5 -right-2.5 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white animate-pulse">
-                {pendingLeavesCount > 9 ? '9+' : pendingLeavesCount}
-              </span>
-            )}
-          </div>
-          <span className="truncate">Persetujuan Izin</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setFinanceTab('gpsConfig')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
-            financeTab === 'gpsConfig'
-              ? 'bg-white text-[#2563EB] shadow-xs font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <MapPin className="w-4 h-4" />
-          <span className="truncate">Titik GPS</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setFinanceTab('tableEditor')}
-          className={`py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
-            financeTab === 'tableEditor'
-              ? 'bg-white text-[#2563EB] shadow-xs font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Database className="w-4 h-4" />
-          <span className="truncate">Tabel Editor</span>
-        </button>
-      </div>
-
-      {/* ================= TAB 1: KELOLA GAJI 3 OUTLET ================= */}
-      {financeTab === 'payroll' && (
-        <div className="space-y-4">
-          {/* Sub-Tab Navigation: Kelola Gaji | Persetujuan Lembur */}
-          <div className="bg-slate-200/80 p-1.5 rounded-2xl flex items-center gap-1.5 border border-slate-300/60 shadow-inner">
+      <div className="space-y-4">
+        {/* Tab Navigation: Kelola Gaji 3 Outlet | Master Gaji | Persetujuan Lembur */}
+        <div className="bg-slate-200/80 p-1.5 rounded-2xl flex items-center gap-1.5 border border-slate-300/60 shadow-inner">
             <button
               type="button"
               onClick={() => setPayrollSubTab('manage')}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 ${
+              className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 ${
                 payrollSubTab === 'manage'
                   ? 'bg-white text-[#2563EB] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Banknote className="w-4 h-4" />
+              <Banknote className="w-4 h-4 shrink-0" />
               <span>Kelola Gaji</span>
             </button>
 
             <button
               type="button"
+              onClick={() => setPayrollSubTab('master')}
+              className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 ${
+                payrollSubTab === 'master'
+                  ? 'bg-white text-[#2563EB] shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Sliders className="w-4 h-4 shrink-0" />
+              <span>Master Gaji</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setPayrollSubTab('overtime')}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 relative ${
+              className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 relative ${
                 payrollSubTab === 'overtime'
                   ? 'bg-white text-[#2563EB] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Clock className="w-4 h-4" />
-              <span>Persetujuan Lembur</span>
+              <Clock className="w-4 h-4 shrink-0" />
+              <span className="truncate">Lembur</span>
               {pendingOvertimes.length > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs animate-pulse">
+                <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
                   {pendingOvertimes.length}
                 </span>
               )}
@@ -1450,6 +1494,373 @@ export default function AdminFinanceDashboard({ onBack }) {
             </div>
           )}
 
+          {/* ================= SUB-TAB: MASTER GAJI (DAFTAR GAJI STAF) ================= */}
+          {payrollSubTab === 'master' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* Header Banner Master Gaji */}
+              <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-4 shadow-sm border border-blue-800/50 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-blue-300">
+                      <Sliders className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black tracking-wide flex items-center gap-1.5">
+                        <span>Master Pengaturan Gaji Staf</span>
+                        <span className="text-[9px] bg-emerald-500/30 text-emerald-300 border border-emerald-400/30 font-black px-2 py-0.5 rounded-full">
+                          Otomatisasi Payroll
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-blue-200/80">
+                        Atur Gaji Pokok &amp; 4 Tunjangan Tetap per staf (Jabatan, Makan, Anak, Keluarga/Istri).
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-2 bg-white/5 border border-white/10 rounded-xl text-[10px] text-blue-100 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+                  <span>
+                    <strong>Paling Ringkas:</strong> Setelah diatur di sini, saat Admin Finance menerbitkan gaji bulanan, nilai ini langsung otomatis terisi. Finance hanya perlu input <strong>Potongan Cash Bon</strong>, <strong>Potongan Makan</strong>, dan <strong>Potongan Kehadiran</strong>!
+                  </span>
+                </div>
+              </div>
+
+              {/* Feedback Message */}
+              {salaryMsg.text && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-medium">{salaryMsg.text}</span>
+                </div>
+              )}
+
+              {/* Search & Filter Outlet */}
+              <div className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-xs space-y-2.5">
+                {/* Outlet filter pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  {[
+                    { id: 'all', label: 'Semua Outlet' },
+                    { id: 'LazyBloom', label: 'LazyBloom' },
+                    { id: 'Deru Ombak', label: 'Deru Ombak' },
+                    { id: 'Sea Cafe', label: 'Sea Cafe' },
+                    { id: 'Mobile / Lapangan', label: 'Mobile / Lapangan' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setSelectedOutletMaster(tab.id)}
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition cursor-pointer ${
+                        selectedOutletMaster === tab.id
+                          ? 'bg-[#2563EB] text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Staff Search Input */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={masterSearchQuery}
+                    onChange={(e) => setMasterSearchQuery(e.target.value)}
+                    placeholder="Cari nama staf di master gaji..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-[#2563EB] focus:outline-hidden"
+                  />
+                  {masterSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setMasterSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal / Form Edit Paket Gaji Karyawan */}
+              {editingStaffSalary && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3">
+                  <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+                    <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sliders className="w-4 h-4 text-blue-300" />
+                        <div>
+                          <h4 className="text-xs font-black">Atur Paket Gaji Tetap</h4>
+                          <p className="text-[10px] text-blue-200">
+                            {editingStaffSalary.full_name} • {editingStaffSalary.branch}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditingStaffSalary(null)}
+                        className="text-white/70 hover:text-white p-1 rounded-lg hover:bg-white/10 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSaveStaffPackage} className="p-4 space-y-3.5 max-h-[80vh] overflow-y-auto">
+                      <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl text-[10px] text-blue-900">
+                        Nilai ini tersimpan di sistem cloud dan otomatis diisikan ke form gaji bulanan staf <strong>{editingStaffSalary.full_name}</strong>.
+                      </div>
+
+                      {/* Gaji Pokok */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                          1. Gaji Pokok (Wajib)
+                        </label>
+                        <CurrencyInput
+                          value={editingStaffSalary.basic_salary}
+                          onChange={(val) =>
+                            setEditingStaffSalary((prev) => ({ ...prev, basic_salary: val }))
+                          }
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-black text-slate-900 focus:bg-white"
+                          placeholder="Rp 0"
+                          required
+                        />
+                      </div>
+
+                      {/* 4 Tunjangan Tetap */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                            2. Tunjangan Jabatan
+                          </label>
+                          <CurrencyInput
+                            value={editingStaffSalary.position_allowance}
+                            onChange={(val) =>
+                              setEditingStaffSalary((prev) => ({ ...prev, position_allowance: val }))
+                            }
+                            className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-900"
+                            placeholder="Rp 0"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                            3. Tunjangan Makan
+                          </label>
+                          <CurrencyInput
+                            value={editingStaffSalary.meal_allowance}
+                            onChange={(val) =>
+                              setEditingStaffSalary((prev) => ({ ...prev, meal_allowance: val }))
+                            }
+                            className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-900"
+                            placeholder="Rp 0"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                            4. Tunjangan Anak
+                          </label>
+                          <CurrencyInput
+                            value={editingStaffSalary.child_allowance}
+                            onChange={(val) =>
+                              setEditingStaffSalary((prev) => ({ ...prev, child_allowance: val }))
+                            }
+                            className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-900"
+                            placeholder="Rp 0"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                            5. Tunjangan Keluarga / Istri
+                          </label>
+                          <CurrencyInput
+                            value={editingStaffSalary.spouse_allowance}
+                            onChange={(val) =>
+                              setEditingStaffSalary((prev) => ({ ...prev, spouse_allowance: val }))
+                            }
+                            className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-900"
+                            placeholder="Rp 0"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Summary Box */}
+                      {(() => {
+                        const totalTetap =
+                          Number(editingStaffSalary.basic_salary || 0) +
+                          Number(editingStaffSalary.position_allowance || 0) +
+                          Number(editingStaffSalary.meal_allowance || 0) +
+                          Number(editingStaffSalary.child_allowance || 0) +
+                          Number(editingStaffSalary.spouse_allowance || 0);
+
+                        return (
+                          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] font-bold text-emerald-900 block">Total Paket Tetap:</span>
+                              <span className="text-[9px] text-emerald-700">Pokok + 4 Tunjangan</span>
+                            </div>
+                            <span className="font-black text-sm text-emerald-700">
+                              Rp {totalTetap.toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setEditingStaffSalary(null)}
+                          className="px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={savingMaster}
+                          className="px-4 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          {savingMaster ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                          <span>{savingMaster ? 'Menyimpan...' : 'Simpan Master Gaji'}</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Daftar Karyawan & Paket Gaji */}
+              {(() => {
+                const filteredStaff = employeesList
+                  .filter((emp) => selectedOutletMaster === 'all' || emp.branch?.toLowerCase() === selectedOutletMaster.toLowerCase())
+                  .filter((emp) =>
+                    !masterSearchQuery
+                      ? true
+                      : emp.full_name?.toLowerCase().includes(masterSearchQuery.toLowerCase()) ||
+                        emp.position?.toLowerCase().includes(masterSearchQuery.toLowerCase())
+                  );
+
+                if (filteredStaff.length === 0) {
+                  return (
+                    <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 text-slate-500 space-y-2">
+                      <p className="text-xs font-bold">Tidak ada staf yang ditemukan</p>
+                      <p className="text-[10px]">Coba ubah filter outlet atau kata kunci pencarian.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Menampilkan {filteredStaff.length} Staf ({selectedOutletMaster === 'all' ? 'Semua Outlet' : selectedOutletMaster})
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5">
+                      {filteredStaff.map((emp) => {
+                        const pkg = employeeSalaries[emp.id] || employeeSalaries[emp.full_name] || {};
+                        const basic = Number(pkg.basic_salary || 0);
+                        const pos = Number(pkg.position_allowance || 0);
+                        const meal = Number(pkg.meal_allowance || 0);
+                        const child = Number(pkg.child_allowance || 0);
+                        const spouse = Number(pkg.spouse_allowance || 0);
+                        const totalTetap = basic + pos + meal + child + spouse;
+                        const isConfigured = basic > 0 || totalTetap > 0;
+
+                        return (
+                          <div
+                            key={emp.id}
+                            className="bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-xs hover:border-blue-200 transition space-y-3"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-xs flex items-center justify-center shadow-xs">
+                                  {emp.full_name ? emp.full_name.charAt(0).toUpperCase() : 'S'}
+                                </div>
+                                <div>
+                                  <h5 className="text-xs font-black text-slate-900 leading-tight">
+                                    {emp.full_name}
+                                  </h5>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-[10px] font-medium text-slate-500">
+                                      {emp.position || 'Staff'}
+                                    </span>
+                                    <span className="text-[9px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.2 rounded-md">
+                                      {emp.branch}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingStaffSalary({
+                                    id: emp.id,
+                                    full_name: emp.full_name,
+                                    branch: emp.branch,
+                                    position: emp.position,
+                                    basic_salary: basic,
+                                    position_allowance: pos,
+                                    meal_allowance: meal,
+                                    child_allowance: child,
+                                    spouse_allowance: spouse,
+                                  })
+                                }
+                                className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-[10px] font-black rounded-xl border border-blue-200 flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                <span>{isConfigured ? 'Ubah Paket' : 'Atur Paket'}</span>
+                              </button>
+                            </div>
+
+                            {/* Rincian 5 Komponen Tetap */}
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-2 bg-slate-50 rounded-xl text-[10px]">
+                              <div>
+                                <span className="text-[8px] text-slate-400 font-bold block">Gaji Pokok</span>
+                                <span className="font-black text-slate-800">
+                                  Rp {basic.toLocaleString('id-ID')}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] text-slate-400 font-bold block">Tunj. Jabatan</span>
+                                <span className="font-bold text-slate-700">
+                                  Rp {pos.toLocaleString('id-ID')}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] text-slate-400 font-bold block">Tunj. Makan</span>
+                                <span className="font-bold text-slate-700">
+                                  Rp {meal.toLocaleString('id-ID')}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] text-slate-400 font-bold block">Tunj. Anak</span>
+                                <span className="font-bold text-slate-700">
+                                  Rp {child.toLocaleString('id-ID')}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] text-slate-400 font-bold block">Tunj. Keluarga</span>
+                                <span className="font-bold text-slate-700">
+                                  Rp {spouse.toLocaleString('id-ID')}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px]">
+                              <span className="text-slate-500 font-medium">Total Paket Tetap Bulanan:</span>
+                              <span className="font-black text-[#2563EB]">
+                                Rp {totalTetap.toLocaleString('id-ID')}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {/* ================= SUB-TAB: KELOLA GAJI ================= */}
           {payrollSubTab === 'manage' && (
             <div className="space-y-4">
@@ -1469,14 +1880,27 @@ export default function AdminFinanceDashboard({ onBack }) {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsAddingSalary(!isAddingSalary)}
-                className="px-3 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[10px] font-black rounded-xl flex items-center gap-1 shadow-xs transition"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tambah Slip Gaji</span>
-              </button>
+                         <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleBulkGenerateSalary}
+                  disabled={isBulkGenerating}
+                  className="px-2.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-[10px] font-black rounded-xl flex items-center gap-1.5 shadow-xs transition cursor-pointer disabled:opacity-50"
+                  title={`Generate draf gaji otomatis untuk seluruh staf ${selectedOutletSalary === 'all' ? 'Semua Outlet' : selectedOutletSalary}`}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>{isBulkGenerating ? 'Memproses...' : 'Generate Massal'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsAddingSalary(!isAddingSalary)}
+                  className="px-3 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[10px] font-black rounded-xl flex items-center gap-1 shadow-xs transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Slip Gaji</span>
+                </button>
+              </div>
             </div>
 
             {salaryMsg.text && (
@@ -1486,15 +1910,15 @@ export default function AdminFinanceDashboard({ onBack }) {
               </div>
             )}
 
-            {/* Form Tambah / Edit Slip Gaji (11 Komponen Resmi) */}
+            {/* Form Tambah / Edit Slip Gaji (Mode Ringkas & Pintar) */}
             {isAddingSalary && (
-              <form onSubmit={handleSaveSalary} className="p-4 bg-slate-50/80 border border-blue-200 rounded-2xl space-y-4 animate-in fade-in">
+              <form onSubmit={handleSaveSalary} className="p-4 bg-slate-50/90 border border-blue-200 rounded-2xl space-y-3.5 animate-in fade-in">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                   <h5 className="font-black text-xs text-[#2563EB] flex items-center gap-1.5">
                     <span>
                       {newSalary.existing_slip_id
                         ? 'Form Edit / Perbarui Slip Gaji (Mode Update)'
-                        : 'Form Input Slip Gaji (11 Komponen Resmi)'}
+                        : 'Form Input Slip Gaji Ringkas (Smart View)'}
                     </span>
                   </h5>
                   <span
@@ -1602,233 +2026,318 @@ export default function AdminFinanceDashboard({ onBack }) {
                   </div>
                 </div>
 
-                {/* Banner Status Mode Input vs Edit */}
-                {newSalary.existing_slip_id ? (
-                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-[11px] text-amber-900 flex items-start gap-2.5 shadow-xs">
-                    <RefreshCw className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 animate-spin-reverse" />
-                    <div>
-                      <span className="font-black block text-amber-900">
-                        Mode Edit / Perbarui Aktif (Pencegahan Slip Ganda)
-                      </span>
-                      <p className="text-[10px] text-amber-800 leading-relaxed mt-0.5">
-                        Slip gaji periode <strong>{newSalary.period}</strong> untuk <strong>{newSalary.employee_name}</strong> sudah pernah diterbitkan. Data di bawah otomatis dimuat dari slip sebelumnya. Perubahan akan <strong>memperbarui slip yang tersimpan</strong> dan tidak akan membuat data ganda.
-                      </p>
-                    </div>
-                  </div>
-                ) : newSalary.employee_name ? (
-                  <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-[10px] text-blue-900 flex items-center justify-between">
-                    <span>
-                      ✨ Paket gaji otomatis terisi. Finance cukup cek <strong>Lembur</strong> atau <strong>+Day (Perbantuan)</strong> jika ada.
-                    </span>
-                    <span className="font-bold text-blue-700">{newSalary.employee_name}</span>
-                  </div>
-                ) : null}
-
-                {/* 1. BAGIAN PENDAPATAN (7 KOMPONEN: 5 POKOK/TUNJANGAN + LEMBUR + PERBANTUAN +DAY) */}
-                <div className="p-3 bg-white rounded-xl border border-blue-100 space-y-2">
-                  <div className="flex items-center justify-between pb-1 border-b border-blue-50">
-                    <span className="text-[11px] font-black uppercase text-[#2563EB] tracking-wider">
-                      1. Penghasilan / Pendapatan (7 Komponen)
-                    </span>
-                    <span className="text-[10px] font-bold text-[#2563EB]">
-                      Subtotal: {formatRupiah(calculateTotalIncome(newSalary))}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Gaji Pokok</label>
-                      <CurrencyInput
-                        value={newSalary.basic_salary}
-                        onChange={(val) => setNewSalary({ ...newSalary, basic_salary: val })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                        placeholder="Rp 0"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Anak</label>
-                      <CurrencyInput
-                        value={newSalary.child_allowance}
-                        onChange={(val) => setNewSalary({ ...newSalary, child_allowance: val })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                        placeholder="Rp 0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Istri</label>
-                      <CurrencyInput
-                        value={newSalary.spouse_allowance}
-                        onChange={(val) => setNewSalary({ ...newSalary, spouse_allowance: val })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                        placeholder="Rp 0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Jabatan</label>
-                      <CurrencyInput
-                        value={newSalary.position_allowance}
-                        onChange={(val) => setNewSalary({ ...newSalary, position_allowance: val })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                        placeholder="Rp 0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Tunjangan Makan</label>
-                      <CurrencyInput
-                        value={newSalary.meal_allowance}
-                        onChange={(val) => setNewSalary({ ...newSalary, meal_allowance: val })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                        placeholder="Rp 0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Uang Lembur (Jam)</label>
-                      <CurrencyInput
-                        value={newSalary.overtime_pay}
-                        onChange={(val) => setNewSalary({ ...newSalary, overtime_pay: val })}
-                        className="w-full bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-lg px-2 py-1 text-xs font-bold"
-                        placeholder="Rp 0"
-                      />
-                    </div>
-
-                    {/* Komponen Khusus: Perbantuan Hari Libur / Event (+Day) */}
-                    <div className="col-span-2 sm:col-span-3 pt-2 border-t border-blue-100">
-                      <div className="bg-blue-50/60 p-3 rounded-xl border border-blue-200/80 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black text-blue-900 flex items-center gap-1.5">
-                            <Plus className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Perbantuan Hari Libur / Event (+Day)</span>
+                {/* Banner Status & Tombol Pintasan Cepat */}
+                {newSalary.employee_name && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-blue-50/80 border border-blue-200 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-[#2563EB] shrink-0" />
+                      <div className="text-[10px] text-blue-900 leading-tight">
+                        <span>Gaji staf <strong>{newSalary.employee_name}</strong></span>
+                        {autoLateCount > 0 ? (
+                          <span className="block text-rose-700 font-bold mt-0.5">
+                            • Denda presensi: Rp {Number(newSalary.discipline_deduction).toLocaleString('id-ID')} (Terdeteksi {autoLateCount}x Terlambat)
                           </span>
-                          <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
-                            Tarif Fleksibel Sesuai Event &amp; Posisi
+                        ) : (
+                          <span className="block text-emerald-700 font-medium mt-0.5">
+                            • Presensi tepat waktu (Tidak ada denda)
                           </span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <div>
-                            <label className="block text-[9px] font-bold text-slate-600 mb-0.5">
-                              Jumlah Hari (+Day)
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={newSalary.plus_day_count || 0}
-                              onChange={(e) =>
-                                setNewSalary({
-                                  ...newSalary,
-                                  plus_day_count: Math.max(0, parseInt(e.target.value) || 0),
-                                })
-                              }
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-900"
-                              placeholder="0 Hari"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[9px] font-bold text-slate-600 mb-0.5">
-                              Total Uang Perbantuan (Rp)
-                            </label>
-                            <CurrencyInput
-                              value={newSalary.plus_day_pay}
-                              onChange={(val) => setNewSalary({ ...newSalary, plus_day_pay: val })}
-                              className="w-full bg-white border border-emerald-300 rounded-lg px-2.5 py-1 text-xs font-black text-emerald-700"
-                              placeholder="Rp 0"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[9px] font-bold text-slate-600 mb-0.5">
-                              Keterangan Event / Posisi (Opsional)
-                            </label>
-                            <input
-                              type="text"
-                              value={newSalary.plus_day_note || ''}
-                              onChange={(e) => setNewSalary({ ...newSalary, plus_day_note: e.target.value })}
-                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-slate-800"
-                              placeholder="Contoh: Event Musik Weekend Deru Ombak"
-                            />
-                          </div>
-                        </div>
+                        )}
                       </div>
+                    </div>
+
+                    {/* Tombol Salin dari Bulan Lalu */}
+                    {(() => {
+                      const prevPeriod = getPreviousPeriod(salaryMonth, salaryYear);
+                      const prevSlip = prevPeriod ? findExistingSlip(newSalary.employee_id, newSalary.employee_name, prevPeriod) : null;
+                      if (!prevSlip) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={handleCopyPreviousSalary}
+                          className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-100 text-blue-700 border border-blue-300 text-[10px] font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                          title={`Salin data gaji dari periode ${prevPeriod}`}
+                        >
+                          <Copy className="w-3 h-3 text-blue-600" />
+                          <span>Salin Gaji dari {prevPeriod}</span>
+                        </button>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* ================= 1. RINGKASAN DATA GAJI TETAP (DARI MASTER) ================= */}
+                {newSalary.employee_name && (
+                  <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-200/80 space-y-2.5">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-blue-200/60">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span className="text-[11px] font-black uppercase text-blue-900 tracking-wider">
+                          Data Gaji Tetap (Otomatis dari Master)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPayrollSubTab('master')}
+                        className="text-[10px] font-black text-[#2563EB] hover:underline flex items-center gap-1 cursor-pointer"
+                        title="Buka tab Master Gaji untuk edit paket tetap staf ini"
+                      >
+                        <Sliders className="w-3 h-3" />
+                        <span>Ubah di Master Gaji</span>
+                      </button>
+                    </div>
+
+                    {/* Chips Nilai Tetap & Otomatis */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                      <div className="bg-white p-2 rounded-lg border border-blue-100">
+                        <span className="text-[8px] text-slate-400 font-bold block">Gaji Pokok</span>
+                        <span className="font-black text-slate-800">
+                          Rp {Number(newSalary.basic_salary || 0).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-blue-100">
+                        <span className="text-[8px] text-slate-400 font-bold block">Tunj. Jabatan</span>
+                        <span className="font-bold text-slate-700">
+                          Rp {Number(newSalary.position_allowance || 0).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-blue-100">
+                        <span className="text-[8px] text-slate-400 font-bold block">Tunj. Makan</span>
+                        <span className="font-bold text-slate-700">
+                          Rp {Number(newSalary.meal_allowance || 0).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-blue-100">
+                        <span className="text-[8px] text-slate-400 font-bold block">Tunj. Anak &amp; Istri</span>
+                        <span className="font-bold text-slate-700">
+                          Rp {(Number(newSalary.child_allowance || 0) + Number(newSalary.spouse_allowance || 0)).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 text-[10px] text-slate-600">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          Lembur: Rp {Number(newSalary.overtime_pay || 0).toLocaleString('id-ID')}
+                        </span>
+                        <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                          Denda Presensi: Rp {Number(newSalary.discipline_deduction || 0).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                      <div className="font-black text-blue-900">
+                        Total Tetap: Rp {(
+                          Number(newSalary.basic_salary || 0) +
+                          Number(newSalary.position_allowance || 0) +
+                          Number(newSalary.meal_allowance || 0) +
+                          Number(newSalary.child_allowance || 0) +
+                          Number(newSalary.spouse_allowance || 0)
+                        ).toLocaleString('id-ID')}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ================= 2. FOKUS INPUT FINANCE: 3 POTONGAN VARIABEL ================= */}
+                <div className="p-3.5 bg-white rounded-xl border-2 border-amber-300/80 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/60">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                      <span className="text-[11px] font-black uppercase text-amber-900 tracking-wider">
+                        Input Potongan Bulan Ini (Wajib Diisi Finance)
+                      </span>
+                    </div>
+                    <span className="text-[9px] bg-amber-100 text-amber-900 font-extrabold px-2 py-0.5 rounded-full">
+                      3 Kolom Potongan
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Finance hanya perlu mengisi potongan berikut untuk periode <strong>{newSalary.period}</strong> (biarkan Rp 0 jika tidak ada):
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* 1. Potongan Cash Bon */}
+                    <div className="p-2.5 rounded-xl bg-amber-50/50 border border-amber-200 space-y-1">
+                      <label className="block text-[10px] font-black text-amber-900">
+                        1. Potongan Cash Bon (Kasbon)
+                      </label>
+                      <CurrencyInput
+                        value={newSalary.cash_bon}
+                        onChange={(val) => setNewSalary({ ...newSalary, cash_bon: val })}
+                        className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-amber-500"
+                        placeholder="Rp 0"
+                      />
+                      <span className="text-[8px] text-slate-500 block">Pinjaman staf bulan ini</span>
+                    </div>
+
+                    {/* 2. Potongan Makan */}
+                    <div className="p-2.5 rounded-xl bg-rose-50/40 border border-rose-200 space-y-1">
+                      <label className="block text-[10px] font-black text-rose-900">
+                        2. Potongan Makan
+                      </label>
+                      <CurrencyInput
+                        value={newSalary.meal_deduction}
+                        onChange={(val) => setNewSalary({ ...newSalary, meal_deduction: val })}
+                        className="w-full bg-white border border-rose-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-rose-500"
+                        placeholder="Rp 0"
+                      />
+                      <span className="text-[8px] text-slate-500 block">Biaya makan di outlet</span>
+                    </div>
+
+                    {/* 3. Potongan Kehadiran */}
+                    <div className="p-2.5 rounded-xl bg-rose-50/40 border border-rose-200 space-y-1">
+                      <label className="block text-[10px] font-black text-rose-900">
+                        3. Potongan Kehadiran
+                      </label>
+                      <CurrencyInput
+                        value={newSalary.attendance_deduction}
+                        onChange={(val) => setNewSalary({ ...newSalary, attendance_deduction: val })}
+                        className="w-full bg-white border border-rose-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-rose-500"
+                        placeholder="Rp 0"
+                      />
+                      <span className="text-[8px] text-slate-500 block">Absen tanpa keterangan / izin</span>
                     </div>
                   </div>
                 </div>
 
-                {/* 2. BAGIAN POTONGAN (4 KOMPONEN) */}
-                <div className="p-3 bg-white rounded-xl border border-rose-100 space-y-2">
-                  <div className="flex items-center justify-between pb-1 border-b border-rose-50">
-                    <span className="text-[11px] font-black uppercase text-rose-600 tracking-wider">
-                      2. Potongan (4 Komponen)
+                {/* Komponen Khusus: Perbantuan Hari Libur / Event (+Day) */}
+                <div className="bg-slate-50/70 p-2.5 rounded-xl border border-slate-200/80 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-800 flex items-center gap-1">
+                      <Plus className="w-3 h-3 text-[#2563EB]" />
+                      <span>Perbantuan Event / Hari Libur (+Day)</span>
                     </span>
-                    <span className="text-[10px] font-bold text-rose-600">
-                      Subtotal: {formatRupiah(calculateTotalDeductions(newSalary))}
-                    </span>
+                    <span className="text-[8px] text-slate-400">Opsional (isi jika ada tugas)</span>
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Jumlah Hari (+Day)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={newSalary.plus_day_count || 0}
+                        onChange={(e) =>
+                          setNewSalary({
+                            ...newSalary,
+                            plus_day_count: Math.max(0, parseInt(e.target.value) || 0),
+                          })
+                        }
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-900"
+                        placeholder="0 Hari"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Total Uang Perbantuan (Rp)</label>
+                      <CurrencyInput
+                        value={newSalary.plus_day_pay}
+                        onChange={(val) => setNewSalary({ ...newSalary, plus_day_pay: val })}
+                        className="w-full bg-white border border-emerald-300 rounded-lg px-2 py-1 text-xs font-black text-emerald-700"
+                        placeholder="Rp 0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Keterangan Event (Opsional)</label>
+                      <input
+                        type="text"
+                        value={newSalary.plus_day_note || ''}
+                        onChange={(e) => setNewSalary({ ...newSalary, plus_day_note: e.target.value })}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-slate-800"
+                        placeholder="Contoh: Event Musik Weekend"
+                      />
+                    </div>
+                  </div>
+                </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Potongan Makan</label>
-                      <CurrencyInput
-                        value={newSalary.meal_deduction}
-                        onChange={(val) => setNewSalary({ ...newSalary, meal_deduction: val })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
-                        placeholder="Rp 0"
-                      />
+                {/* ================= 3. ACCORDION: SESUAIKAN NILAI TETAP BULAN INI (JIKA ADA PENYESUAIAN) ================= */}
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowDetailedComponents(!showDetailedComponents)}
+                    className="w-full py-2 px-3 rounded-xl border border-dashed border-slate-300 hover:border-blue-400 bg-white hover:bg-blue-50/30 text-xs font-bold text-slate-600 flex items-center justify-between transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Sesuaikan Rincian Gaji Pokok / Tunjangan / Denda Bulan Ini (Opsional)</span>
                     </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Potongan Kehadiran</label>
-                      <CurrencyInput
-                        value={newSalary.attendance_deduction}
-                        onChange={(val) => setNewSalary({ ...newSalary, attendance_deduction: val })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
-                        placeholder="Rp 0"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-0.5">
-                        <label className="text-[9px] font-bold text-slate-600">Pot. Kedisiplinan</label>
-                        <span className="text-[8px] text-amber-600 font-bold" title="Toleransi 10 mnt, denda flat Rp 10.000">
-                          (Denda)
+                    <ChevronDown
+                      className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                        showDetailedComponents ? 'rotate-180 text-blue-600' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {showDetailedComponents && (
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-3 animate-in fade-in duration-150">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 block mb-1.5">
+                          Penyesuaian Pendapatan Khusus Bulan Ini:
                         </span>
-                      </div>
-                      <CurrencyInput
-                        value={newSalary.discipline_deduction}
-                        onChange={(val) => setNewSalary({ ...newSalary, discipline_deduction: val })}
-                        className="w-full bg-rose-50 border border-rose-300 text-rose-700 rounded-lg px-2 py-1 text-xs font-bold"
-                        placeholder="Rp 0"
-                      />
-                      <div className="flex gap-1 mt-1">
-                        <button
-                          type="button"
-                          onClick={() => setNewSalary({ ...newSalary, discipline_deduction: 10000 })}
-                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded cursor-pointer"
-                        >
-                          1x (10rb)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNewSalary({ ...newSalary, discipline_deduction: 20000 })}
-                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded cursor-pointer"
-                        >
-                          2x (20rb)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNewSalary({ ...newSalary, discipline_deduction: 0 })}
-                          className="text-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-1 py-0.5 rounded cursor-pointer"
-                        >
-                          0
-                        </button>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Gaji Pokok</label>
+                            <CurrencyInput
+                              value={newSalary.basic_salary}
+                              onChange={(val) => setNewSalary({ ...newSalary, basic_salary: val })}
+                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-900"
+                              placeholder="Rp 0"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Jabatan</label>
+                            <CurrencyInput
+                              value={newSalary.position_allowance}
+                              onChange={(val) => setNewSalary({ ...newSalary, position_allowance: val })}
+                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                              placeholder="Rp 0"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Makan</label>
+                            <CurrencyInput
+                              value={newSalary.meal_allowance}
+                              onChange={(val) => setNewSalary({ ...newSalary, meal_allowance: val })}
+                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                              placeholder="Rp 0"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Anak</label>
+                            <CurrencyInput
+                              value={newSalary.child_allowance}
+                              onChange={(val) => setNewSalary({ ...newSalary, child_allowance: val })}
+                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                              placeholder="Rp 0"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Istri</label>
+                            <CurrencyInput
+                              value={newSalary.spouse_allowance}
+                              onChange={(val) => setNewSalary({ ...newSalary, spouse_allowance: val })}
+                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                              placeholder="Rp 0"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Uang Lembur (Jam)</label>
+                            <CurrencyInput
+                              value={newSalary.overtime_pay}
+                              onChange={(val) => setNewSalary({ ...newSalary, overtime_pay: val })}
+                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700"
+                              placeholder="Rp 0"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Denda Presensi</label>
+                            <CurrencyInput
+                              value={newSalary.discipline_deduction}
+                              onChange={(val) => setNewSalary({ ...newSalary, discipline_deduction: val })}
+                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
+                              placeholder="Rp 0"
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-[9px] font-bold text-slate-600 mb-0.5">Cash Bon</label>
-                      <CurrencyInput
-                        value={newSalary.cash_bon}
-                        onChange={(val) => setNewSalary({ ...newSalary, cash_bon: val })}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
-                        placeholder="Rp 0"
-                      />
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Status Rilis & Total Preview */}
@@ -1838,7 +2347,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                     <select
                       value={newSalary.is_released ? 'true' : 'false'}
                       onChange={(e) => setNewSalary({ ...newSalary, is_released: e.target.value === 'true' })}
-                      className="w-full bg-white border rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 cursor-pointer"
                     >
                       <option value="true">Rilis Terbuka (Staf bisa melihat &amp; unduh)</option>
                       <option value="false">Terkunci / Bergembok (Draft Finance)</option>
@@ -1859,14 +2368,17 @@ export default function AdminFinanceDashboard({ onBack }) {
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
                   <button
                     type="button"
-                    onClick={() => setIsAddingSalary(false)}
-                    className="px-3.5 py-1.5 rounded-xl text-xs bg-slate-200 text-slate-700 font-bold hover:bg-slate-300 transition"
+                    onClick={() => {
+                      setIsAddingSalary(false);
+                      setShowDetailedComponents(false);
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition cursor-pointer"
                   >
                     Batal
                   </button>
                   <button
                     type="submit"
-                    className={`px-4 py-1.5 rounded-xl text-xs font-black shadow-xs transition flex items-center gap-1.5 cursor-pointer ${
+                    className={`px-4 py-2 rounded-xl text-xs font-black shadow-md shadow-blue-500/25 transition flex items-center gap-1.5 cursor-pointer ${
                       newSalary.existing_slip_id
                         ? 'bg-amber-600 hover:bg-amber-700 text-white'
                         : 'bg-[#2563EB] hover:bg-[#1D4ED8] text-white'
@@ -1929,22 +2441,18 @@ export default function AdminFinanceDashboard({ onBack }) {
                   .map((slip) => (
                     <div
                       key={slip.id}
-                      className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:border-slate-300 transition shadow-xs"
+                      className="p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2.5 hover:border-slate-300 transition shadow-xs w-full overflow-hidden"
                     >
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
+                      {/* Informasi Karyawan & Gaji */}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <h5 className="text-xs font-black text-slate-900">{slip.employee_name}</h5>
                           <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
                             {slip.branch}
                           </span>
                           <span className="text-[10px] text-slate-500 font-medium">• {slip.period}</span>
-                          {(Number(slip.plus_day_pay) > 0 || Number(slip.plus_day_count) > 0) && (
-                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
-                              +Day: {slip.plus_day_count || 0} Hari (+Rp {Number(slip.plus_day_pay || 0).toLocaleString('id-ID')})
-                            </span>
-                          )}
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-[11px]">
+                        <div className="flex flex-wrap items-baseline gap-2 mt-0.5">
                           <span className="font-black text-sm text-[#2563EB]">
                             Rp {Number(slip.net_salary || 0).toLocaleString('id-ID')}
                           </span>
@@ -1952,60 +2460,73 @@ export default function AdminFinanceDashboard({ onBack }) {
                             (Gaji Pokok: Rp {Number(slip.basic_salary || 0).toLocaleString('id-ID')})
                           </span>
                         </div>
+                        {(Number(slip.plus_day_pay) > 0 || Number(slip.plus_day_count) > 0) && (
+                          <div className="mt-0.5">
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 inline-block">
+                              +Day: {slip.plus_day_count || 0} Hari (+Rp {Number(slip.plus_day_pay || 0).toLocaleString('id-ID')})
+                            </span>
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-2 self-end sm:self-auto">
-                        <button
-                          type="button"
-                          onClick={() => setPrintModalSlip(slip)}
-                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition flex items-center gap-1 shadow-xs cursor-pointer"
-                          title="Pratinjau & Cetak Slip PDF Resmi"
-                        >
-                          <Printer className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Cetak</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleEditExistingSlip(slip)}
-                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-xs cursor-pointer"
-                          title="Edit / Sesuaikan Slip Gaji Ini"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                          <span>Edit</span>
-                        </button>
-
+                      {/* Tombol Aksi: Terbungkus Rapi di Dalam Kotak */}
+                      <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 w-full">
+                        {/* Tombol Status Rilis Slip */}
                         <button
                           type="button"
                           onClick={() => handleToggleRelease(slip.id, slip.is_released)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-xs ${
+                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition flex items-center gap-1.5 shadow-2xs cursor-pointer ${
                             slip.is_released
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
-                              : 'bg-slate-200 text-slate-700 border border-slate-300 hover:bg-slate-300'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                              : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200'
                           }`}
+                          title={slip.is_released ? 'Klik untuk mengunci kembali slip gaji' : 'Klik untuk merilis slip ke staf'}
                         >
                           {slip.is_released ? (
                             <>
-                              <Unlock className="w-3.5 h-3.5 text-emerald-600" />
+                              <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                               <span>Rilis (Terbuka)</span>
                             </>
                           ) : (
                             <>
-                              <Lock className="w-3.5 h-3.5 text-slate-500" />
+                              <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                               <span>Terkunci (Draft)</span>
                             </>
                           )}
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteSlip(slip)}
-                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition flex items-center gap-1 shadow-xs cursor-pointer"
-                          title="Hapus Slip Gaji Ini Permanen"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                          <span>Hapus</span>
-                        </button>
+                        {/* Grup Tombol Cetak, Edit, Hapus */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setPrintModalSlip(slip)}
+                            className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                            title="Pratinjau & Cetak Slip PDF Resmi"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Cetak</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleEditExistingSlip(slip)}
+                            className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-slate-50 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                            title="Edit / Sesuaikan Slip Gaji Ini"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Edit</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSlip(slip)}
+                            className="px-2 py-1.5 rounded-xl text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                            title="Hapus Slip Gaji Ini Permanen"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                            <span>Hapus</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))
@@ -2015,737 +2536,6 @@ export default function AdminFinanceDashboard({ onBack }) {
         </div>
       )}
     </div>
-  )}
-
-      {/* ================= TAB 1.5: PERSETUJUAN IZIN & SAKIT STAF ================= */}
-      {financeTab === 'leaveApproval' && (
-        <div className="bg-white/90 border border-gray-200 rounded-2xl p-4 shadow-xs space-y-4 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-            <div>
-              <h4 className="text-xs font-bold text-gray-800 flex items-center gap-2">
-                <ClipboardCheck className="w-4 h-4 text-[#2563EB]" />
-                <span>Persetujuan Izin & Sakit Staf 3 Outlet</span>
-              </h4>
-              <p className="text-[10px] text-gray-500 mt-0.5">
-                Verifikasi, tinjau bukti surat dokter, dan berikan persetujuan atau penolakan pengajuan izin staf.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={fetchLeaves}
-              disabled={loadingLeaves}
-              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition cursor-pointer flex items-center gap-1 text-[11px] font-bold"
-              title="Segarkan Data"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingLeaves ? 'animate-spin text-[#2563EB]' : ''}`} />
-              <span className="hidden sm:inline">Segarkan</span>
-            </button>
-          </div>
-
-          {/* Sub-filter status dan Search */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-              <button
-                type="button"
-                onClick={() => setLeaveFilter('pending')}
-                className={`py-1.5 px-3 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 ${
-                  leaveFilter === 'pending'
-                    ? 'bg-amber-500 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <span>Menunggu Approval</span>
-                {pendingLeaves.length > 0 && (
-                  <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${
-                    leaveFilter === 'pending' ? 'bg-white text-amber-600' : 'bg-amber-500 text-white'
-                  }`}>
-                    {pendingLeaves.length}
-                  </span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLeaveFilter('approved')}
-                className={`py-1.5 px-3 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 ${
-                  leaveFilter === 'approved'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <span>Disetujui ({approvedLeaves.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLeaveFilter('rejected')}
-                className={`py-1.5 px-3 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 ${
-                  leaveFilter === 'rejected'
-                    ? 'bg-rose-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <span>Ditolak ({rejectedLeaves.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLeaveFilter('all')}
-                className={`py-1.5 px-3 rounded-xl font-bold transition flex items-center gap-1.5 shrink-0 ${
-                  leaveFilter === 'all'
-                    ? 'bg-slate-800 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <span>Semua ({leaveRequests.length})</span>
-              </button>
-            </div>
-
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Cari nama staf, outlet, alasan, atau jenis izin..."
-                value={leaveSearch}
-                onChange={(e) => setLeaveSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB]"
-              />
-              {leaveSearch && (
-                <button
-                  type="button"
-                  onClick={() => setLeaveSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* List Cards Pengajuan Izin */}
-          <div className="space-y-3 pt-1">
-            {loadingLeaves ? (
-              <div className="py-12 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
-                <RefreshCw className="w-6 h-6 animate-spin text-[#2563EB]" />
-                <span>Memuat data pengajuan izin staf...</span>
-              </div>
-            ) : (leaveRequests || []).filter((l) => {
-              if (leaveFilter === 'pending' && l.status !== 'Menunggu') return false;
-              if (leaveFilter === 'approved' && l.status !== 'Disetujui') return false;
-              if (leaveFilter === 'rejected' && l.status !== 'Ditolak') return false;
-              if (leaveSearch.trim()) {
-                const q = leaveSearch.toLowerCase();
-                const name = (l.employees?.full_name || '').toLowerCase();
-                const branch = (l.branch || l.employees?.branch || '').toLowerCase();
-                const reason = (l.reason || '').toLowerCase();
-                const type = (l.leave_type || '').toLowerCase();
-                return name.includes(q) || branch.includes(q) || reason.includes(q) || type.includes(q);
-              }
-              return true;
-            }).length === 0 ? (
-              <div className="py-10 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-center space-y-2">
-                <ClipboardCheck className="w-8 h-8 text-slate-300 mx-auto" />
-                <p className="text-xs font-bold text-slate-600">
-                  {leaveFilter === 'pending'
-                    ? 'Tidak ada pengajuan izin yang menunggu persetujuan.'
-                    : 'Tidak ada data pengajuan izin yang sesuai filter.'}
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  {leaveFilter === 'pending'
-                    ? 'Semua permohonan izin staf telah diproses.'
-                    : 'Coba ubah kata kunci pencarian atau ganti filter di atas.'}
-                </p>
-              </div>
-            ) : (
-              (leaveRequests || [])
-                .filter((l) => {
-                  if (leaveFilter === 'pending' && l.status !== 'Menunggu') return false;
-                  if (leaveFilter === 'approved' && l.status !== 'Disetujui') return false;
-                  if (leaveFilter === 'rejected' && l.status !== 'Ditolak') return false;
-                  if (leaveSearch.trim()) {
-                    const q = leaveSearch.toLowerCase();
-                    const name = (l.employees?.full_name || '').toLowerCase();
-                    const branch = (l.branch || l.employees?.branch || '').toLowerCase();
-                    const reason = (l.reason || '').toLowerCase();
-                    const type = (l.leave_type || '').toLowerCase();
-                    return name.includes(q) || branch.includes(q) || reason.includes(q) || type.includes(q);
-                  }
-                  return true;
-                })
-                .map((leave) => {
-                  const empName = leave.employees?.full_name || 'Staf';
-                  const branchName = leave.branch || leave.employees?.branch || 'LazyBloom';
-                  const position = leave.employees?.position || '-';
-                  const isPending = leave.status === 'Menunggu';
-                  const isApproved = leave.status === 'Disetujui';
-                  const isRejected = leave.status === 'Ditolak';
-
-                  const startDateStr = formatIndonesianDate(leave.start_date);
-                  const endDateStr = formatIndonesianDate(leave.end_date);
-                  const dateDisplay =
-                    leave.start_date === leave.end_date
-                      ? `${startDateStr} (1 hari)`
-                      : `${startDateStr} s/d ${endDateStr}`;
-
-                  return (
-                    <div
-                      key={leave.id}
-                      className={`p-4 rounded-2xl border transition-all ${
-                        isPending
-                          ? 'bg-amber-50/40 border-amber-200 shadow-xs'
-                          : isApproved
-                          ? 'bg-white border-slate-200'
-                          : 'bg-slate-50 border-slate-200 opacity-90'
-                      }`}
-                    >
-                      {/* Header Card */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2563EB] to-indigo-600 text-white font-black text-xs flex items-center justify-center shadow-xs">
-                            {empName.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <h5 className="font-extrabold text-xs text-slate-900 leading-tight">
-                              {empName}
-                            </h5>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-bold rounded-md border border-blue-200">
-                                {branchName}
-                              </span>
-                              <span className="text-[10px] text-slate-500 font-medium">
-                                {position}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div>
-                          {isPending && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
-                              <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
-                              <span>Menunggu Approval</span>
-                            </span>
-                          )}
-                          {isApproved && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              <span>Disetujui</span>
-                            </span>
-                          )}
-                          {isRejected && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300">
-                              <XCircle className="w-3 h-3 text-rose-600" />
-                              <span>Ditolak</span>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Detail Box */}
-                      <div className="mt-3 p-3 bg-white rounded-xl border border-slate-100 text-xs space-y-2">
-                        <div className="grid grid-cols-2 gap-2 text-[11px]">
-                          <div>
-                            <span className="text-slate-400 block text-[10px]">Kategori Izin</span>
-                            <span className="font-extrabold text-[#2563EB] bg-blue-50 px-2 py-0.5 rounded-md inline-block mt-0.5">
-                              {leave.leave_type}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400 block text-[10px]">Rentang Tanggal</span>
-                            <span className="font-bold text-slate-800 block mt-0.5">
-                              {dateDisplay}
-                            </span>
-                          </div>
-                        </div>
-
-                        {leave.leave_type === 'Izin Terlambat' && Number(leave.late_duration_minutes) > 0 && (
-                          <div className="p-2 bg-amber-50/70 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-center gap-2">
-                            <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                            <span>
-                              Durasi Terlambat: <strong>{leave.late_duration_minutes} Menit</strong>
-                              {Number(leave.late_duration_minutes) > 30 ? ' (Otomatis nonaktifkan presensi)' : ' (Presensi tetap dibuka)'}
-                            </span>
-                          </div>
-                        )}
-
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Alasan / Keterangan:</span>
-                          <p className="text-slate-700 text-[11px] italic bg-slate-50 p-2 rounded-lg mt-0.5 border border-slate-100">
-                            &ldquo;{leave.reason || 'Tidak ada keterangan khusus'}&rdquo;
-                          </p>
-                        </div>
-
-                        {/* Bukti Dokumen */}
-                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px]">
-                          <span className="text-slate-400">Lampiran Dokumen:</span>
-                          {leave.document_url ? (
-                            <button
-                              type="button"
-                              onClick={() => setPreviewDocUrl(leave.document_url)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-[#2563EB] font-bold rounded-lg transition cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>Lihat Surat / Bukti</span>
-                            </button>
-                          ) : (
-                            <span className="text-slate-400 italic text-[10px]">
-                              Tanpa lampiran dokumen
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="mt-3 flex items-center gap-2">
-                        {isPending ? (
-                          <>
-                            <button
-                              type="button"
-                              disabled={actionLoading}
-                              onClick={() => handleApproveLeave(leave.id)}
-                              className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Setujui Izin</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              disabled={actionLoading}
-                              onClick={() =>
-                                setRejectLeaveModal({
-                                  open: true,
-                                  leaveId: leave.id,
-                                  staffName: empName,
-                                  leaveType: leave.leave_type,
-                                  reason: leave.reason || '',
-                                  rejectionNote: '',
-                                })
-                              }
-                              className="py-2 px-3 bg-white hover:bg-rose-50 text-rose-600 border border-rose-300 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              <span>Tolak</span>
-                            </button>
-                          </>
-                        ) : (
-                          <div className="w-full flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                            <span>
-                              Status: <strong className={isApproved ? 'text-emerald-600' : 'text-rose-600'}>{leave.status}</strong>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (isApproved) {
-                                  setRejectLeaveModal({
-                                    open: true,
-                                    leaveId: leave.id,
-                                    staffName: empName,
-                                    leaveType: leave.leave_type,
-                                    reason: leave.reason || '',
-                                    rejectionNote: '',
-                                  });
-                                } else {
-                                  handleApproveLeave(leave.id);
-                                }
-                              }}
-                              className="text-[10px] text-slate-500 underline hover:text-slate-800 cursor-pointer"
-                            >
-                              {isApproved ? 'Ubah ke Tolak' : 'Ubah ke Setujui'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-            )}
-          </div>
-        </div>
-      )}
-
-
-
-
-
-      {/* ================= TAB 2: PENGATURAN TITIK GPS 3 OUTLET ================= */}
-      {financeTab === 'gpsConfig' && (
-        <div className="bg-white/90 border border-gray-200 rounded-2xl p-4 shadow-xs space-y-4">
-          <div className="pb-1 border-b border-gray-100">
-            <h4 className="text-xs font-bold text-gray-800 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-[#2563EB]" />
-              <span>Pengaturan Titik GPS Lokasi 3 Outlet</span>
-            </h4>
-            <p className="text-[10px] text-gray-500 mt-0.5">
-              Tentukan koordinat Latitude, Longitude, dan Radius validasi absensi untuk masing-masing outlet.
-            </p>
-          </div>
-
-          {gpsMsg.text && (
-            <div
-              className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
-                gpsMsg.type === 'success'
-                  ? 'bg-emerald-100 border border-emerald-300 text-emerald-800'
-                  : 'bg-red-100 border border-red-300 text-red-800'
-              }`}
-            >
-              {gpsMsg.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 shrink-0" />
-              )}
-              <span>{gpsMsg.text}</span>
-            </div>
-          )}
-
-          {/* Pilihan 3 Outlet untuk Dikonfigurasi */}
-          <div className="grid grid-cols-3 gap-1.5">
-            {(outlets || []).map((outlet) => {
-              const isSelected = activeGpsOutlet === outlet.id;
-              return (
-                <button
-                  key={outlet.id}
-                  type="button"
-                  onClick={() => setActiveGpsOutlet(outlet.id)}
-                  className={`p-2.5 rounded-xl border-2 transition text-center flex flex-col items-center ${
-                    isSelected
-                      ? `${outlet.badgeBg} text-white ${outlet.badgeBorder} shadow-xs font-black`
-                      : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100 font-semibold'
-                  }`}
-                >
-                  <Building2 className="w-4 h-4 mb-1" />
-                  <span className="text-xs">{outlet.name}</span>
-                  <span className="text-[9px] opacity-80 mt-0.5">
-                    {outlet.coords?.radiusMeters || 50}m
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Form Konfigurasi GPS Outlet Terpilih */}
-          {activeGpsOutlet && gpsForm[activeGpsOutlet] && (
-            <div className="p-4 bg-gray-50 border border-gray-300 rounded-2xl space-y-3 animate-in fade-in">
-              <div className="flex items-center justify-between pb-1 border-b border-gray-200">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#2563EB]" />
-                  <h5 className="font-extrabold text-xs text-gray-900">
-                    Form Titik Lokasi: {outlets.find((o) => o.id === activeGpsOutlet)?.name}
-                  </h5>
-                </div>
-                <span className="text-[10px] text-gray-500 font-mono">
-                  ID: {activeGpsOutlet}
-                </span>
-              </div>
-
-              {/* Alamat Fisik */}
-              <div>
-                <label className="block text-[10px] font-bold text-gray-600 mb-1">
-                  Alamat Lengkap Outlet
-                </label>
-                <input
-                  type="text"
-                  value={gpsForm[activeGpsOutlet].address || ''}
-                  onChange={(e) =>
-                    setGpsForm({
-                      ...gpsForm,
-                      [activeGpsOutlet]: { ...gpsForm[activeGpsOutlet], address: e.target.value },
-                    })
-                  }
-                  className="w-full bg-white border border-gray-300 rounded-xl px-3 py-1.5 text-xs text-gray-800"
-                  placeholder="Alamat fisik outlet..."
-                />
-              </div>
-
-              {/* Input Latitude & Longitude */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-700 mb-1">
-                    Latitude (Garis Lintang)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.000001"
-                    value={gpsForm[activeGpsOutlet].lat}
-                    onChange={(e) =>
-                      setGpsForm({
-                        ...gpsForm,
-                        [activeGpsOutlet]: { ...gpsForm[activeGpsOutlet], lat: e.target.value },
-                      })
-                    }
-                    placeholder="-6.208800"
-                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:ring-2 focus:ring-[#2563EB]/40"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-700 mb-1">
-                    Longitude (Garis Bujur)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.000001"
-                    value={gpsForm[activeGpsOutlet].lng}
-                    onChange={(e) =>
-                      setGpsForm({
-                        ...gpsForm,
-                        [activeGpsOutlet]: { ...gpsForm[activeGpsOutlet], lng: e.target.value },
-                      })
-                    }
-                    placeholder="106.845600"
-                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:ring-2 focus:ring-[#2563EB]/40"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Radius Geofencing */}
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-[10px] font-bold text-gray-700">
-                    Radius Validasi Geofencing (Meter)
-                  </label>
-                  <span className="text-[10px] font-black text-[#2563EB]">
-                    {gpsForm[activeGpsOutlet].radiusMeters} Meter
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="20"
-                  max="200"
-                  step="5"
-                  value={gpsForm[activeGpsOutlet].radiusMeters}
-                  onChange={(e) =>
-                    setGpsForm({
-                      ...gpsForm,
-                      [activeGpsOutlet]: { ...gpsForm[activeGpsOutlet], radiusMeters: e.target.value },
-                    })
-                  }
-                  className="w-full accent-[#2563EB]"
-                />
-                <div className="flex justify-between text-[9px] text-gray-400">
-                  <span>20m (Sangat Ketat)</span>
-                  <span>50m (Standar)</span>
-                  <span>200m (Luas)</span>
-                </div>
-              </div>
-
-              {/* Action Buttons: Auto-Detect GPS & Save */}
-              <div className="pt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleDetectCurrentGPS(activeGpsOutlet)}
-                  disabled={detectingGps}
-                  className="flex-1 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition"
-                >
-                  <LocateFixed className={`w-3.5 h-3.5 ${detectingGps ? 'animate-spin' : ''}`} />
-                  <span>{detectingGps ? 'Mendeteksi...' : 'Ambil GPS Saat Ini'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSaveGps(activeGpsOutlet)}
-                  className="flex-1 py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] active:scale-98 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Simpan Titik GPS</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ================= TAB 3: TABEL EDITOR SUPABASE ================= */}
-      {financeTab === 'tableEditor' && <SupabaseTableEditor role="finance" />}
-
-      {/* ================= MODAL PENOLAKAN LEMBUR ================= */}
-      {rejectModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
-                  <AlertCircle className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-slate-900">Tolak Pengajuan Lembur</h3>
-                  <p className="text-xs text-slate-500">
-                    {rejectModal.employeeName} ({rejectModal.hours} Jam)
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setRejectModal({ open: false, otId: null, employeeName: '', hours: 0, reason: '' })}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 block">
-                Alasan Penolakan <span className="text-rose-500">* (Wajib - tampil di slip gaji staf)</span>
-              </label>
-              <textarea
-                rows={3}
-                value={rejectModal.reason}
-                onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
-                placeholder="Contoh: Melebihi batas kuota lembur bulan ini / Pekerjaan dapat diselesaikan di jam reguler"
-                className="w-full p-3 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none"
-              />
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Catatan: Alasan ini wajib diisi oleh Finance dan akan langsung tampil secara transparan pada rincian slip gaji karyawan yang bersangkutan.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={() => setRejectModal({ open: false, otId: null, employeeName: '', hours: 0, reason: '' })}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                disabled={actionLoading || !rejectModal.reason.trim()}
-                onClick={handleConfirmReject}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>{actionLoading ? 'Menyimpan...' : 'Konfirmasi Tolak'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Preview Surat Dokter / Bukti Dokumen */}
-      {previewDocUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
-            <div className="px-5 py-3.5 bg-slate-100 flex items-center justify-between border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-[#2563EB]" />
-                <h4 className="font-extrabold text-xs text-slate-800">
-                  Pratinjau Surat Dokter / Dokumen Izin
-                </h4>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreviewDocUrl(null)}
-                className="p-1 rounded-full text-slate-500 hover:text-slate-800 hover:bg-slate-200 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 flex items-center justify-center max-h-[70vh] overflow-auto bg-slate-900/5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={previewDocUrl}
-                alt="Surat Dokter / Bukti Izin"
-                className="max-h-[60vh] w-auto object-contain rounded-xl shadow-md"
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.src = '';
-                }}
-              />
-            </div>
-
-            <div className="p-3 bg-white border-t border-slate-100 flex items-center justify-between">
-              <a
-                href={previewDocUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-bold text-[#2563EB] hover:underline"
-              >
-                Buka di Tab Baru &rarr;
-              </a>
-              <button
-                type="button"
-                onClick={() => setPreviewDocUrl(null)}
-                className="py-1.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Konfirmasi Penolakan Izin Staf */}
-      {rejectLeaveModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
-                  <XCircle className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="font-extrabold text-xs text-slate-800">
-                    Tolak Pengajuan Izin
-                  </h4>
-                  <p className="text-[10px] text-slate-500">
-                    {rejectLeaveModal.staffName} ({rejectLeaveModal.leaveType})
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() =>
-                  setRejectLeaveModal({ open: false, leaveId: null, staffName: '', leaveType: '', reason: '', rejectionNote: '' })
-                }
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <label className="block text-[11px] font-bold text-slate-700">
-                Alasan Penolakan (akan dicatat di sistem):
-              </label>
-              <textarea
-                rows={3}
-                placeholder="Contoh: Bukti surat dokter kurang jelas, atau shift tidak memungkinkan cuti..."
-                value={rejectLeaveModal.rejectionNote}
-                onChange={(e) =>
-                  setRejectLeaveModal((prev) => ({ ...prev, rejectionNote: e.target.value }))
-                }
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() =>
-                  setRejectLeaveModal({ open: false, leaveId: null, staffName: '', leaveType: '', reason: '', rejectionNote: '' })
-                }
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={handleConfirmRejectLeave}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                <span>{actionLoading ? 'Menyimpan...' : 'Konfirmasi Tolak'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Modal Pratinjau & Cetak Slip Gaji Resmi Kop 3 Pillar (Admin Finance) */}
       <PayslipPrintModal

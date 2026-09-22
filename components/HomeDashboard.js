@@ -10,11 +10,14 @@ import {
   ClipboardList,
   MapPin,
   FileCheck,
-  UserCog,
   User,
   AlertTriangle,
   LocateFixed,
+  Clock,
+  Shirt,
+  Receipt,
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import ProfileModal from './ProfileModal';
 import CameraModal from './CameraModal';
@@ -22,9 +25,7 @@ import LeaveModal from './LeaveModal';
 import ShiftScheduleTab from './tabs/ShiftScheduleTab';
 import PayslipTab from './tabs/PayslipTab';
 import AttendanceHistoryTab from './tabs/AttendanceHistoryTab';
-import AdminPinModal from './AdminPinModal';
-import AdminLeaderDashboard from './AdminLeaderDashboard';
-import AdminFinanceDashboard from './AdminFinanceDashboard';
+import CashierReportTab from './tabs/CashierReportTab';
 import BrandLogo from './BrandLogo';
 import { getLocalDateString } from '@/lib/date';
 
@@ -43,8 +44,6 @@ export default function HomeDashboard() {
     logout,
     todayAttendance,
     activeLeave,
-    adminRole,
-    setAdminRole,
     outlets,
   } = useAuth();
 
@@ -58,7 +57,6 @@ export default function HomeDashboard() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [cameraModal, setCameraModal] = useState({ open: false, type: 'checkin' });
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
-  const [adminPinModalOpen, setAdminPinModalOpen] = useState(false);
 
   // Live Timer
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -76,6 +74,12 @@ export default function HomeDashboard() {
     user?.position?.toLowerCase().includes('belanja') ||
     user?.position?.toLowerCase().includes('marketing') ||
     user?.position?.toLowerCase().includes('purchasing');
+
+  // Deteksi apakah staf memiliki tugas / jabatan sebagai Kasir
+  const isCashier =
+    user?.position?.toLowerCase().includes('kasir') ||
+    user?.position?.toLowerCase().includes('cashier') ||
+    user?.role === 'cashier';
 
   // Check if attendance is disabled due to approved leave / sick / late > 30m
   const todayStr = getLocalDateString();
@@ -97,6 +101,29 @@ export default function HomeDashboard() {
     activeLeave.status === 'Menunggu' &&
     todayStr >= (activeLeave.start_date || '') &&
     todayStr <= (activeLeave.end_date || activeLeave.start_date || '');
+
+  // Ambil Jadwal Shift Hari Ini yang Ditugaskan Leader
+  const [todayShiftInfo, setTodayShiftInfo] = useState(null);
+
+  useEffect(() => {
+    async function loadTodayShift() {
+      if (!user?.id) return;
+      try {
+        const { data, error } = await supabase
+          .from('shifts')
+          .select('*')
+          .eq('employee_id', user.id)
+          .eq('shift_date', todayStr)
+          .maybeSingle();
+        if (!error && data) {
+          setTodayShiftInfo(data);
+        }
+      } catch (err) {
+        console.warn('Error loading today shift info:', err);
+      }
+    }
+    loadTodayShift();
+  }, [user?.id, todayStr]);
 
   // Geolocation watch
   useEffect(() => {
@@ -206,24 +233,6 @@ export default function HomeDashboard() {
     return `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
   };
 
-  // If Admin Leader Mode is active
-  if (adminRole === 'leader') {
-    return (
-      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
-        <AdminLeaderDashboard onBack={() => setAdminRole(null)} />
-      </div>
-    );
-  }
-
-  // If Admin Finance Mode is active
-  if (adminRole === 'finance') {
-    return (
-      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
-        <AdminFinanceDashboard onBack={() => setAdminRole(null)} />
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen max-w-[430px] mx-auto px-4 py-5 flex flex-col pb-12 bg-slate-50/60">
       {/* Brand Header */}
@@ -305,14 +314,14 @@ export default function HomeDashboard() {
         </div>
       </div>
 
-      {/* Navigation Tabs (Row of 4 circular buttons) */}
+      {/* Navigation Tabs (Row of buttons: 4 for regular staff, 5 for Kasir) */}
       <div className="mt-4 mb-4">
         <div className="bg-white rounded-2xl p-2 flex items-center justify-around shadow-sm border border-slate-200/80">
           {/* Tab 1: Presensi */}
           <button
             type="button"
             onClick={() => setActiveTab('presensi')}
-            className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition ${
               activeTab === 'presensi'
                 ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 scale-105'
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
@@ -326,7 +335,7 @@ export default function HomeDashboard() {
           <button
             type="button"
             onClick={() => setActiveTab('shift')}
-            className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition ${
               activeTab === 'shift'
                 ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 scale-105'
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
@@ -336,11 +345,28 @@ export default function HomeDashboard() {
             <CalendarCheck className="w-5 h-5" />
           </button>
 
-          {/* Tab 3: Slip Gaji */}
+          {/* Tab 3: Kasir (Khusus Staf Kasir) */}
+          {isCashier && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('cashier')}
+              className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition relative ${
+                activeTab === 'cashier'
+                  ? 'bg-gradient-to-tr from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-500/25 scale-105'
+                  : 'text-emerald-700 bg-emerald-50/80 hover:bg-emerald-100 hover:text-emerald-800'
+              }`}
+              title="Laporan Kasir"
+            >
+              <Receipt className="w-5 h-5" />
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+            </button>
+          )}
+
+          {/* Tab 4: Slip Gaji */}
           <button
             type="button"
             onClick={() => setActiveTab('payslip')}
-            className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition ${
               activeTab === 'payslip'
                 ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 scale-105'
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
@@ -350,11 +376,11 @@ export default function HomeDashboard() {
             <Banknote className="w-5 h-5" />
           </button>
 
-          {/* Tab 4: Daftar Hadir */}
+          {/* Tab 5: Daftar Hadir */}
           <button
             type="button"
             onClick={() => setActiveTab('history')}
-            className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition ${
               activeTab === 'history'
                 ? 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 scale-105'
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
@@ -366,7 +392,7 @@ export default function HomeDashboard() {
         </div>
 
         {/* Tab Labels */}
-        <div className="grid grid-cols-4 text-center mt-1.5 px-2">
+        <div className={`grid ${isCashier ? 'grid-cols-5' : 'grid-cols-4'} text-center mt-1.5 px-1`}>
           <span
             className={`text-[10px] font-bold tracking-tight ${
               activeTab === 'presensi' ? 'text-blue-600' : 'text-slate-400'
@@ -379,8 +405,17 @@ export default function HomeDashboard() {
               activeTab === 'shift' ? 'text-blue-600' : 'text-slate-400'
             }`}
           >
-            Jadwal Shift
+            Shift
           </span>
+          {isCashier && (
+            <span
+              className={`text-[10px] font-bold tracking-tight ${
+                activeTab === 'cashier' ? 'text-emerald-600' : 'text-emerald-700/70'
+              }`}
+            >
+              Kasir
+            </span>
+          )}
           <span
             className={`text-[10px] font-bold tracking-tight ${
               activeTab === 'payslip' ? 'text-blue-600' : 'text-slate-400'
@@ -393,7 +428,7 @@ export default function HomeDashboard() {
               activeTab === 'history' ? 'text-blue-600' : 'text-slate-400'
             }`}
           >
-            Daftar Hadir
+            Riwayat
           </span>
         </div>
       </div>
@@ -434,6 +469,34 @@ export default function HomeDashboard() {
               </div>
             </div>
           )}
+
+          {/* Kartu Informasi Shift Hari Ini (Penugasan Leader) */}
+          <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 border border-orange-200/90 rounded-[24px] p-3.5 flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#F97316] to-[#EA580C] text-white flex items-center justify-center shadow-sm shrink-0">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-orange-900 uppercase tracking-wider block">
+                  Jadwal Shift Hari Ini
+                </span>
+                <span className="text-xs font-black text-slate-900">
+                  {todayShiftInfo?.start_time
+                    ? `${todayShiftInfo.start_time.slice(0, 5)} - ${todayShiftInfo.end_time?.slice(0, 5) || 'Selesai'} WIB`
+                    : 'Shift Standar (12:00 - 21:00 WIB)'}
+                </span>
+              </div>
+            </div>
+
+            {todayShiftInfo?.notes && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/95 border border-orange-200 rounded-xl text-[10px] font-bold text-slate-800 shadow-2xs">
+                <Shirt className="w-3.5 h-3.5 text-[#EA580C] shrink-0" />
+                <span className="truncate max-w-[120px]" title={todayShiftInfo.notes}>
+                  {todayShiftInfo.notes}
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Work Duration Card */}
           <div className="bg-white rounded-[28px] border border-slate-100 p-6 text-center shadow-lg shadow-slate-200/60 space-y-3">
@@ -565,8 +628,8 @@ export default function HomeDashboard() {
             )}
           </div>
 
-          {/* Bottom Action Buttons: Ajukan Izin & Mode Admin */}
-          <div className="space-y-2.5 pt-2">
+          {/* Bottom Action Button: Ajukan Izin */}
+          <div className="pt-2">
             {/* Ajukan Izin / Sakit */}
             <button
               type="button"
@@ -576,16 +639,6 @@ export default function HomeDashboard() {
               <FileCheck className="w-4 h-4 text-[#2563EB]" />
               <span>Ajukan Izin / Cuti / Sakit</span>
             </button>
-
-            {/* Mode Admin (Memerlukan Verifikasi PIN Admin) */}
-            <button
-              type="button"
-              onClick={() => setAdminPinModalOpen(true)}
-              className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 active:scale-98 rounded-2xl text-xs font-bold text-white shadow-md shadow-slate-900/15 transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <UserCog className="w-4 h-4 text-orange-400" />
-              <span>Mode Admin</span>
-            </button>
           </div>
         </div>
       )}
@@ -593,10 +646,13 @@ export default function HomeDashboard() {
       {/* TAB 2: JADWAL SHIFT */}
       {activeTab === 'shift' && <ShiftScheduleTab />}
 
-      {/* TAB 3: SLIP GAJI */}
+      {/* TAB 3: KASIR (KHUSUS KASIR) */}
+      {activeTab === 'cashier' && isCashier && <CashierReportTab />}
+
+      {/* TAB 4: SLIP GAJI */}
       {activeTab === 'payslip' && <PayslipTab />}
 
-      {/* TAB 4: DAFTAR HADIR */}
+      {/* TAB 5: DAFTAR HADIR */}
       {activeTab === 'history' && <AttendanceHistoryTab />}
 
       {/* MODALS */}
@@ -616,12 +672,6 @@ export default function HomeDashboard() {
       <LeaveModal
         isOpen={leaveModalOpen}
         onClose={() => setLeaveModalOpen(false)}
-      />
-
-      {/* Modal Verifikasi PIN Admin (Leader / Finance) */}
-      <AdminPinModal
-        isOpen={adminPinModalOpen}
-        onClose={() => setAdminPinModalOpen(false)}
       />
     </div>
   );

@@ -22,14 +22,16 @@ import {
   ChevronLeft,
   ChevronRight,
   UserCheck,
+  UserX,
   Coffee,
   Shirt,
   AlertTriangle,
   Lock,
   ShieldCheck,
   KeyRound,
+  MessageCircle,
+  Search,
 } from 'lucide-react';
-import MonitoringPinModal from './MonitoringPinModal';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getLocalDateString } from '@/lib/date';
@@ -58,89 +60,17 @@ export default function AdminLeaderDashboard({ onBack }) {
     overtimeRequests,
     submitOvertimeRequest,
     lateCorrections,
-    approveLateCorrection,
-    rejectLateCorrection,
     loadLateCorrections,
   } = useAuth();
-  const [adminTab, setAdminTab] = useState('assignment'); // 'assignment', 'monitoring', 'overtime', 'addStaff'
+  const [adminTab, setAdminTab] = useState('assignment'); // 'assignment', 'overtime', 'addStaff', 'corrections'
   const [selectedOutletFilter, setSelectedOutletFilter] = useState('all');
+  const [copiedCorrectionId, setCopiedCorrectionId] = useState(null);
 
-  // State keamanan PIN khusus tab Monitoring
-  const [isMonitoringUnlocked, setIsMonitoringUnlocked] = useState(false);
-  const [isMonitoringPinModalOpen, setIsMonitoringPinModalOpen] = useState(false);
-  const [monitoringPinModalMode, setMonitoringPinModalMode] = useState('verify');
-
-  // State proses & notifikasi koreksi keterlambatan
-  const [processingCorrectionId, setProcessingCorrectionId] = useState(null);
-  const [correctionSuccessMsg, setCorrectionSuccessMsg] = useState('');
-
-  const handleApproveCorrection = async (correctionId, attId) => {
-    setProcessingCorrectionId(correctionId);
-    try {
-      await approveLateCorrection(correctionId);
-      setTodayAttendanceList((prev) =>
-        prev.map((item) => {
-          if (item.id === attId || (attId && item.id === attId)) {
-            return {
-              ...item,
-              status: 'Hadir (Koreksi Disetujui)',
-              discipline_penalty: 0,
-            };
-          }
-          return item;
-        })
-      );
-      setCorrectionSuccessMsg('Koreksi keterlambatan berhasil disetujui! Denda Rp 10.000 telah dihapus.');
-      setTimeout(() => setCorrectionSuccessMsg(''), 4000);
-    } catch (e) {
-      console.error('Approve correction error:', e);
-    } finally {
-      setProcessingCorrectionId(null);
-    }
-  };
-
-  const handleRejectCorrection = async (correctionId) => {
-    const reason = prompt('Tuliskan alasan penolakan koreksi (opsional):', 'Jadwal shift sesuai sistem') || 'Ditolak Leader';
-    setProcessingCorrectionId(correctionId);
-    try {
-      await rejectLateCorrection(correctionId, reason);
-      setCorrectionSuccessMsg('Pengajuan koreksi telah ditolak.');
-      setTimeout(() => setCorrectionSuccessMsg(''), 4000);
-    } catch (e) {
-      console.error('Reject correction error:', e);
-    } finally {
-      setProcessingCorrectionId(null);
-    }
-  };
-
-  const handleQuickWaivePenalty = async (att) => {
-    const confirmWaive = window.confirm(
-      `Bebaskan denda keterlambatan Rp 10.000 untuk ${att.name}? Status akan diubah menjadi Hadir (Denda Dibebaskan).`
-    );
-    if (!confirmWaive) return;
-
-    try {
-      await supabase
-        .from('attendance')
-        .update({
-          status: 'Hadir (Denda Dibebaskan)',
-          discipline_penalty: 0,
-        })
-        .eq('id', att.id);
-
-      setTodayAttendanceList((prev) =>
-        prev.map((item) =>
-          item.id === att.id
-            ? { ...item, status: 'Hadir (Denda Dibebaskan)', discipline_penalty: 0 }
-            : item
-        )
-      );
-
-      setCorrectionSuccessMsg(`Denda untuk ${att.name} berhasil dibebaskan.`);
-      setTimeout(() => setCorrectionSuccessMsg(''), 4000);
-    } catch (e) {
-      console.error('Waive penalty error:', e);
-    }
+  const handleCopyForwardText = (corr) => {
+    const text = `Halo Bapak/Ibu Owner, staf ${corr.employee_name} (${corr.branch}) mengajukan koreksi keterlambatan tanggal ${corr.attendance_date} untuk shift ${corr.target_shift}.\nAlasan kendala: "${corr.reason}".\nMohon persetujuan/peninjauan di Dashboard Owner. Terima kasih.`;
+    navigator.clipboard.writeText(text);
+    setCopiedCorrectionId(corr.id);
+    setTimeout(() => setCopiedCorrectionId(null), 3000);
   };
 
   // 1. PENUGASAN SHIFT (Scroll/Wheel [Jam:Menit] - [Jam:Menit])
@@ -148,10 +78,16 @@ export default function AdminLeaderDashboard({ onBack }) {
   const [shiftStartTime, setShiftStartTime] = useState('13:00');
   const [shiftEndTime, setShiftEndTime] = useState('22:00');
   const [isAssignOff, setIsAssignOff] = useState(false);
-  const [assignDresscode, setAssignDresscode] = useState('Tentukan seragam atasan dan bawahan');
+  const [assignDresscode, setAssignDresscode] = useState('');
+  const [shiftStaffSearch, setShiftStaffSearch] = useState('');
   const [staffList, setStaffList] = useState([]);
   const [assignSuccess, setAssignSuccess] = useState(false);
   const [shiftSubTab, setShiftSubTab] = useState('form'); // 'form' | 'calendar'
+  const [staffSubTab, setStaffSubTab] = useState('list'); // 'list' | 'add'
+  const [staffListSearch, setStaffListSearch] = useState('');
+  const [staffStatusFilter, setStaffStatusFilter] = useState('all'); // 'all' | 'active' | 'inactive'
+  const [togglingStaffId, setTogglingStaffId] = useState(null);
+  const [confirmModalStaff, setConfirmModalStaff] = useState(null); // { staff, action: 'deactivate' | 'activate' }
 
   // Data Semua Jadwal Shift dari Supabase & State Kalender Shift
   const [allShifts, setAllShifts] = useState([]);
@@ -203,7 +139,11 @@ export default function AdminLeaderDashboard({ onBack }) {
   // Hitung staf bertugas & libur pada tanggal yang diklik di kalender
   const getShiftRecapForDate = (dateStr) => {
     const relevantStaff = staffList.filter(
-      (s) => selectedOutletFilter === 'all' || s.branch === selectedOutletFilter
+      (s) =>
+        s.status !== 'inactive' &&
+        s.status !== 'nonaktif' &&
+        s.is_active !== false &&
+        (selectedOutletFilter === 'all' || s.branch === selectedOutletFilter)
     );
     const shiftsOnDate = allShifts.filter((s) => s.shift_date === dateStr);
 
@@ -274,97 +214,93 @@ export default function AdminLeaderDashboard({ onBack }) {
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
   const firstDayOffset = (new Date(calYear, calMonth, 1).getDay() + 6) % 7;
 
-  // 2. MONITORING KEHADIRAN (Live Attendance)
-  const [todayAttendanceList, setTodayAttendanceList] = useState([]);
-
-  // Fetch real staff and real today's attendance from Supabase
+  // Fetch real staff and all shifts from Supabase
   useEffect(() => {
     async function loadData() {
       try {
         const { data: emps } = await supabase
           .from('employees')
           .select('*')
-          .eq('role', 'staff');
+          .eq('role', 'staff')
+          .order('full_name', { ascending: true });
         if (emps && emps.length > 0) {
           setStaffList(
             emps.map((e, idx) => ({
               id: e.id,
+              employee_id: e.employee_id,
               name: e.full_name,
+              full_name: e.full_name,
               role: e.position || 'Staff',
+              position: e.position || 'Staff',
               branch: e.branch || 'LazyBloom',
+              phone: e.phone,
+              pin: e.pin,
+              status: e.status || (e.is_active === false ? 'inactive' : 'active'),
+              is_active: e.is_active !== false && e.status !== 'inactive' && e.status !== 'nonaktif',
+              birth_date: e.birth_date,
+              address: e.address,
+              created_at: e.created_at,
               selected: idx === 0,
             }))
           );
         }
 
-        const todayStr = getLocalDateString();
-        const { data: atts } = await supabase
-          .from('attendance')
-          .select('*, employees(full_name, position)')
-          .eq('attendance_date', todayStr);
-
-        if (atts && atts.length > 0) {
-          const mapped = atts.map((a) => ({
-            id: a.id,
-            employee_id: a.employee_id,
-            attendance_date: a.attendance_date,
-            name: a.employees?.full_name || a.employee_id,
-            role: a.employees?.position || 'Staff',
-            branch: a.branch,
-            shift: 'Shift Aktif',
-            status: a.status || 'Hadir',
-            discipline_penalty: a.discipline_penalty || 0,
-            check_in: a.check_in_time
-              ? new Date(a.check_in_time).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
-              : '-',
-            photo: a.check_out_photo || a.check_in_photo,
-            check_in_lat: a.check_in_lat,
-            check_in_lng: a.check_in_lng,
-          }));
-          setTodayAttendanceList(mapped);
-        }
-
         await fetchAllShifts();
       } catch (err) {
-        console.warn('Load staff/attendance error:', err);
+        console.warn('Load staff/shift error:', err);
       }
     }
     loadData();
   }, []);
 
-  // Sinkronkan monitoring kehadiran dengan data check-in/out karyawan yang sedang aktif
-  useEffect(() => {
-    let activeToday = todayAttendance;
-    if (!activeToday) {
-      try {
-        const stored = localStorage.getItem('pwa_today_attendance');
-        if (stored) activeToday = JSON.parse(stored);
-      } catch (e) {}
+  const handleConfirmToggleStatus = async () => {
+    if (!confirmModalStaff) return;
+    const { staff, action } = confirmModalStaff;
+    const isDeactivating = action === 'deactivate';
+    const newStatus = isDeactivating ? 'inactive' : 'active';
+    const newIsActive = !isDeactivating;
+
+    setTogglingStaffId(staff.id);
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({
+          status: newStatus,
+          is_active: newIsActive,
+        })
+        .eq('id', staff.id);
+
+      if (error) {
+        console.warn('Supabase status update warning:', error);
+      }
+
+      setStaffList((prev) =>
+        prev.map((s) =>
+          s.id === staff.id
+            ? {
+                ...s,
+                status: newStatus,
+                is_active: newIsActive,
+              }
+            : s
+        )
+      );
+
+      setStaffMsg({
+        type: 'success',
+        text: isDeactivating
+          ? `Karyawan ${staff.name} berhasil dinonaktifkan (status keluar/resign). Akun login telah diblokir.`
+          : `Karyawan ${staff.name} berhasil diaktifkan kembali!`,
+      });
+      setTimeout(() => setStaffMsg({ type: '', text: '' }), 4500);
+    } catch (err) {
+      console.error('Toggle staff error:', err);
+      setStaffMsg({ type: 'error', text: 'Gagal mengubah status karyawan.' });
+    } finally {
+      setTogglingStaffId(null);
+      setConfirmModalStaff(null);
     }
-
-    if (!activeToday || !activeToday.check_in_time) return;
-
-    setTodayAttendanceList((prev) =>
-      prev.map((item) => {
-        const matchByName = user && item.name.toLowerCase() === user.full_name?.toLowerCase();
-        const matchByBranch = user && item.branch.toLowerCase() === user.branch?.toLowerCase() && item.name === 'Fikril Bay';
-        if (matchByName || matchByBranch) {
-          const checkInTimeStr = new Date(activeToday.check_in_time).toLocaleTimeString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit',
-          }) + ' WIB';
-          return {
-            ...item,
-            status: activeToday.status || 'Hadir Tepat Waktu',
-            discipline_penalty: activeToday.discipline_penalty || 0,
-            check_in: checkInTimeStr,
-            photo: activeToday.check_out_photo || activeToday.check_in_photo || item.photo,
-          };
-        }
-        return item;
-      })
-    );
-  }, [todayAttendance, user]);
+  };
 
   // 3. PENGAJUAN LEMBUR STAF (Leader ke Finance)
   const [otForm, setOtForm] = useState({
@@ -480,7 +416,7 @@ export default function AdminLeaderDashboard({ onBack }) {
             end_time: endTime,
             notes: isAssignOff
               ? 'Libur'
-              : (assignDresscode?.trim() || 'Tentukan seragam atasan dan bawahan'),
+              : (assignDresscode?.trim() || 'Seragam Bebas Rapi'),
           },
           { onConflict: 'employee_id, shift_date' }
         );
@@ -527,6 +463,8 @@ export default function AdminLeaderDashboard({ onBack }) {
           branch: newStaff.branch,
           birth_date: newStaff.birth_date || '2000-01-01',
           address: newStaff.address || 'Alamat Belum Diisi',
+          status: 'active',
+          is_active: true,
         })
         .select()
         .single();
@@ -537,9 +475,16 @@ export default function AdminLeaderDashboard({ onBack }) {
         ...prev,
         {
           id: data?.id || `stf-${Date.now()}`,
+          employee_id: employeeIdCode,
           name: newStaff.full_name,
+          full_name: newStaff.full_name,
           role: newStaff.position,
+          position: newStaff.position,
           branch: newStaff.branch,
+          phone: newStaff.phone.trim(),
+          pin: newStaff.pin.trim(),
+          status: 'active',
+          is_active: true,
           selected: false,
         },
       ]);
@@ -559,6 +504,9 @@ export default function AdminLeaderDashboard({ onBack }) {
         address: '',
         default_shift: 'Shift Weekday (12:00 - 21:00)',
       });
+
+      // Pindahkan ke sub-tab daftar karyawan agar leader langsung melihat hasilnya
+      setStaffSubTab('list');
     } catch (err) {
       console.error('Error creating staff:', err);
       const isDuplicate = err.message?.includes('duplicate key') || err.message?.includes('unique');
@@ -601,7 +549,7 @@ export default function AdminLeaderDashboard({ onBack }) {
         </div>
       </div>
 
-      {/* Sub-Tabs (3 Tab Utama + Tab Lembur - Bersih Tanpa Tabel Editor) */}
+      {/* Sub-Tabs (Shift, Lembur, Tambah Staf, Koreksi Staf) */}
       <div className="grid grid-cols-4 gap-1.5 bg-slate-200/70 p-1.5 rounded-2xl">
         <button
           type="button"
@@ -614,34 +562,6 @@ export default function AdminLeaderDashboard({ onBack }) {
         >
           <Calendar className="w-4 h-4" />
           <span>Shift</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (!isMonitoringUnlocked) {
-              setMonitoringPinModalMode('verify');
-              setIsMonitoringPinModalOpen(true);
-            } else {
-              setAdminTab('monitoring');
-            }
-          }}
-          className={`relative py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
-            adminTab === 'monitoring'
-              ? 'bg-white text-[#EA580C] shadow-xs font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Activity className="w-4 h-4" />
-          <span className="flex items-center gap-1">
-            <span>Monitoring</span>
-            {!isMonitoringUnlocked && <Lock className="w-2.5 h-2.5 text-slate-400" />}
-          </span>
-          {(lateCorrections || []).filter((c) => c.status === 'pending').length > 0 && (
-            <span className="absolute top-1 right-1.5 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-pulse">
-              {(lateCorrections || []).filter((c) => c.status === 'pending').length}
-            </span>
-          )}
         </button>
 
         <button
@@ -667,7 +587,25 @@ export default function AdminLeaderDashboard({ onBack }) {
           }`}
         >
           <UserPlus className="w-4 h-4" />
-          <span>Tambah Staf</span>
+          <span>Staf</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('corrections')}
+          className={`relative py-2 px-1 text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 ${
+            adminTab === 'corrections'
+              ? 'bg-white text-[#EA580C] shadow-xs font-black'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4" />
+          <span>Koreksi</span>
+          {(lateCorrections || []).filter((c) => c.status === 'pending').length > 0 && (
+            <span className="absolute top-1 right-1.5 w-4 h-4 bg-amber-500 text-white rounded-full text-[9px] font-black flex items-center justify-center animate-pulse">
+              {(lateCorrections || []).filter((c) => c.status === 'pending').length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -843,28 +781,6 @@ export default function AdminLeaderDashboard({ onBack }) {
                       </div>
                     </div>
                   )}
-
-                  {/* Preset Cepat Shift Outlet */}
-                  {!isAssignOff && (
-                    <div className="flex items-center gap-1 flex-wrap mt-2">
-                      <span className="text-[9px] font-bold text-slate-400">Preset:</span>
-                      {getOutletShifts(selectedOutletFilter === 'all' ? 'LazyBloom' : selectedOutletFilter)
-                        .filter((s) => s.startTime && s.endTime)
-                        .map((s) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => {
-                              setShiftStartTime(s.startTime);
-                              setShiftEndTime(s.endTime);
-                            }}
-                            className="text-[9px] font-bold px-2 py-0.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#EA580C] border border-orange-200 transition cursor-pointer"
-                          >
-                            {s.name.split(' ')[0]} {s.name.split(' ')[1]} ({s.startTime})
-                          </button>
-                        ))}
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -875,40 +791,89 @@ export default function AdminLeaderDashboard({ onBack }) {
                     <Shirt className="w-3.5 h-3.5 text-[#EA580C]" />
                     <span>Seragam Shift:</span>
                   </span>
-                  <span className="text-[9px] text-slate-400 font-normal">Wajib dipakai staf</span>
+                  <span className="text-[9px] text-slate-400 font-normal">Opsional</span>
                 </label>
                 <input
                   type="text"
                   value={assignDresscode}
                   onChange={(e) => setAssignDresscode(e.target.value)}
-                  placeholder="Tentukan seragam atasan dan bawahan"
+                  placeholder="Contoh: Kaos Hitam & Celana Jeans (opsional)"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
                 />
               </div>
 
-              {/* Shift Rules Info Banner */}
-              <div className="p-3 bg-orange-50/80 border border-orange-200 rounded-xl text-[11px] text-orange-900 leading-relaxed space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[#EA580C]">
-                  <Sparkles className="w-4 h-4 shrink-0" />
-                  <span>Aturan Operasional Shift Outlet:</span>
-                </div>
-                <p className="text-[10px] text-slate-600">
-                  &bull; <strong>Shift Middle (11:00 - 20:00)</strong>: Berlaku <strong>setiap hari</strong> (Senin s/d Minggu).<br />
-                  &bull; <strong>Senin s/d Kamis (Weekday)</strong>: Default <em>Shift Weekday (12:00 - 21:00)</em> atau <em>Shift Middle</em>.<br />
-                  &bull; <strong>Jumat s/d Minggu (Weekend)</strong>: <strong>Diatur oleh Leader</strong> (Shift Weekend 1 [09:00], Middle [11:00], Weekend 2 [13:00], atau Libur).
-                </p>
-              </div>
-
               {/* Daftar Checklist Staf */}
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                  Pilih Staf yang Ditugaskan:
-                </label>
-                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-700">
+                    Pilih Staf yang Ditugaskan:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const filteredIds = staffList
+                          .filter(
+                            (s) =>
+                              s.status !== 'inactive' &&
+                              s.status !== 'nonaktif' &&
+                              s.is_active !== false &&
+                              (selectedOutletFilter === 'all' || s.branch === selectedOutletFilter) &&
+                              (!shiftStaffSearch || s.name.toLowerCase().includes(shiftStaffSearch.toLowerCase()))
+                          )
+                          .map((s) => s.id);
+                        setStaffList((prev) =>
+                          prev.map((s) => (filteredIds.includes(s.id) ? { ...s, selected: true } : s))
+                        );
+                      }}
+                      className="text-[10px] font-bold text-[#EA580C] hover:underline cursor-pointer"
+                    >
+                      Pilih Semua
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStaffList((prev) => prev.map((s) => ({ ...s, selected: false })));
+                      }}
+                      className="text-[10px] font-bold text-slate-500 hover:underline cursor-pointer"
+                    >
+                      Batal Semua
+                    </button>
+                  </div>
+                </div>
+
+                {/* Fitur Ketik Nama Staf */}
+                <div className="relative mb-2">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={shiftStaffSearch}
+                    onChange={(e) => setShiftStaffSearch(e.target.value)}
+                    placeholder="Ketik nama staf untuk mencari..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40 transition"
+                  />
+                  {shiftStaffSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setShiftStaffSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 hover:text-slate-600 bg-slate-200 rounded-full w-4 h-4 flex items-center justify-center cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* List Staf Panjang (max-h-[380px]) */}
+                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                   {staffList
                     .filter(
                       (s) =>
-                        selectedOutletFilter === 'all' || s.branch === selectedOutletFilter
+                        s.status !== 'inactive' &&
+                        s.status !== 'nonaktif' &&
+                        s.is_active !== false &&
+                        (selectedOutletFilter === 'all' || s.branch === selectedOutletFilter) &&
+                        (!shiftStaffSearch || s.name.toLowerCase().includes(shiftStaffSearch.toLowerCase()))
                     )
                     .map((staff) => (
                       <div
@@ -951,6 +916,16 @@ export default function AdminLeaderDashboard({ onBack }) {
                         </span>
                       </div>
                     ))}
+
+                  {staffList.filter(
+                    (s) =>
+                      (selectedOutletFilter === 'all' || s.branch === selectedOutletFilter) &&
+                      (!shiftStaffSearch || s.name.toLowerCase().includes(shiftStaffSearch.toLowerCase()))
+                  ).length === 0 && (
+                    <div className="text-center py-8 text-slate-400 text-xs border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                      Tidak ditemukan staf dengan nama &ldquo;{shiftStaffSearch}&rdquo;
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1227,322 +1202,174 @@ export default function AdminLeaderDashboard({ onBack }) {
       </div>
     )}
 
-      {/* ================= 2. TAB MONITORING KEHADIRAN (LIVE PENALTY & KOREKSI) ================= */}
-      {adminTab === 'monitoring' && !isMonitoringUnlocked && (
-        <div className="bg-white rounded-3xl p-8 border border-slate-100 text-center space-y-4 shadow-sm animate-in fade-in">
-          <div className="w-12 h-12 rounded-2xl bg-orange-50 text-[#EA580C] mx-auto flex items-center justify-center shadow-xs">
-            <Lock className="w-6 h-6" />
-          </div>
-          <div>
-            <h4 className="font-extrabold text-sm text-slate-900">Tab Monitoring Terkunci</h4>
-            <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-              Silakan masukkan PIN otorisasi untuk melihat data monitoring presensi dan persetujuan koreksi.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setMonitoringPinModalMode('verify');
-              setIsMonitoringPinModalOpen(true);
-            }}
-            className="py-2.5 px-5 bg-[#EA580C] hover:bg-orange-600 text-white rounded-xl text-xs font-bold shadow-md shadow-orange-500/20 transition inline-flex items-center gap-2 cursor-pointer"
-          >
-            <ShieldCheck className="w-4 h-4" />
-            <span>Masukkan PIN Monitoring</span>
-          </button>
-        </div>
-      )}
+      {/* ================= 4. TAB STATUS KOREKSI KETERLAMBATAN (TERUSKAN KE OWNER) ================= */}
+      {adminTab === 'corrections' && (() => {
+        const filteredCorrections = (lateCorrections || []).filter((corr) => {
+          if (selectedOutletFilter === 'all') return true;
+          return (corr.branch || '').toLowerCase() === selectedOutletFilter.toLowerCase();
+        });
+        const pendingCount = filteredCorrections.filter((c) => c.status === 'pending').length;
 
-      {adminTab === 'monitoring' && isMonitoringUnlocked && (
-        <div className="space-y-3 animate-in fade-in">
-          <div className="flex items-center justify-between px-1">
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                  Monitoring Presensi Harian (Live)
-                </h4>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMonitoringPinModalMode('change');
-                    setIsMonitoringPinModalOpen(true);
-                  }}
-                  title="Ganti PIN Monitoring"
-                  className="px-2 py-0.5 rounded-lg text-slate-500 hover:text-orange-600 hover:bg-orange-50 transition flex items-center gap-1 text-[10px] font-bold border border-slate-200 cursor-pointer"
-                >
-                  <KeyRound className="w-3 h-3" />
-                  <span>Ganti PIN</span>
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-500">
-                Toleransi keterlambatan 10 menit &bull; Denda Flat Rp 10.000
-              </p>
-            </div>
-            <span className="text-[10px] bg-slate-900 text-white px-2.5 py-1 rounded-full font-bold">
-              {todayAttendanceList.filter((a) => a.status.includes('Hadir') || a.status.includes('Terlambat')).length} / {todayAttendanceList.length} Masuk
-            </span>
-          </div>
-
-          {/* Notifikasi Sukses Koreksi */}
-          {correctionSuccessMsg && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in shadow-2xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>{correctionSuccessMsg}</span>
-            </div>
-          )}
-
-          {/* SEKSI KHUSUS DI MONITORING: PERSETUJUAN KOREKSI KETERLAMBATAN */}
-          {(() => {
-            const pendingCorrections = (lateCorrections || []).filter(
-              (c) =>
-                c.status === 'pending' &&
-                (selectedOutletFilter === 'all' ||
-                  (c.branch || '').toLowerCase() === selectedOutletFilter.toLowerCase())
-            );
-
-            if (pendingCorrections.length === 0) return null;
-
-            return (
-              <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/5 border-2 border-amber-300 rounded-2xl p-3.5 space-y-2.5 shadow-xs animate-in slide-in-from-top-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                    </div>
-                    <h5 className="text-xs font-black text-amber-950 uppercase tracking-wide">
-                      Pengajuan Koreksi Keterlambatan
-                    </h5>
+        return (
+          <div className="space-y-3 animate-in fade-in">
+            {/* Header Status Koreksi */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                    <AlertTriangle className="w-4 h-4" />
                   </div>
-                  <span className="text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded-full">
-                    {pendingCorrections.length} Menunggu Review
-                  </span>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900">
+                      Pengajuan Koreksi Staf
+                    </h4>
+                    <p className="text-[10px] text-slate-500">
+                      Kendala operasional & klaim jam shift
+                    </p>
+                  </div>
                 </div>
-
-                <div className="space-y-2">
-                  {pendingCorrections.map((corr) => (
-                    <div
-                      key={corr.id}
-                      className="bg-white rounded-xl p-3 border border-amber-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-extrabold text-xs text-slate-900">
-                            {corr.employee_name}
-                          </span>
-                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-700">
-                            {corr.branch}
-                          </span>
-                          <span className="text-[9px] font-bold text-slate-400">
-                            • {corr.attendance_date}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-700">
-                          Klaim Shift: <strong className="text-[#EA580C]">{corr.target_shift}</strong>
-                        </p>
-                        <p className="text-[10px] text-slate-600 italic bg-slate-50 p-2 rounded-lg border border-slate-100">
-                          "{corr.reason}"
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
-                        <button
-                          type="button"
-                          disabled={processingCorrectionId === corr.id}
-                          onClick={() => handleRejectCorrection(corr.id)}
-                          className="px-2.5 py-1.5 rounded-xl border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-bold transition disabled:opacity-50 cursor-pointer"
-                        >
-                          Tolak
-                        </button>
-                        <button
-                          type="button"
-                          disabled={processingCorrectionId === corr.id}
-                          onClick={() => handleApproveCorrection(corr.id, corr.attendance_id)}
-                          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black shadow-xs transition flex items-center gap-1 disabled:opacity-50 cursor-pointer"
-                        >
-                          {processingCorrectionId === corr.id ? 'Memproses...' : '✅ Setujui (Hapus Denda)'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                  {pendingCount} Menunggu Owner
+                </span>
               </div>
-            );
-          })()}
 
-          <div className="space-y-2.5">
-            {todayAttendanceList.filter(
-              (a) => selectedOutletFilter === 'all' || a.branch === selectedOutletFilter
-            ).length === 0 ? (
+              {/* Box Info Wewenang Owner */}
+              <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] text-amber-950 space-y-1">
+                <div className="font-extrabold flex items-center gap-1.5 text-amber-900">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>SOP Wewenang Persetujuan</span>
+                </div>
+                <p className="text-[10px] text-amber-900/90 leading-relaxed">
+                  Leader tidak berwenang menyetujui atau menolak permohonan staf yang terlambat karena kendala operasional. Permohonan langsung diteruskan ke <strong>Owner</strong> untuk disetujui dan dibebaskan dendanya (Rp 10.000).
+                </p>
+              </div>
+            </div>
+
+            {/* List Permohonan Koreksi */}
+            {filteredCorrections.length === 0 ? (
               <div className="bg-white rounded-2xl p-8 border border-slate-200/80 text-center shadow-xs space-y-2">
                 <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-                  <Clock className="w-5 h-5" />
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                 </div>
-                <h5 className="text-xs font-bold text-slate-700">Belum Ada Presensi Masuk Hari Ini</h5>
+                <h5 className="text-xs font-bold text-slate-700">Tidak Ada Pengajuan Koreksi</h5>
                 <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
-                  Staf yang melakukan check-in akan otomatis tampil live di sini beserta foto selfie & status keterlambatan.
+                  Semua staf hadir sesuai jadwal atau belum ada permohonan kendala operasional yang diajukan.
                 </p>
               </div>
             ) : (
-              todayAttendanceList
-                .filter(
-                  (a) =>
-                    selectedOutletFilter === 'all' || a.branch === selectedOutletFilter
-                )
-                .map((att) => {
-                const isLate = att.status.includes('Terlambat');
-                const matchingCorr = (lateCorrections || []).find(
-                  (c) =>
-                    (c.attendance_id && c.attendance_id === att.id) ||
-                    (c.employee_id === att.employee_id && c.attendance_date === att.attendance_date) ||
-                    (c.employee_name && c.employee_name.toLowerCase() === att.name?.toLowerCase())
-                );
+              <div className="space-y-2.5">
+                {filteredCorrections.map((corr) => {
+                  const isPending = corr.status === 'pending';
+                  const isApproved = corr.status === 'approved';
+                  const isRejected = corr.status === 'rejected';
 
-                return (
-                  <div
-                    key={att.id}
-                    className={`bg-white rounded-2xl p-3.5 border transition shadow-xs flex flex-col gap-2.5 ${
-                      isLate ? 'border-rose-300 bg-rose-50/30' : 'border-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        {/* Avatar Selfie */}
-                        <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
-                          {att.photo ? (
-                            <img
-                              src={att.photo}
-                              alt={att.name}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <Users className="w-6 h-6 text-slate-400" />
-                          )}
-                        </div>
-
+                  return (
+                    <div
+                      key={corr.id}
+                      className={`bg-white rounded-2xl p-3.5 border transition shadow-xs space-y-2.5 ${
+                        isPending
+                          ? 'border-amber-200 bg-amber-50/20'
+                          : isApproved
+                          ? 'border-emerald-200'
+                          : 'border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h5 className="font-extrabold text-xs text-slate-900">{att.name}</h5>
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
-                                att.branch === 'Deru Ombak'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : att.branch === 'Sea Cafe'
-                                  ? 'bg-sky-100 text-sky-800'
-                                  : att.branch === 'Mobile / Lapangan' || att.branch?.includes('Mobile')
-                                  ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                                  : 'bg-orange-100 text-orange-800'
-                              }`}
-                            >
-                              {att.branch}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-xs text-slate-900">
+                              {corr.employee_name}
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                              {corr.branch}
+                            </span>
+                            <span className="text-[9px] font-semibold text-slate-400">
+                              • {corr.attendance_date}
                             </span>
                           </div>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{att.shift}</p>
-                          <p className="text-[10px] font-medium text-slate-700">
-                            Masuk: <span className="font-bold">{att.check_in}</span>
+                          <p className="text-[11px] text-slate-700 mt-1">
+                            Klaim Shift: <strong className="text-[#EA580C]">{corr.target_shift}</strong>
                           </p>
-                          {att.check_in_lat && att.check_in_lng && (
-                            <a
-                              href={`https://www.google.com/maps?q=${att.check_in_lat},${att.check_in_lng}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 hover:underline mt-0.5 font-bold"
-                            >
-                              <span>📍 Buka Titik GPS</span>
-                            </a>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div className="shrink-0">
+                          {isPending && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              <span>Menunggu Owner</span>
+                            </span>
+                          )}
+                          {isApproved && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              <span>Disetujui Owner (Denda Rp 0)</span>
+                            </span>
+                          )}
+                          {isRejected && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                              <AlertCircle className="w-3 h-3 text-rose-600" />
+                              <span>Ditolak Owner</span>
+                            </span>
                           )}
                         </div>
                       </div>
 
-                      {/* Status & Denda Badge */}
-                      <div className="text-right shrink-0">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
-                            isLate
-                              ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                              : att.status.includes('Hadir')
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {att.status}
-                        </span>
-                        {isLate && att.discipline_penalty > 0 && (
-                          <p className="text-[10px] font-black text-rose-600 mt-1">
-                            Denda: Rp 10.000
-                          </p>
-                        )}
-                        {isLate && att.discipline_penalty === 0 && (
-                          <p className="text-[10px] font-black text-emerald-600 mt-1">
-                            Denda: Rp 0 (Bebas)
-                          </p>
-                        )}
+                      {/* Alasan Kendala */}
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-[11px] text-slate-700 italic">
+                        "{corr.reason}"
                       </div>
-                    </div>
 
-                    {/* Aksi Persetujuan / Bebaskan Denda di Sub-Tab Monitoring */}
-                    {isLate && (
-                      <div className="pt-2 border-t border-rose-200/80 flex items-center justify-between gap-2 flex-wrap bg-white/70 p-2.5 rounded-xl">
-                        {matchingCorr ? (
-                          matchingCorr.status === 'pending' ? (
-                            <div className="w-full flex items-center justify-between gap-2 flex-wrap">
-                              <div className="text-[10px] text-amber-950 font-bold">
-                                ⚠️ Mengajukan koreksi: <strong className="text-[#EA580C]">{matchingCorr.target_shift}</strong>
-                                <span className="block text-[9px] font-normal text-slate-500 italic">"{matchingCorr.reason}"</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                  type="button"
-                                  disabled={processingCorrectionId === matchingCorr.id}
-                                  onClick={() => handleRejectCorrection(matchingCorr.id)}
-                                  className="px-2 py-1 rounded-lg border border-rose-300 text-rose-700 text-[10px] font-bold hover:bg-rose-50 cursor-pointer disabled:opacity-50"
-                                >
-                                  Tolak
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={processingCorrectionId === matchingCorr.id}
-                                  onClick={() => handleApproveCorrection(matchingCorr.id, att.id)}
-                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black cursor-pointer disabled:opacity-50"
-                                >
-                                  {processingCorrectionId === matchingCorr.id ? 'Memproses...' : '✅ Setujui'}
-                                </button>
-                              </div>
-                            </div>
-                          ) : matchingCorr.status === 'approved' ? (
-                            <div className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
-                              <span>✅ Koreksi Disetujui ({matchingCorr.target_shift}) &bull; Denda Rp 0</span>
-                            </div>
-                          ) : (
-                            <div className="text-[10px] font-bold text-rose-600">
-                              <span>❌ Koreksi Ditolak ({matchingCorr.review_notes || 'Sesuai jadwal'})</span>
-                            </div>
-                          )
-                        ) : (
-                          <div className="w-full flex items-center justify-between">
-                            <span className="text-[10px] text-slate-500">Staf belum mengajukan koreksi</span>
+                      {/* Review notes if rejected/approved */}
+                      {corr.review_notes && (
+                        <div className="text-[10px] font-medium text-slate-600 px-1">
+                          Catatan Owner: <span className="font-bold text-slate-800">{corr.review_notes}</span>
+                        </div>
+                      )}
+
+                      {/* Action: Salin / Teruskan ke Owner via WA jika pending */}
+                      {isPending && (
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-[10px] text-slate-500">
+                            Teruskan laporan kendala ini ke Owner:
+                          </span>
+                          <div className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => handleQuickWaivePenalty(att)}
-                              className="text-[10px] font-black text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                              onClick={() => handleCopyForwardText(corr)}
+                              className="px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
                             >
-                              ✏️ Bebaskan Denda Manual
+                              <Check className="w-3 h-3 text-slate-500" />
+                              <span>{copiedCorrectionId === corr.id ? 'Tersalin!' : 'Salin Info'}</span>
                             </button>
+                            <a
+                              href={`https://wa.me/?text=${encodeURIComponent(
+                                `Halo Bapak/Ibu Owner, staf ${corr.employee_name} (${corr.branch}) mengajukan koreksi keterlambatan tanggal ${corr.attendance_date} untuk shift ${corr.target_shift}.\nAlasan kendala: "${corr.reason}".\nMohon persetujuan/peninjauan di Dashboard Owner. Terima kasih.`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold shadow-xs transition flex items-center gap-1 cursor-pointer"
+                            >
+                              <MessageCircle className="w-3 h-3" />
+                              <span>Teruskan WA ke Owner</span>
+                            </a>
                           </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ================= 3. TAB PENGAJUAN LEMBUR STAF ================= */}
       {adminTab === 'overtime' && (() => {
         // Filter staf lembur berdasarkan kategori/outlet yang aktif (LazyBloom, Deru Ombak, Sea Cafe, Mobile / Lapangan)
         const filteredOtStaff = staffList.filter((s) => {
+          if (s.status === 'inactive' || s.status === 'nonaktif' || s.is_active === false) return false;
           if (selectedOutletFilter === 'all') return true;
           return s.branch && s.branch.toLowerCase() === selectedOutletFilter.toLowerCase();
         });
@@ -1899,141 +1726,515 @@ export default function AdminLeaderDashboard({ onBack }) {
         );
       })()}
 
-      {/* ================= 4. TAB TAMBAH KARYAWAN BARU ================= */}
-      {adminTab === 'addStaff' && (
-        <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4 animate-in fade-in">
-          <div>
-            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-              Pendaftaran Karyawan Baru
-            </h4>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Daftarkan staf baru langsung ke database
-            </p>
-          </div>
+      {/* ================= 4. TAB MANAJEMEN STAF (DAFTAR KARYAWAN & TAMBAH BARU) ================= */}
+      {adminTab === 'addStaff' && (() => {
+        // Filter staf berdasarkan outlet terpilih
+        const outletFilteredStaff = staffList.filter((s) => {
+          if (selectedOutletFilter === 'all') return true;
+          return s.branch && s.branch.toLowerCase() === selectedOutletFilter.toLowerCase();
+        });
 
-          {staffMsg.text && (
-            <div
-              className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-                staffMsg.type === 'success'
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-rose-50 text-rose-800 border border-rose-200'
-              }`}
-            >
-              {staffMsg.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              )}
-              <span>{staffMsg.text}</span>
-            </div>
-          )}
+        // Filter pencarian dan status bekerja
+        const finalFilteredStaff = outletFilteredStaff.filter((s) => {
+          const isActive = s.status !== 'inactive' && s.status !== 'nonaktif' && s.is_active !== false;
+          if (staffStatusFilter === 'active' && !isActive) return false;
+          if (staffStatusFilter === 'inactive' && isActive) return false;
 
-          <form onSubmit={handleCreateStaff} className="space-y-3.5">
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                Nama Lengkap Karyawan:
-              </label>
-              <input
-                type="text"
-                value={newStaff.full_name}
-                onChange={(e) => setNewStaff({ ...newStaff, full_name: e.target.value })}
-                placeholder="Contoh: Muhammad Ilham"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
-                required
-              />
-            </div>
+          if (staffListSearch.trim()) {
+            const q = staffListSearch.toLowerCase();
+            const matchName = (s.name || s.full_name || '').toLowerCase().includes(q);
+            const matchPhone = (s.phone || '').includes(q);
+            const matchRole = (s.role || s.position || '').toLowerCase().includes(q);
+            const matchId = (s.employee_id || '').toLowerCase().includes(q);
+            return matchName || matchPhone || matchRole || matchId;
+          }
+          return true;
+        });
 
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Nomor Handphone:
-                </label>
-                <input
-                  type="tel"
-                  value={newStaff.phone}
-                  onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
-                  placeholder="08xxxxxxxxxx"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
-                  required
-                />
-              </div>
+        const activeStaffCount = outletFilteredStaff.filter(
+          (s) => s.status !== 'inactive' && s.status !== 'nonaktif' && s.is_active !== false
+        ).length;
+        const inactiveStaffCount = outletFilteredStaff.filter(
+          (s) => s.status === 'inactive' || s.status === 'nonaktif' || s.is_active === false
+        ).length;
 
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  PIN Akses (6 Digit):
-                </label>
-                <input
-                  type="password"
-                  maxLength={6}
-                  value={newStaff.pin}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, pin: e.target.value.replace(/\D/g, '') })
-                  }
-                  placeholder="123456"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold tracking-widest text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Cabang Outlet / Penugasan:
-                </label>
-                <select
-                  value={newStaff.branch}
-                  onChange={(e) => setNewStaff({ ...newStaff, branch: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+        return (
+          <div className="space-y-4 animate-in fade-in">
+            {/* Sub-Tab Switcher: Daftar Karyawan vs Tambah Karyawan */}
+            <div className="flex items-center gap-1.5 p-1.5 bg-slate-200/80 rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setStaffSubTab('list')}
+                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                  staffSubTab === 'list'
+                    ? 'bg-white text-[#EA580C] shadow-xs font-black'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>Daftar Karyawan</span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    staffSubTab === 'list'
+                      ? 'bg-orange-100 text-[#EA580C]'
+                      : 'bg-slate-300 text-slate-700'
+                  }`}
                 >
-                  <option value="LazyBloom">LazyBloom</option>
-                  <option value="Deru Ombak">Deru Ombak</option>
-                  <option value="Sea Cafe">Sea Cafe</option>
-                  <option value="Mobile / Lapangan">Mobile / Lapangan (Tim Belanja & Marketing)</option>
-                </select>
-              </div>
+                  {activeStaffCount} Aktif
+                </span>
+              </button>
 
+              <button
+                type="button"
+                onClick={() => setStaffSubTab('add')}
+                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                  staffSubTab === 'add'
+                    ? 'bg-white text-[#EA580C] shadow-xs font-black'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
+                }`}
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>+ Tambah Karyawan</span>
+              </button>
+            </div>
+
+            {/* Feedback Message */}
+            {staffMsg.text && (
+              <div
+                className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in ${
+                  staffMsg.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}
+              >
+                {staffMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{staffMsg.text}</span>
+              </div>
+            )}
+
+            {/* SUB-TAB 1: DAFTAR KARYAWAN (Kelola & Nonaktifkan Staf Keluar) */}
+            {staffSubTab === 'list' && (
+              <div className="space-y-3 animate-in fade-in">
+                {/* Header & Filter Controls Card */}
+                <div className="bg-white rounded-2xl border border-slate-200/80 p-3.5 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                        Daftar Staf &amp; Status Bekerja
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Nonaktifkan akun karyawan yang keluar/resign agar tidak bisa login dan tidak dijadwalkan shift.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setStaffSubTab('add')}
+                      className="px-3 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Tambah Staf Baru</span>
+                    </button>
+                  </div>
+
+                  {/* Search Bar */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={staffListSearch}
+                      onChange={(e) => setStaffListSearch(e.target.value)}
+                      placeholder="Cari nama karyawan, ID staf, nomor HP, atau posisi..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                    />
+                    {staffListSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setStaffListSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 hover:text-slate-600 bg-slate-200 rounded-full w-4 h-4 flex items-center justify-center cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Filter Status Pills */}
+                  <div className="flex items-center gap-2 overflow-x-auto text-[11px] pt-0.5">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider shrink-0">
+                      Status:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setStaffStatusFilter('all')}
+                      className={`px-3 py-1 rounded-full font-bold transition shrink-0 cursor-pointer ${
+                        staffStatusFilter === 'all'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Semua ({outletFilteredStaff.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStaffStatusFilter('active')}
+                      className={`px-3 py-1 rounded-full font-bold transition shrink-0 cursor-pointer ${
+                        staffStatusFilter === 'active'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      Aktif Bekerja ({activeStaffCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStaffStatusFilter('inactive')}
+                      className={`px-3 py-1 rounded-full font-bold transition shrink-0 cursor-pointer ${
+                        staffStatusFilter === 'inactive'
+                          ? 'bg-rose-600 text-white shadow-xs'
+                          : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
+                      }`}
+                    >
+                      Keluar / Resign ({inactiveStaffCount})
+                    </button>
+                  </div>
+                </div>
+
+                {/* Staff Cards List */}
+                {finalFilteredStaff.length === 0 ? (
+                  <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center space-y-2">
+                    <div className="w-10 h-10 rounded-2xl bg-orange-50 text-[#EA580C] flex items-center justify-center mx-auto">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <p className="text-xs font-bold text-slate-700">Tidak ada staf yang sesuai filter</p>
+                    <p className="text-[11px] text-slate-400">
+                      Silakan ganti kata kunci pencarian atau ubah filter status di atas.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {finalFilteredStaff.map((staff) => {
+                      const isActive =
+                        staff.status !== 'inactive' &&
+                        staff.status !== 'nonaktif' &&
+                        staff.is_active !== false;
+
+                      return (
+                        <div
+                          key={staff.id}
+                          className={`w-full bg-white rounded-2xl p-3.5 border transition shadow-2xs space-y-3 ${
+                            isActive
+                              ? 'border-slate-200/90 hover:border-slate-300'
+                              : 'border-rose-200 bg-rose-50/20'
+                          }`}
+                        >
+                          {/* Top Row: Avatar, Name, ID, Role, Branch, Status */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 border ${
+                                  isActive
+                                    ? 'bg-orange-50 text-[#EA580C] border-orange-200'
+                                    : 'bg-rose-100 text-rose-700 border-rose-300'
+                                }`}
+                              >
+                                {staff.name?.slice(0, 2).toUpperCase() || 'ST'}
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h5
+                                    className={`font-black text-xs truncate ${
+                                      isActive
+                                        ? 'text-slate-900'
+                                        : 'text-slate-600 line-through decoration-rose-500'
+                                    }`}
+                                  >
+                                    {staff.name}
+                                  </h5>
+                                  {staff.employee_id && (
+                                    <span className="text-[10px] font-mono font-bold text-slate-400">
+                                      {staff.employee_id}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  <span className="text-[10px] text-slate-500 font-semibold">
+                                    {staff.role}
+                                  </span>
+                                  <span className="text-slate-300">•</span>
+                                  <span
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                      staff.branch === 'Deru Ombak'
+                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                        : staff.branch === 'Sea Cafe'
+                                        ? 'bg-sky-50 text-sky-800 border border-sky-200'
+                                        : staff.branch.includes('Mobile')
+                                        ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                                        : 'bg-orange-50 text-orange-800 border border-orange-200'
+                                    }`}
+                                  >
+                                    {staff.branch}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Status Badge */}
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                                isActive
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-rose-100 text-rose-800 border border-rose-200'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  isActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                                }`}
+                              />
+                              <span>{isActive ? 'Aktif Bekerja' : 'Keluar / Resign'}</span>
+                            </span>
+                          </div>
+
+                          {/* Bottom Row: Account Details & Action Button */}
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2 flex-wrap text-xs">
+                            <div className="flex items-center gap-3 text-slate-600 text-[11px] font-mono">
+                              <span>📱 {staff.phone || '-'}</span>
+                              <span className="text-slate-300">|</span>
+                              <span>🔑 PIN: {staff.pin || '123456'}</span>
+                            </div>
+
+                            {/* Action Button: Nonaktifkan (Keluar) OR Aktifkan Kembali */}
+                            {isActive ? (
+                              <button
+                                type="button"
+                                disabled={togglingStaffId === staff.id}
+                                onClick={() => setConfirmModalStaff({ staff, action: 'deactivate' })}
+                                className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                title="Nonaktifkan akun karyawan karena keluar / resign"
+                              >
+                                <UserX className="w-3.5 h-3.5" />
+                                <span>Nonaktifkan (Keluar)</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={togglingStaffId === staff.id}
+                                onClick={() => setConfirmModalStaff({ staff, action: 'activate' })}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                title="Aktifkan kembali akun karyawan"
+                              >
+                                <UserCheck className="w-3.5 h-3.5" />
+                                <span>Aktifkan Kembali</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SUB-TAB 2: PENDAFTARAN KARYAWAN BARU */}
+            {staffSubTab === 'add' && (
+              <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-md space-y-4 animate-in fade-in">
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                    Pendaftaran Karyawan Baru
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Daftarkan staf baru langsung ke database 3 Pillar
+                  </p>
+                </div>
+
+                <form onSubmit={handleCreateStaff} className="space-y-3.5">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      Nama Lengkap Karyawan:
+                    </label>
+                    <input
+                      type="text"
+                      value={newStaff.full_name}
+                      onChange={(e) => setNewStaff({ ...newStaff, full_name: e.target.value })}
+                      placeholder="Contoh: Muhammad Ilham"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Nomor Handphone:
+                      </label>
+                      <input
+                        type="tel"
+                        value={newStaff.phone}
+                        onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
+                        placeholder="08xxxxxxxxxx"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        PIN Akses (6 Digit):
+                      </label>
+                      <input
+                        type="password"
+                        maxLength={6}
+                        value={newStaff.pin}
+                        onChange={(e) =>
+                          setNewStaff({ ...newStaff, pin: e.target.value.replace(/\D/g, '') })
+                        }
+                        placeholder="123456"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold tracking-widest text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Cabang Outlet / Penugasan:
+                      </label>
+                      <select
+                        value={newStaff.branch}
+                        onChange={(e) => setNewStaff({ ...newStaff, branch: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                      >
+                        <option value="LazyBloom">LazyBloom</option>
+                        <option value="Deru Ombak">Deru Ombak</option>
+                        <option value="Sea Cafe">Sea Cafe</option>
+                        <option value="Mobile / Lapangan">Mobile / Lapangan (Tim Belanja &amp; Marketing)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Posisi / Jabatan:
+                      </label>
+                      <input
+                        type="text"
+                        value={newStaff.position}
+                        onChange={(e) => setNewStaff({ ...newStaff, position: e.target.value })}
+                        placeholder="Barista / Kasir / Kitchen"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={staffCreating}
+                    className="w-full bg-[#EA580C] hover:bg-[#C2410C] active:scale-98 text-white font-bold py-3 rounded-xl text-xs shadow-md shadow-orange-500/20 transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {staffCreating ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <UserPlus className="w-4 h-4" />
+                    )}
+                    <span>Daftarkan Karyawan Baru</span>
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ================= MODAL KONFIRMASI NONAKTIFKAN / AKTIFKAN KARYAWAN ================= */}
+      {confirmModalStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative max-w-sm w-full bg-white rounded-3xl p-5 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                  confirmModalStaff.action === 'deactivate'
+                    ? 'bg-rose-100 text-rose-600'
+                    : 'bg-emerald-100 text-emerald-600'
+                }`}
+              >
+                {confirmModalStaff.action === 'deactivate' ? (
+                  <UserX className="w-5 h-5" />
+                ) : (
+                  <UserCheck className="w-5 h-5" />
+                )}
+              </div>
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Posisi / Jabatan:
-                </label>
-                <input
-                  type="text"
-                  value={newStaff.position}
-                  onChange={(e) => setNewStaff({ ...newStaff, position: e.target.value })}
-                  placeholder="Barista / Kasir / Kitchen"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
-                  required
-                />
+                <h4 className="text-sm font-black text-slate-900">
+                  {confirmModalStaff.action === 'deactivate'
+                    ? 'Nonaktifkan Karyawan?'
+                    : 'Aktifkan Kembali Karyawan?'}
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  {confirmModalStaff.staff.name} ({confirmModalStaff.staff.branch})
+                </p>
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={staffCreating}
-              className="w-full bg-[#EA580C] hover:bg-[#C2410C] active:scale-98 text-white font-bold py-3 rounded-xl text-xs shadow-md shadow-orange-500/20 transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {staffCreating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+            <div className="bg-slate-50 rounded-2xl p-3 text-xs text-slate-600 space-y-1.5 border border-slate-200/70">
+              {confirmModalStaff.action === 'deactivate' ? (
+                <>
+                  <p className="font-bold text-rose-700">
+                    ⚠️ Karyawan keluar / mengundurkan diri (resign):
+                  </p>
+                  <ul className="list-disc pl-4 text-[11px] space-y-0.5 text-slate-600">
+                    <li>Akun login presensi akan diblokir seketika.</li>
+                    <li>Disembunyikan dari daftar penugasan shift kerja harian.</li>
+                    <li>Histori absensi dan slip gaji sebelumnya tetap aman.</li>
+                  </ul>
+                </>
               ) : (
-                <UserPlus className="w-4 h-4" />
+                <p className="text-slate-700">
+                  Karyawan akan kembali aktif, dapat login ke aplikasi presensi, dan dapat dijadwalkan shift kerja oleh Leader.
+                </p>
               )}
-              <span>Daftarkan Karyawan Baru</span>
-            </button>
-          </form>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModalStaff(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={togglingStaffId === confirmModalStaff.staff.id}
+                onClick={handleConfirmToggleStatus}
+                className={`px-4 py-2 rounded-xl text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center gap-1.5 ${
+                  confirmModalStaff.action === 'deactivate'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                {togglingStaffId === confirmModalStaff.staff.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : confirmModalStaff.action === 'deactivate' ? (
+                  <UserX className="w-3.5 h-3.5" />
+                ) : (
+                  <UserCheck className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {confirmModalStaff.action === 'deactivate'
+                    ? 'Ya, Nonaktifkan Staf'
+                    : 'Ya, Aktifkan Kembali'}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
-      {/* Modal PIN Khusus Tab Monitoring */}
-      <MonitoringPinModal
-        isOpen={isMonitoringPinModalOpen}
-        initialMode={monitoringPinModalMode}
-        onClose={() => setIsMonitoringPinModalOpen(false)}
-        onSuccess={() => {
-          setIsMonitoringUnlocked(true);
-          setAdminTab('monitoring');
-          setIsMonitoringPinModalOpen(false);
-        }}
-      />
     </div>
   );
 }

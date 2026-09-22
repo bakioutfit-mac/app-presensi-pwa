@@ -50,14 +50,15 @@ export function AuthProvider({ children }) {
   const [todayAttendance, setTodayAttendance] = useState(null);
   const [activeLeave, setActiveLeave] = useState(null);
 
-  // 2 Mode Admin: 'leader' | 'finance' | null
+  // 3 Mode Admin: 'owner' | 'leader' | 'finance' | null
   const [adminRole, setAdminRole] = useState(null);
 
-  // PIN Admin Baru (Leader: 987321 | Finance: 020103 | Monitoring: 654321)
+  // PIN Admin (Owner: 123123 | Leader: 987321 | Finance: 020103 | Monitoring: 654321)
   const [adminPins, setAdminPins] = useState({
+    owner: '123123', // PIN Owner Executive
     leader: '987321', // PIN Admin Leader
     finance: '020103', // PIN Admin Finance
-    monitoring: '654321', // PIN Khusus Tab Monitoring Admin Leader
+    monitoring: '654321', // PIN Khusus Tab Monitoring (legacy)
   });
 
   // Outlets state (disinkronkan dengan koordinat GPS terbaru)
@@ -239,11 +240,19 @@ export function AuthProvider({ children }) {
       if (stored) {
         const parsed = JSON.parse(stored);
         // Hapus sesi dummy lama jika masih tersimpan di browser pengguna
-        if (['085775560400', '081233445566', '081998877665', '081234567890'].includes(parsed.phone)) {
+        if (['085775560400', '081233445566', '081998877665'].includes(parsed.phone)) {
           localStorage.removeItem('pwa_presensi_user');
           setUser(null);
         } else {
           setUser(parsed);
+          const r = (parsed.role || '').toLowerCase();
+          if (r === 'admin_owner' || r === 'owner') {
+            setAdminRole('owner');
+          } else if (r === 'admin_leader' || r === 'leader') {
+            setAdminRole('leader');
+          } else if (r === 'admin_finance' || r === 'finance') {
+            setAdminRole('finance');
+          }
         }
       }
 
@@ -281,7 +290,7 @@ export function AuthProvider({ children }) {
           setAdminPins((prev) => ({ ...prev, ...parsedPins }));
         } catch (e) {}
       } else {
-        localStorage.setItem('pwa_admin_pins', JSON.stringify({ leader: '987321', finance: '020103', monitoring: '654321' }));
+        localStorage.setItem('pwa_admin_pins', JSON.stringify({ owner: '123123', leader: '987321', finance: '020103', monitoring: '654321' }));
       }
 
       // Muat koordinat outlet tersimpan
@@ -490,14 +499,14 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('pwa_leave_status_changed', handleLeaveStatusChanged);
   }, [user]);
 
-  // Verifikasi PIN Admin (Leader, Finance, atau Tab Monitoring)
+  // Verifikasi PIN Admin (Owner, Leader, Finance, atau Tab Monitoring)
   const verifyAdminPin = (role, inputPin) => {
     const cleanPin = (inputPin || '').trim();
     const fallbackPin =
-      role === 'leader' ? '987321' : role === 'finance' ? '020103' : role === 'monitoring' ? '654321' : '123456';
+      role === 'owner' ? '123123' : role === 'leader' ? '987321' : role === 'finance' ? '020103' : role === 'monitoring' ? '654321' : '123456';
     const currentPin = adminPins?.[role] || fallbackPin;
     if (cleanPin === currentPin) {
-      if (role === 'leader' || role === 'finance') {
+      if (role === 'owner' || role === 'leader' || role === 'finance') {
         setAdminRole(role);
       }
       return { success: true, role };
@@ -505,12 +514,12 @@ export function AuthProvider({ children }) {
     return {
       success: false,
       error: `PIN ${
-        role === 'monitoring' ? 'Akses Monitoring' : role === 'leader' ? 'Admin Leader' : 'Finance'
+        role === 'owner' ? 'Owner Executive' : role === 'monitoring' ? 'Akses Monitoring' : role === 'leader' ? 'Admin Leader' : 'Finance'
       } salah! Silakan periksa kembali.`,
     };
   };
 
-  // Perbarui PIN Admin dari Tabel Editor Supabase
+  // Perbarui PIN Admin
   const updateAdminPin = async (role, newPin) => {
     const cleanPin = (newPin || '').trim();
     if (!cleanPin || cleanPin.length !== 6 || !/^\d{6}$/.test(cleanPin)) {
@@ -530,16 +539,20 @@ export function AuthProvider({ children }) {
     // 1. Simpan / upsert ke Supabase tabel admin_settings dengan field 'name' yang wajib ada
     try {
       const roleName =
-        role === 'leader'
+        role === 'owner'
+          ? 'Owner Executive'
+          : role === 'leader'
           ? 'Admin Leader'
           : role === 'finance'
           ? 'Admin Finance'
           : 'PIN Monitoring Presensi';
       const roleDesc =
-        role === 'leader'
-          ? 'PIN Verifikasi Admin Leader (Shift, Monitoring, Staf)'
+        role === 'owner'
+          ? 'PIN Verifikasi Owner (Monitoring, Titik GPS, Persetujuan)'
+          : role === 'leader'
+          ? 'PIN Verifikasi Admin Leader (Shift, Lembur, Staf)'
           : role === 'finance'
-          ? 'PIN Verifikasi Admin Finance (Gaji & Lokasi GPS)'
+          ? 'PIN Verifikasi Admin Finance (Gaji & Lembur)'
           : 'PIN Khusus Akses Tab Monitoring Admin Leader';
 
       const { error: upsertErr } = await supabase.from('admin_settings').upsert(
@@ -564,7 +577,7 @@ export function AuthProvider({ children }) {
       await supabase
         .from('employees')
         .update({ pin: cleanPin })
-        .eq('role', role === 'leader' ? 'admin_leader' : 'admin_finance');
+        .eq('role', role === 'owner' ? 'admin_owner' : role === 'leader' ? 'admin_leader' : 'admin_finance');
     } catch (e) {
       console.warn('Supabase employees update error:', e);
     }
@@ -621,23 +634,131 @@ export function AuthProvider({ children }) {
     return { success: true, outlets: updated };
   };
 
-  // Login method (Hanya membaca karyawan riil terdaftar dari Supabase)
+  // Login method (Mendukung Staf, Admin Leader, & Admin Finance dari 1 Pintu Login)
   const login = async (phone, pin) => {
     setLoading(true);
     try {
+      const cleanPhone = (phone || '').trim();
+      const cleanPin = (pin || '').trim();
+
+      // 0. Akun Default / Uji Coba untuk Owner
+      const isDefaultOwner =
+        ['081100000000', '081200000000', '081234567890'].includes(cleanPhone) &&
+        [adminPins?.owner, '123123', '000000'].includes(cleanPin);
+
+      if (isDefaultOwner) {
+        const ownerData = {
+          id: 'admin-owner-default',
+          employee_id: 'OWNER_01',
+          full_name: 'Bapak / Ibu Owner',
+          phone: cleanPhone,
+          pin: cleanPin,
+          role: 'admin_owner',
+          position: 'Owner & Executive Director',
+          branch: '3 Pillar All Outlets',
+        };
+        setUser(ownerData);
+        setAdminRole('owner');
+        localStorage.setItem('pwa_presensi_user', JSON.stringify(ownerData));
+        return { success: true, user: ownerData };
+      }
+
+      // 1. Akun Default / Uji Coba untuk Admin Leader
+      const isDefaultLeader =
+        ['081122334455', '081200000001', '081234567891'].includes(cleanPhone) &&
+        [adminPins?.leader, '987321', '112233'].includes(cleanPin);
+
+      if (isDefaultLeader) {
+        const leaderData = {
+          id: 'admin-leader-default',
+          employee_id: 'ADM_LDR1',
+          full_name: 'Admin Leader Operational',
+          phone: cleanPhone,
+          pin: cleanPin,
+          role: 'admin_leader',
+          position: 'Operational Area Leader',
+          branch: '3 Pillar HQ',
+        };
+        setUser(leaderData);
+        setAdminRole('leader');
+        localStorage.setItem('pwa_presensi_user', JSON.stringify(leaderData));
+        return { success: true, user: leaderData };
+      }
+
+      // 2. Akun Default / Uji Coba untuk Admin Finance
+      const isDefaultFinance =
+        ['081199887766', '081200000002', '081234567892'].includes(cleanPhone) &&
+        [adminPins?.finance, '020103', '445566'].includes(cleanPin);
+
+      if (isDefaultFinance) {
+        const financeData = {
+          id: 'admin-finance-default',
+          employee_id: 'ADM_FIN1',
+          full_name: 'Admin Finance Payroll',
+          phone: cleanPhone,
+          pin: cleanPin,
+          role: 'admin_finance',
+          position: 'Finance & Payroll Manager',
+          branch: '3 Pillar HQ',
+        };
+        setUser(financeData);
+        setAdminRole('finance');
+        localStorage.setItem('pwa_presensi_user', JSON.stringify(financeData));
+        return { success: true, user: financeData };
+      }
+
+      // 2.5 Akun Default / Uji Coba untuk Kasir Outlet
+      const isDefaultCashier =
+        ['081234567800', '081299880011'].includes(cleanPhone) &&
+        ['123456', '000000'].includes(cleanPin);
+
+      if (isDefaultCashier) {
+        const cashierData = {
+          id: 'demo-cashier-lazybloom',
+          employee_id: 'KASIR_01',
+          full_name: 'Siti Rahma',
+          phone: cleanPhone,
+          pin: cleanPin,
+          role: 'staff',
+          position: 'Kasir Outlet',
+          branch: 'LazyBloom',
+          birth_date: '12 Mei 2001',
+          address: 'Jl. Melati No. 45, Outlet Area',
+        };
+        setUser(cashierData);
+        setAdminRole(null);
+        localStorage.setItem('pwa_presensi_user', JSON.stringify(cashierData));
+        await loadAttendanceAndLeave(cashierData);
+        return { success: true, user: cashierData };
+      }
+
+      // 3. Query Karyawan / Admin terdaftar dari Supabase
       const { data, error } = await supabase
         .from('employees')
         .select('*')
-        .eq('phone', phone.trim())
-        .eq('pin', pin.trim())
+        .eq('phone', cleanPhone)
+        .eq('pin', cleanPin)
         .maybeSingle();
 
       if (!error && data) {
+        // Cek status aktif/nonaktif karyawan (karyawan keluar/resign)
+        if (data.status === 'inactive' || data.status === 'nonaktif' || data.is_active === false) {
+          return {
+            success: false,
+            error: 'Akun karyawan ini telah dinonaktifkan (status keluar/resign). Hubungi Leader atau Owner untuk info lebih lanjut.',
+          };
+        }
+
         setUser(data);
-        if (data.role === 'admin_leader') {
+        const userRole = (data.role || '').toLowerCase();
+        if (userRole === 'admin_owner' || userRole === 'owner') {
+          setAdminRole('owner');
+        } else if (userRole === 'admin_leader' || userRole === 'leader') {
           setAdminRole('leader');
-        } else if (data.role === 'admin_finance') {
+        } else if (userRole === 'admin_finance' || userRole === 'finance') {
           setAdminRole('finance');
+        } else {
+          setAdminRole(null);
         }
         localStorage.setItem('pwa_presensi_user', JSON.stringify(data));
         await loadAttendanceAndLeave(data);
@@ -646,7 +767,7 @@ export function AuthProvider({ children }) {
 
       return {
         success: false,
-        error: 'Nomor HP atau PIN salah. Pastikan karyawan sudah didaftarkan oleh Admin Leader.',
+        error: 'Nomor HP atau PIN salah. Pastikan akun sudah didaftarkan.',
       };
     } catch (err) {
       return { success: false, error: 'Gagal melakukan login. Silakan coba lagi.' };

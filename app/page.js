@@ -1,16 +1,46 @@
 'use client';
 
 import React from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '@/context/AuthContext';
 import LoginCard from '@/components/LoginCard';
 import HomeDashboard from '@/components/HomeDashboard';
-import AdminLeaderDashboard from '@/components/AdminLeaderDashboard';
-import AdminFinanceDashboard from '@/components/AdminFinanceDashboard';
 import BrandLogo from '@/components/BrandLogo';
 import { Loader2 } from 'lucide-react';
 
+// Lazy-load dashboard admin agar bundle login & staf tetap sangat ringan
+const AdminLeaderDashboard = dynamic(() => import('@/components/AdminLeaderDashboard'), {
+  loading: () => (
+    <div className="flex items-center justify-center min-h-screen text-xs text-slate-500 font-semibold gap-2">
+      <Loader2 className="w-4 h-4 animate-spin text-[#F97316]" />
+      <span>Memuat Dashboard Leader...</span>
+    </div>
+  ),
+  ssr: false,
+});
+
+const AdminFinanceDashboard = dynamic(() => import('@/components/AdminFinanceDashboard'), {
+  loading: () => (
+    <div className="flex items-center justify-center min-h-screen text-xs text-slate-500 font-semibold gap-2">
+      <Loader2 className="w-4 h-4 animate-spin text-[#2563EB]" />
+      <span>Memuat Dashboard Finance...</span>
+    </div>
+  ),
+  ssr: false,
+});
+
+const AdminOwnerDashboard = dynamic(() => import('@/components/AdminOwnerDashboard'), {
+  loading: () => (
+    <div className="flex items-center justify-center min-h-screen text-xs text-slate-500 font-semibold gap-2">
+      <Loader2 className="w-4 h-4 animate-spin text-[#EA580C]" />
+      <span>Memuat Dashboard Owner...</span>
+    </div>
+  ),
+  ssr: false,
+});
+
 export default function MainPage() {
-  const { user, loading, adminRole, setAdminRole } = useAuth();
+  const { user, loading, adminRole, logout } = useAuth();
 
   if (loading) {
     return (
@@ -24,20 +54,29 @@ export default function MainPage() {
     );
   }
 
-  // Jika Mode Admin Leader aktif
-  if (adminRole === 'leader') {
+  // Jika Akun Owner aktif
+  if (adminRole === 'owner') {
     return (
       <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
-        <AdminLeaderDashboard onBack={() => setAdminRole(null)} />
+        <AdminOwnerDashboard onBack={logout} />
       </div>
     );
   }
 
-  // Jika Mode Admin Finance aktif
+  // Jika Akun Admin Leader aktif
+  if (adminRole === 'leader') {
+    return (
+      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
+        <AdminLeaderDashboard onBack={logout} />
+      </div>
+    );
+  }
+
+  // Jika Akun Admin Finance aktif
   if (adminRole === 'finance') {
     return (
       <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
-        <AdminFinanceDashboard onBack={() => setAdminRole(null)} />
+        <AdminFinanceDashboard onBack={logout} />
       </div>
     );
   }
