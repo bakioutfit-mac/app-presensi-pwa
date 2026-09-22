@@ -31,6 +31,7 @@ import {
   KeyRound,
   MessageCircle,
   Search,
+  Phone,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -234,7 +235,6 @@ export default function AdminLeaderDashboard({ onBack }) {
               position: e.position || 'Staff',
               branch: e.branch || 'LazyBloom',
               phone: e.phone,
-              pin: e.pin,
               status: e.status || (e.is_active === false ? 'inactive' : 'active'),
               is_active: e.is_active !== false && e.status !== 'inactive' && e.status !== 'nonaktif',
               birth_date: e.birth_date,
@@ -482,7 +482,6 @@ export default function AdminLeaderDashboard({ onBack }) {
           position: newStaff.position,
           branch: newStaff.branch,
           phone: newStaff.phone.trim(),
-          pin: newStaff.pin.trim(),
           status: 'active',
           is_active: true,
           selected: false,
@@ -1999,12 +1998,11 @@ export default function AdminLeaderDashboard({ onBack }) {
                             </span>
                           </div>
 
-                          {/* Bottom Row: Account Details & Action Button */}
+                          {/* Bottom Row: Contact Details & Action Button */}
                           <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2 flex-wrap text-xs">
-                            <div className="flex items-center gap-3 text-slate-600 text-[11px] font-mono">
-                              <span>📱 {staff.phone || '-'}</span>
-                              <span className="text-slate-300">|</span>
-                              <span>🔑 PIN: {staff.pin || '123456'}</span>
+                            <div className="flex items-center gap-1.5 text-slate-600 text-[11px] font-mono">
+                              <Phone className="w-3.5 h-3.5 text-slate-400" />
+                              <span>{staff.phone || '-'}</span>
                             </div>
 
                             {/* Action Button: Nonaktifkan (Keluar) OR Aktifkan Kembali */}
