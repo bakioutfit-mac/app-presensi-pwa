@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Phone, Lock, AlertCircle, Loader2, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import BrandLogo from './BrandLogo';
+import PwaInstallButton from './PwaInstallButton';
 
 export default function LoginCard() {
   const { login } = useAuth();
@@ -136,8 +137,13 @@ export default function LoginCard() {
         </div>
       </div>
 
+      {/* Subtle PWA Install Button */}
+      <div className="mt-4 flex justify-center">
+        <PwaInstallButton />
+      </div>
+
       {/* Footer Branding */}
-      <p className="mt-6 text-xs text-slate-600 font-medium text-center">
+      <p className="mt-3 text-xs text-slate-600 font-medium text-center">
         3 Pillar Management &bull; LazyBloom &bull; Deru Ombak &bull; Sea Cafe
       </p>
     </div>

@@ -27,6 +27,7 @@ import PayslipTab from './tabs/PayslipTab';
 import AttendanceHistoryTab from './tabs/AttendanceHistoryTab';
 import CashierReportTab from './tabs/CashierReportTab';
 import BrandLogo from './BrandLogo';
+import PwaInstallButton from './PwaInstallButton';
 import { getLocalDateString } from '@/lib/date';
 
 // Resto Coordinates fallback
@@ -654,6 +655,11 @@ export default function HomeDashboard() {
 
       {/* TAB 5: DAFTAR HADIR */}
       {activeTab === 'history' && <AttendanceHistoryTab />}
+
+      {/* Subtle PWA Install Button */}
+      <div className="mt-8 mb-2 flex justify-center">
+        <PwaInstallButton />
+      </div>
 
       {/* MODALS */}
       <ProfileModal
