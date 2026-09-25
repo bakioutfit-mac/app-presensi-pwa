@@ -50,6 +50,46 @@ import { getLocalDateString, parseLocalDate } from '@/lib/date';
 import { formatRupiah } from '@/lib/currency';
 import BrandLogo from './BrandLogo';
 
+const MONTH_NAMES = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
+
+const getPeriodLabel = (dateString) => {
+  if (!dateString) return 'Periode Tidak Diketahui';
+  const str = String(dateString);
+  let year, month;
+  if (str.includes('T')) {
+    const d = new Date(str);
+    year = d.getFullYear();
+    month = d.getMonth();
+  } else {
+    const parts = str.split('-');
+    if (parts.length >= 3) {
+      year = parts[0];
+      month = parseInt(parts[1], 10) - 1;
+    } else {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        year = d.getFullYear();
+        month = d.getMonth();
+      }
+    }
+  }
+  if (isNaN(year) || isNaN(month)) return 'Periode Tidak Diketahui';
+  return `${MONTH_NAMES[month]} ${year}`;
+};
+
+const groupDataByPeriod = (data, dateField) => {
+  const grouped = {};
+  data.forEach((item) => {
+    const label = getPeriodLabel(item[dateField]);
+    if (!grouped[label]) grouped[label] = [];
+    grouped[label].push(item);
+  });
+  return grouped;
+};
+
 export default function AdminOwnerDashboard({ onBack }) {
   const {
     user,
@@ -60,6 +100,7 @@ export default function AdminOwnerDashboard({ onBack }) {
     lateCorrections,
     approveLateCorrection,
     rejectLateCorrection,
+    loadLateCorrections,
     approveLeaveRequest,
     rejectLeaveRequest,
   } = useAuth();
@@ -69,6 +110,17 @@ export default function AdminOwnerDashboard({ onBack }) {
 
   // Subtab for Approvals: 'leaves' | 'corrections'
   const [approvalSubTab, setApprovalSubTab] = useState('leaves');
+
+  // Accordion state for grouping
+  const [expandedLeavePeriods, setExpandedLeavePeriods] = useState({});
+  const toggleLeavePeriod = (period) => {
+    setExpandedLeavePeriods((prev) => ({ ...prev, [period]: !prev[period] }));
+  };
+
+  const [expandedCorrectionPeriods, setExpandedCorrectionPeriods] = useState({});
+  const toggleCorrectionPeriod = (period) => {
+    setExpandedCorrectionPeriods((prev) => ({ ...prev, [period]: !prev[period] }));
+  };
 
   // Outlet Filter
   const [selectedOutlet, setSelectedOutlet] = useState('all');
@@ -308,9 +360,20 @@ export default function AdminOwnerDashboard({ onBack }) {
     }
   };
 
+  const [loadingCorrections, setLoadingCorrections] = useState(false);
+
+  const handleRefreshCorrections = async () => {
+    setLoadingCorrections(true);
+    if (typeof loadLateCorrections === 'function') {
+      await loadLateCorrections();
+    }
+    setLoadingCorrections(false);
+  };
+
   useEffect(() => {
     if (activeTab === 'approvals') {
       fetchLeaves();
+      handleRefreshCorrections();
     }
   }, [activeTab]);
 
@@ -1513,81 +1576,100 @@ export default function AdminOwnerDashboard({ onBack }) {
                   Tidak ada pengajuan izin dalam status ini.
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {filteredLeaves.map((l) => {
-                    const staffName = l.employees?.full_name || 'Staf';
-                    const branch = l.branch || l.employees?.branch || 'LazyBloom';
-
+                <div className="space-y-4">
+                  {Object.entries(groupDataByPeriod(filteredLeaves, 'start_date')).map(([period, items]) => {
+                    const isExpanded = expandedLeavePeriods[period] !== false;
                     return (
-                      <div
-                        key={l.id}
-                        className="p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-2.5"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="text-xs font-extrabold text-slate-900 block">{staffName}</span>
-                            <span className="text-[10px] text-slate-500 font-medium">
-                              {branch} &bull; {l.employees?.position || 'Staff'}
-                            </span>
-                          </div>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                              l.status === 'Disetujui'
-                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                : l.status === 'Ditolak'
-                                ? 'bg-rose-100 text-rose-800 border-rose-300'
-                                : 'bg-amber-100 text-amber-800 border-amber-300'
-                            }`}
-                          >
-                            {l.status}
-                          </span>
-                        </div>
+                      <div key={period} className="bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => toggleLeavePeriod(period)}
+                          className="w-full p-3.5 bg-slate-100 flex items-center justify-between hover:bg-slate-200 transition cursor-pointer"
+                        >
+                          <span className="font-extrabold text-slate-800 text-xs">{period} ({items.length})</span>
+                          {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                        </button>
+                        {isExpanded && (
+                          <div className="p-3.5 space-y-3">
+                            {items.map((l) => {
+                              const staffName = l.employees?.full_name || 'Staf';
+                              const branch = l.branch || l.employees?.branch || 'LazyBloom';
 
-                        <div className="bg-white p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
-                          <div className="flex items-center justify-between text-slate-700">
-                            <span className="font-bold text-slate-800">{l.leave_type}</span>
-                            <span className="text-[10px] text-slate-500">
-                              {l.start_date} {l.end_date && l.end_date !== l.start_date ? `s/d ${l.end_date}` : ''}
-                            </span>
-                          </div>
-                          <p className="text-slate-600 text-[11px] leading-relaxed italic">
-                            &ldquo;{l.reason || 'Tidak ada alasan khusus'}&rdquo;
-                          </p>
+                              return (
+                                <div
+                                  key={l.id}
+                                  className="p-3.5 bg-white rounded-2xl border border-slate-200/80 space-y-2.5 shadow-sm"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <span className="text-xs font-extrabold text-slate-900 block">{staffName}</span>
+                                      <span className="text-[10px] text-slate-500 font-medium">
+                                        {branch} &bull; {l.employees?.position || 'Staff'}
+                                      </span>
+                                    </div>
+                                    <span
+                                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                        l.status === 'Disetujui'
+                                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                          : l.status === 'Ditolak'
+                                          ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                                      }`}
+                                    >
+                                      {l.status}
+                                    </span>
+                                  </div>
 
-                          {/* Tombol Preview Dokumen */}
-                          {l.document_url && (
-                            <div className="pt-1">
-                              <button
-                                type="button"
-                                onClick={() => setPreviewDocUrl(l.document_url)}
-                                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                                <span>Lihat Lampiran / Surat Dokter</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                                  <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
+                                    <div className="flex items-center justify-between text-slate-700">
+                                      <span className="font-bold text-slate-800">{l.leave_type}</span>
+                                      <span className="text-[10px] text-slate-500">
+                                        {l.start_date} {l.end_date && l.end_date !== l.start_date ? `s/d ${l.end_date}` : ''}
+                                      </span>
+                                    </div>
+                                    <p className="text-slate-600 text-[11px] leading-relaxed italic">
+                                      &ldquo;{l.reason || 'Tidak ada alasan khusus'}&rdquo;
+                                    </p>
 
-                        {/* Action Buttons */}
-                        {l.status === 'Menunggu' && (
-                          <div className="flex items-center gap-2 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => handleApproveLeave(l.id, staffName)}
-                              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Setujui Izin</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenRejectModal('leave', l.id, staffName)}
-                              className="flex-1 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                              <span>Tolak Izin</span>
-                            </button>
+                                    {/* Tombol Preview Dokumen */}
+                                    {l.document_url && (
+                                      <div className="pt-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => setPreviewDocUrl(l.document_url)}
+                                          className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                                        >
+                                          <Eye className="w-3.5 h-3.5" />
+                                          <span>Lihat Lampiran / Surat Dokter</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Action Buttons */}
+                                  {l.status === 'Menunggu' && (
+                                    <div className="flex items-center gap-2 pt-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApproveLeave(l.id, staffName)}
+                                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                                      >
+                                        <Check className="w-3.5 h-3.5" />
+                                        <span>Setujui Izin</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenRejectModal('leave', l.id, staffName)}
+                                        className="flex-1 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                        <span>Tolak Izin</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -1611,85 +1693,118 @@ export default function AdminOwnerDashboard({ onBack }) {
                     Hanya Owner yang berhak menyetujui koreksi dan membebaskan denda keterlambatan (Rp 10.000).
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleRefreshCorrections}
+                  disabled={loadingCorrections}
+                  className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition cursor-pointer"
+                  title="Segarkan data koreksi"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingCorrections ? 'animate-spin text-[#EA580C]' : ''}`} />
+                </button>
               </div>
 
-              {(!lateCorrections || lateCorrections.length === 0) ? (
+              {loadingCorrections ? (
+                <div className="py-12 text-center text-xs text-slate-400 font-semibold flex items-center justify-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-[#EA580C]" />
+                  <span>Memuat pengajuan koreksi...</span>
+                </div>
+              ) : (!lateCorrections || lateCorrections.length === 0) ? (
                 <div className="py-10 text-center text-xs text-slate-400">
                   Belum ada pengajuan koreksi keterlambatan dari staf.
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {lateCorrections.map((c) => (
-                    <div
-                      key={c.id}
-                      className="p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-2.5"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <span className="text-xs font-extrabold text-slate-900 block">
-                            {c.employee_name || 'Staf'}
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-medium">
-                            {c.branch} &bull; Tanggal: {c.attendance_date}
-                          </span>
-                        </div>
-                        <span
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                            c.status === 'approved'
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                              : c.status === 'rejected'
-                              ? 'bg-rose-100 text-rose-800 border-rose-300'
-                              : 'bg-amber-100 text-amber-800 border-amber-300'
-                          }`}
+                <div className="space-y-4">
+                  {Object.entries(groupDataByPeriod(lateCorrections, 'attendance_date')).map(([period, items]) => {
+                    const isExpanded = expandedCorrectionPeriods[period] !== false;
+                    return (
+                      <div key={period} className="bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => toggleCorrectionPeriod(period)}
+                          className="w-full p-3.5 bg-slate-100 flex items-center justify-between hover:bg-slate-200 transition cursor-pointer"
                         >
-                          {c.status === 'approved'
-                            ? 'Disetujui (Bebas Denda)'
-                            : c.status === 'rejected'
-                            ? 'Ditolak'
-                            : 'Menunggu Owner'}
-                        </span>
-                      </div>
+                          <span className="font-extrabold text-slate-800 text-xs">{period} ({items.length})</span>
+                          {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                        </button>
+                        {isExpanded && (
+                          <div className="p-3.5 space-y-3">
+                            {items.map((c) => (
+                              <div
+                                key={c.id}
+                                className="p-3.5 bg-white rounded-2xl border border-slate-200/80 space-y-2.5 shadow-sm"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <span className="text-xs font-extrabold text-slate-900 block">
+                                      {c.employee_name || 'Staf'}
+                                    </span>
+                                    <span className="text-[10px] text-slate-500 font-medium">
+                                      {c.branch} &bull; Tanggal: {c.attendance_date}
+                                    </span>
+                                  </div>
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                      c.status === 'approved'
+                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                        : c.status === 'rejected'
+                                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                                    }`}
+                                  >
+                                    {c.status === 'approved'
+                                      ? 'Disetujui (Bebas Denda)'
+                                      : c.status === 'rejected'
+                                      ? 'Ditolak'
+                                      : 'Menunggu Owner'}
+                                  </span>
+                                </div>
 
-                      <div className="bg-white p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
-                        <div className="flex items-center justify-between text-slate-700">
-                          <span className="font-bold text-rose-600">Denda Asli: Rp 10.000</span>
-                          <span className="text-[10px] text-slate-500">
-                            Masuk: {c.check_in_time ? new Date(c.check_in_time).toLocaleTimeString('id-ID') : '-'}
-                          </span>
-                        </div>
-                        <p className="text-slate-600 text-[11px] leading-relaxed italic">
-                          Alasan Staf: &ldquo;{c.reason || 'Tidak ada alasan khusus'}&rdquo;
-                        </p>
-                        {c.review_notes && (
-                          <p className="text-[10px] text-slate-500 border-t border-slate-100 pt-1 mt-1">
-                            Catatan Keputusan: {c.review_notes}
-                          </p>
+                                <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
+                                  <div className="flex items-center justify-between text-slate-700">
+                                    <span className="font-bold text-rose-600">Denda Asli: Rp 10.000</span>
+                                    <span className="text-[10px] text-slate-500">
+                                      Masuk: {c.check_in_time ? new Date(c.check_in_time).toLocaleTimeString('id-ID') : '-'}
+                                    </span>
+                                  </div>
+                                  <p className="text-slate-600 text-[11px] leading-relaxed italic">
+                                    Alasan Staf: &ldquo;{c.reason || 'Tidak ada alasan khusus'}&rdquo;
+                                  </p>
+                                  {c.review_notes && (
+                                    <p className="text-[10px] text-slate-500 border-t border-slate-100 pt-1 mt-1">
+                                      Catatan Keputusan: {c.review_notes}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Action Buttons for Owner */}
+                                {c.status === 'pending' && (
+                                  <div className="flex items-center gap-2 pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApproveCorrection(c.id, c.employee_name)}
+                                      className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>Setujui &amp; Hapus Denda</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenRejectModal('correction', c.id, c.employee_name)}
+                                      className="flex-1 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                      <span>Tolak Koreksi</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
-
-                      {/* Action Buttons for Owner */}
-                      {c.status === 'pending' && (
-                        <div className="flex items-center gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleApproveCorrection(c.id, c.employee_name)}
-                            className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Setujui &amp; Hapus Denda</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenRejectModal('correction', c.id, c.employee_name)}
-                            className="flex-1 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>Tolak Koreksi</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
