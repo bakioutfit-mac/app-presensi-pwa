@@ -272,6 +272,22 @@ export default function OwnerMonitoringTab({ user, outlets, selectedOutlet, setS
             )}
           </div>
         </div>
+
+        {/* ================= MODAL PREVIEW FOTO SELFIE ================= */}
+        {photoPreview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200">
+            <div className="relative max-w-sm w-full bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-800 p-2">
+              <button
+                type="button"
+                onClick={() => setPhotoPreview(null)}
+                className="absolute top-4 right-4 z-10 p-2 bg-black/60 text-white rounded-full hover:bg-black transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <img src={photoPreview} alt="Selfie Absensi" className="w-full h-auto rounded-2xl object-contain max-h-[80vh]" />
+            </div>
+          </div>
+        )}
     </>
   );
 }
