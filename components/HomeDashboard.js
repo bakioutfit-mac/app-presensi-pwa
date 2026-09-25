@@ -279,28 +279,15 @@ export default function HomeDashboard() {
         <p className="text-[11px] text-slate-400 mt-0.5 font-medium">{getFormattedDate()}</p>
 
         {/* Top Control Icons (Settings Left, Logout Right) */}
-        <div className="absolute top-6 left-6 flex items-center gap-2">
+        <div className="absolute top-6 left-6">
           <button
             type="button"
             onClick={() => setProfileOpen(true)}
-            className="p-2.5 rounded-full text-slate-600 bg-slate-100 hover:bg-slate-200 shadow-xs transition shrink-0"
+            className="p-2.5 rounded-full text-slate-600 bg-slate-100 hover:bg-slate-200 shadow-xs transition"
             title="Profile Settings"
           >
             <Settings className="w-4 h-4" />
           </button>
-          
-          {/* Mode Leader Button */}
-          {user?.role?.includes('leader') && (
-            <button
-              type="button"
-              onClick={() => setAdminRole('leader')}
-              className="px-3 py-1.5 rounded-full text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs transition text-xs font-bold flex items-center gap-1 shrink-0"
-              title="Beralih ke Dashboard Leader"
-            >
-              <Crown className="w-3.5 h-3.5" />
-              Mode Leader
-            </button>
-          )}
         </div>
 
         <div className="absolute top-6 right-6 flex items-center gap-2">
@@ -329,6 +316,21 @@ export default function HomeDashboard() {
             )}
           </div>
         </div>
+
+        {/* Mode Leader Button (Pojok Kanan Bawah Dekat Avatar) */}
+        {user?.role?.includes('leader') && (
+          <div className="absolute right-6 -bottom-5">
+            <button
+              type="button"
+              onClick={() => setAdminRole('leader')}
+              className="px-3 py-2 rounded-full text-white bg-indigo-600 hover:bg-indigo-700 shadow-md border-2 border-white transition text-[10px] font-black flex items-center gap-1.5"
+              title="Beralih ke Dashboard Leader"
+            >
+              <Crown className="w-3.5 h-3.5" />
+              MODE LEADER
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Navigation Tabs (Row of buttons: 4 for regular staff, 5 for Kasir) */}
