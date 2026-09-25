@@ -248,10 +248,10 @@ export function AuthProvider({ children }) {
           const r = (parsed.role || '').toLowerCase();
           if (r === 'admin_owner' || r === 'owner') {
             setAdminRole('owner');
-          } else if (r === 'admin_leader' || r === 'leader') {
-            setAdminRole('leader');
           } else if (r === 'admin_finance' || r === 'finance') {
             setAdminRole('finance');
+          } else {
+            setAdminRole('');
           }
         }
       }
@@ -680,7 +680,7 @@ export function AuthProvider({ children }) {
           branch: '3 Pillar HQ',
         };
         setUser(leaderData);
-        setAdminRole('leader');
+        setAdminRole(''); // Leader mulai dari staf
         localStorage.setItem('pwa_presensi_user', JSON.stringify(leaderData));
         return { success: true, user: leaderData };
       }
@@ -753,12 +753,10 @@ export function AuthProvider({ children }) {
         const userRole = (data.role || '').toLowerCase();
         if (userRole === 'admin_owner' || userRole === 'owner') {
           setAdminRole('owner');
-        } else if (userRole === 'admin_leader' || userRole === 'leader') {
-          setAdminRole('leader');
         } else if (userRole === 'admin_finance' || userRole === 'finance') {
           setAdminRole('finance');
         } else {
-          setAdminRole(null);
+          setAdminRole('');
         }
         localStorage.setItem('pwa_presensi_user', JSON.stringify(data));
         await loadAttendanceAndLeave(data);

@@ -40,7 +40,7 @@ const AdminOwnerDashboard = dynamic(() => import('@/components/AdminOwnerDashboa
 });
 
 export default function MainPage() {
-  const { user, loading, adminRole, logout } = useAuth();
+  const { user, loading, adminRole, setAdminRole, logout } = useAuth();
 
   if (loading) {
     return (
@@ -67,7 +67,7 @@ export default function MainPage() {
   if (adminRole === 'leader') {
     return (
       <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
-        <AdminLeaderDashboard onBack={logout} />
+        <AdminLeaderDashboard onBack={() => setAdminRole('')} />
       </div>
     );
   }

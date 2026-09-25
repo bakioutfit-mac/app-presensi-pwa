@@ -16,6 +16,7 @@ import {
   Clock,
   Shirt,
   Receipt,
+  Crown,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -43,6 +44,7 @@ export default function HomeDashboard() {
     userOutlet,
     currentOutlet,
     logout,
+    setAdminRole,
     todayAttendance,
     activeLeave,
     outlets,
@@ -277,18 +279,32 @@ export default function HomeDashboard() {
         <p className="text-[11px] text-slate-400 mt-0.5 font-medium">{getFormattedDate()}</p>
 
         {/* Top Control Icons (Settings Left, Logout Right) */}
-        <div className="absolute top-6 left-6">
+        <div className="absolute top-6 left-6 flex items-center gap-2">
           <button
             type="button"
             onClick={() => setProfileOpen(true)}
-            className="p-2.5 rounded-full text-slate-600 bg-slate-100 hover:bg-slate-200 shadow-xs transition"
+            className="p-2.5 rounded-full text-slate-600 bg-slate-100 hover:bg-slate-200 shadow-xs transition shrink-0"
             title="Profile Settings"
           >
             <Settings className="w-4 h-4" />
           </button>
+          
+          {/* Mode Leader Button */}
+          {user?.role?.includes('leader') && (
+            <button
+              type="button"
+              onClick={() => setAdminRole('leader')}
+              className="px-3 py-1.5 rounded-full text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs transition text-xs font-bold flex items-center gap-1 shrink-0"
+              title="Beralih ke Dashboard Leader"
+            >
+              <Crown className="w-3.5 h-3.5" />
+              Mode Leader
+            </button>
+          )}
         </div>
 
-        <div className="absolute top-6 right-6">
+        <div className="absolute top-6 right-6 flex items-center gap-2">
+          {/* Logout Button */}
           <button
             type="button"
             onClick={logout}
