@@ -161,7 +161,7 @@ export function AuthProvider({ children }) {
     try {
       const { data, error } = await supabase
         .from('attendance_corrections')
-        .select('*')
+        .select('*, employees:employee_id(full_name, branch)')
         .order('created_at', { ascending: false });
       if (!error && data && data.length > 0) {
         all = data;

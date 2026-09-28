@@ -17,6 +17,9 @@ import {
   Shirt,
   Receipt,
   Crown,
+  ShoppingCart,
+  ListChecks,
+  Package,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -317,9 +320,24 @@ export default function HomeDashboard() {
           </div>
         </div>
 
-        {/* Mode Leader Button (Pojok Kanan Bawah Dekat Avatar) */}
+        {/* Button Minta Barang (Leader - Pojok Kiri Bawah) */}
         {user?.role?.includes('leader') && (
-          <div className="absolute right-6 -bottom-5">
+          <div className="absolute left-6 -bottom-5">
+            <button
+              type="button"
+              onClick={() => setAdminRole('leader_req')}
+              className="px-3 py-2 rounded-full text-white bg-amber-500 hover:bg-amber-600 shadow-md border-2 border-white transition text-[10px] font-black flex items-center gap-1.5"
+              title="Form Permintaan Barang ke Purchasing"
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              MINTA BARANG
+            </button>
+          </div>
+        )}
+
+        {/* Mode Leader / Purchasing / Gudang Buttons (Pojok Kanan Bawah Dekat Avatar) */}
+        <div className="absolute right-6 -bottom-5 flex flex-col gap-2">
+          {user?.role?.includes('leader') && (
             <button
               type="button"
               onClick={() => setAdminRole('leader')}
@@ -329,8 +347,32 @@ export default function HomeDashboard() {
               <Crown className="w-3.5 h-3.5" />
               MODE LEADER
             </button>
-          </div>
-        )}
+          )}
+
+          {user?.role?.includes('purchasing') && (
+            <button
+              type="button"
+              onClick={() => setAdminRole('purchasing')}
+              className="px-3 py-2 rounded-full text-white bg-emerald-600 hover:bg-emerald-700 shadow-md border-2 border-white transition text-[10px] font-black flex items-center gap-1.5"
+              title="Beralih ke Dashboard Purchasing"
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+              TASK PURCHASING
+            </button>
+          )}
+
+          {user?.role?.includes('gudang') && (
+            <button
+              type="button"
+              onClick={() => setAdminRole('gudang')}
+              className="px-3 py-2 rounded-full text-white bg-blue-600 hover:bg-blue-700 shadow-md border-2 border-white transition text-[10px] font-black flex items-center gap-1.5"
+              title="Beralih ke Master Stock Gudang"
+            >
+              <Package className="w-3.5 h-3.5" />
+              TASK GUDANG
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Navigation Tabs (Row of buttons: 4 for regular staff, 5 for Kasir) */}

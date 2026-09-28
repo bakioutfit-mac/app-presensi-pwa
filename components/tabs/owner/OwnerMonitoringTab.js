@@ -44,8 +44,12 @@ export default function OwnerMonitoringTab({ user, outlets, selectedOutlet, setS
       const leaveMap = new Map();
       (leavesData || []).forEach((l) => leaveMap.set(l.employee_id, l));
 
-      // Gabungkan data
-      const combined = (employeesData || []).map((emp) => {
+      // Gabungkan data HANYA untuk karyawan aktif
+      const activeEmployees = (employeesData || []).filter(emp => 
+        !(emp.is_active === false || emp.status === 'inactive' || emp.status === 'nonaktif')
+      );
+
+      const combined = activeEmployees.map((emp) => {
         const att = attMap.get(emp.id);
         const leave = leaveMap.get(emp.id);
 

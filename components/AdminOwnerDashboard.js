@@ -43,12 +43,17 @@ import {
   Banknote,
   TrendingUp,
   Wallet,
+  ShoppingCart,
+  Package,
+  ArrowUpCircle,
+  Archive,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getLocalDateString, parseLocalDate } from '@/lib/date';
 import { formatRupiah } from '@/lib/currency';
 import BrandLogo from './BrandLogo';
+import OwnerFinanceTab from './tabs/owner/OwnerFinanceTab';
 import OwnerMonitoringTab from './tabs/owner/OwnerMonitoringTab';
 
 const MONTH_NAMES = [
@@ -106,8 +111,8 @@ export default function AdminOwnerDashboard({ onBack }) {
     rejectLeaveRequest,
   } = useAuth();
 
-  // Active Tab: 'monitoring' | 'approvals' | 'gps' | 'security'
-  const [activeTab, setActiveTab] = useState('monitoring');
+  // Active Tab: 'home' | 'monitoring' | 'approvals' | 'gps' | 'security' | 'cashier'
+  const [activeTab, setActiveTab] = useState('home');
 
   // Subtab for Approvals: 'leaves' | 'corrections'
   const [approvalSubTab, setApprovalSubTab] = useState('leaves');
@@ -136,6 +141,9 @@ export default function AdminOwnerDashboard({ onBack }) {
   // ================= 1.5 OUTLET CASH REPORTS STATE =================
   const [cashierReports, setCashierReports] = useState([]);
   const [loadingCashierReports, setLoadingCashierReports] = useState(false);
+  const [monthlyOmset, setMonthlyOmset] = useState(0);
+  const [monthlyOmsetPeriod, setMonthlyOmsetPeriod] = useState('');
+  const [monthlyOmsetBreakdown, setMonthlyOmsetBreakdown] = useState({ lazyBloom: 0, deruOmbak: 0, seaCafe: 0 });
   const [selectedCashierOutlet, setSelectedCashierOutlet] = useState('all');
   const [cashierDateFilter, setCashierDateFilter] = useState(getLocalDateString());
   const [selectedReportDetail, setSelectedReportDetail] = useState(null);
@@ -191,9 +199,49 @@ export default function AdminOwnerDashboard({ onBack }) {
     }
   };
 
+  const fetchMonthlyOmset = async () => {
+    try {
+      const today = new Date();
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+      const startDateStr = firstDay.toLocaleDateString('en-CA');
+      const endDateStr = lastDay.toLocaleDateString('en-CA');
+      
+      const { data, error } = await supabase
+        .from('outlet_cash_reports')
+        .select('*')
+        .gte('report_date', startDateStr)
+        .lte('report_date', endDateStr);
+
+      if (!error && data) {
+        const activeData = data.filter(r => !r.is_archived);
+        const getOmset = (arr, name) => arr.filter(r => (r.branch || '').toLowerCase().replace(/\s/g, '') === name.toLowerCase().replace(/\s/g, ''))
+          .reduce((sum, r) => sum + (Number(r.total_income) || (Number(r.income_cash) || 0) + (Number(r.income_qris) || 0)), 0);
+
+        const total = activeData.reduce((sum, r) => sum + (Number(r.total_income) || (Number(r.income_cash) || 0) + (Number(r.income_qris) || 0)), 0);
+        setMonthlyOmset(total);
+        setMonthlyOmsetBreakdown({
+          lazyBloom: getOmset(activeData, 'LazyBloom'),
+          deruOmbak: getOmset(activeData, 'Deru Ombak'),
+          seaCafe: getOmset(activeData, 'Sea Cafe')
+        });
+      }
+
+      // Set string format e.g. "1 - 31 Agustus 2026"
+      const monthName = new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(today);
+      setMonthlyOmsetPeriod(`1 - ${lastDay.getDate()} ${monthName} ${today.getFullYear()}`);
+    } catch (err) {
+      console.warn('Fetch monthly omset error:', err);
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'cashier') {
+    if (activeTab === 'cashier' || activeTab === 'home') {
       fetchCashierReports();
+      if (activeTab === 'home') {
+        fetchMonthlyOmset();
+      }
     }
   }, [activeTab, cashierDateFilter]);
 
@@ -229,6 +277,42 @@ export default function AdminOwnerDashboard({ onBack }) {
       setVerifyingReportId(null);
     }
   };
+
+  const handleArchiveReport = async (report) => {
+    if (!report?.id) return;
+    if (!window.confirm(`Yakin ingin mengarsipkan / membatalkan laporan dari ${report.branch} ini? Laporan tidak akan dihitung di total omset.`)) return;
+    
+    try {
+      const { error } = await supabase
+        .from('outlet_cash_reports')
+        .update({ is_archived: true })
+        .eq('id', report.id);
+
+      if (error) console.warn('Supabase archive report warning:', error);
+
+      setCashierReports((prev) =>
+        prev.map((r) => (r.id === report.id ? { ...r, is_archived: true } : r))
+      );
+      
+      fetchMonthlyOmset();
+
+      try {
+        const local = JSON.parse(localStorage.getItem('pwa_outlet_cash_reports') || '[]');
+        const updated = local.map((r) => (r.id === report.id ? { ...r, is_archived: true } : r));
+        localStorage.setItem('pwa_outlet_cash_reports', JSON.stringify(updated));
+      } catch (e) {}
+
+      if (selectedReportDetail?.id === report.id) {
+        setSelectedReportDetail((prev) => ({ ...prev, is_archived: true }));
+      }
+
+      showToast('success', `Laporan berhasil diarsipkan.`);
+    } catch (e) {
+      showToast('error', 'Gagal mengarsipkan laporan.');
+    }
+  };
+
+
 
   // ================= 2. APPROVALS STATE =================
   const [leaveRequests, setLeaveRequests] = useState([]);
@@ -416,6 +500,7 @@ export default function AdminOwnerDashboard({ onBack }) {
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [selectedStaffOutlet, setSelectedStaffOutlet] = useState('all');
   const [pinModalStaff, setPinModalStaff] = useState(null); // { id, full_name, phone, branch, pin, newPin }
+  const [modalEditStaff, setModalEditStaff] = useState(null); // { id, full_name, phone, is_active }
   const [resettingStaffId, setResettingStaffId] = useState(null);
   const [revealedPins, setRevealedPins] = useState({});
 
@@ -463,7 +548,7 @@ export default function AdminOwnerDashboard({ onBack }) {
       const { data, error } = await supabase
         .from('employees')
         .select('*')
-        .in('role', ['owner', 'admin_owner', 'admin_leader', 'admin_finance', 'leader', 'finance'])
+        .neq('role', 'staff')
         .order('full_name', { ascending: true });
 
       if (!error && data) {
@@ -668,6 +753,29 @@ export default function AdminOwnerDashboard({ onBack }) {
     }
   };
 
+  const handleUpdateStaff = async (e) => {
+    e.preventDefault();
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({
+          full_name: modalEditStaff.full_name,
+          phone: modalEditStaff.phone,
+          is_active: modalEditStaff.is_active,
+          status: modalEditStaff.is_active ? 'active' : 'inactive',
+          role: modalEditStaff.role,
+        })
+        .eq('id', modalEditStaff.id);
+
+      if (error) throw error;
+      showToast('success', 'Profil staf berhasil diperbarui');
+      setModalEditStaff(null);
+      fetchStaffList(); // refresh
+    } catch (err) {
+      showToast('error', 'Gagal update profil staf: ' + err.message);
+    }
+  };
+
   const toggleRevealPin = (staffId) => {
     setRevealedPins((prev) => ({
       ...prev,
@@ -681,6 +789,10 @@ export default function AdminOwnerDashboard({ onBack }) {
     return clean;
   };
 
+  if (activeTab === 'finance') {
+    return <OwnerFinanceTab user={user} onBack={() => setActiveTab('home')} showToast={showToast} />;
+  }
+
   return (
     <div className="space-y-4 animate-in fade-in duration-200 pb-12">
       {/* ================= HEADER BAR ================= */}
@@ -688,9 +800,9 @@ export default function AdminOwnerDashboard({ onBack }) {
         <div className="flex items-center gap-3.5">
           <button
             type="button"
-            onClick={onBack}
+            onClick={() => activeTab === 'home' ? onBack() : setActiveTab('home')}
             className="p-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white shadow-xs transition active:scale-95 cursor-pointer"
-            title="Keluar / Kembali ke Login"
+            title={activeTab === 'home' ? "Keluar / Kembali ke Login" : "Kembali ke Beranda"}
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
@@ -728,79 +840,226 @@ export default function AdminOwnerDashboard({ onBack }) {
       )}
 
       {/* ================= 5 PRIMARY TABS NAVIGATION ================= */}
-      <div className="grid grid-cols-5 gap-1 bg-slate-200/80 p-1.5 rounded-2xl shadow-inner">
-        <button
-          type="button"
-          onClick={() => setActiveTab('monitoring')}
-          className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 cursor-pointer ${
-            activeTab === 'monitoring'
-              ? 'bg-white text-slate-900 shadow-sm font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Activity className="w-4 h-4 text-[#F97316]" />
-          <span className="truncate">Monitoring</span>
-        </button>
+      {activeTab !== 'home' && (
+        <div className="grid grid-cols-5 gap-1 bg-slate-200/80 p-1.5 rounded-2xl shadow-inner mb-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('monitoring')}
+            className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 cursor-pointer ${
+              activeTab === 'monitoring'
+                ? 'bg-white text-slate-900 shadow-sm font-black'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Activity className="w-4 h-4 text-[#F97316]" />
+            <span className="truncate">Monitoring</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('cashier')}
-          className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 cursor-pointer ${
-            activeTab === 'cashier'
-              ? 'bg-white text-slate-900 shadow-sm font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Banknote className="w-4 h-4 text-emerald-600" />
-          <span className="truncate">Kas Outlet</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('cashier')}
+            className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 cursor-pointer ${
+              activeTab === 'cashier'
+                ? 'bg-white text-slate-900 shadow-sm font-black'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Banknote className="w-4 h-4 text-emerald-600" />
+            <span className="truncate">Kas Outlet</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('approvals')}
-          className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 relative cursor-pointer ${
-            activeTab === 'approvals'
-              ? 'bg-white text-slate-900 shadow-sm font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <div className="relative">
-            <CheckCircle2 className="w-4 h-4 text-[#2563EB]" />
-            {(pendingLeaves.length > 0 || pendingCorrections.length > 0) && (
-              <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white animate-pulse">
-                {pendingLeaves.length + pendingCorrections.length}
-              </span>
-            )}
+          <button
+            type="button"
+            onClick={() => setActiveTab('approvals')}
+            className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 relative cursor-pointer ${
+              activeTab === 'approvals'
+                ? 'bg-white text-slate-900 shadow-sm font-black'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <div className="relative">
+              <CheckCircle2 className="w-4 h-4 text-[#2563EB]" />
+              {(pendingLeaves.length > 0 || pendingCorrections.length > 0) && (
+                <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white animate-pulse">
+                  {pendingLeaves.length + pendingCorrections.length}
+                </span>
+              )}
+            </div>
+            <span className="truncate">Persetujuan</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('gps')}
+            className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 cursor-pointer ${
+              activeTab === 'gps'
+                ? 'bg-white text-slate-900 shadow-sm font-black'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <MapPin className="w-4 h-4 text-teal-600" />
+            <span className="truncate">Titik GPS</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 cursor-pointer ${
+              activeTab === 'security'
+                ? 'bg-white text-slate-900 shadow-sm font-black'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <KeyRound className="w-4 h-4 text-purple-600" />
+            <span className="truncate">Kelola Staff</span>
+          </button>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ======================= TAB 0: HOME / OVERVIEW ========================== */}
+      {/* ========================================================================= */}
+      {activeTab === 'home' && (() => {
+        return (
+          <div className="space-y-4 animate-in fade-in duration-300">
+            {/* Kartu Omset */}
+            <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center text-white shrink-0 shadow-md">
+                    <Crown className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900">Total Omset : {formatRupiah(monthlyOmset)}</h3>
+                    <p className="text-[10px] font-medium text-slate-400 mt-0.5">Periode: {monthlyOmsetPeriod}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetchMonthlyOmset();
+                    fetchCashierReports();
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-500 transition cursor-pointer shadow-xs"
+                  title="Segarkan data omset"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-slate-900 text-white rounded-2xl p-3 flex flex-col justify-center items-center text-center shadow-md">
+                  <span className="text-[10px] font-medium text-slate-300 mb-1">LazyBloom</span>
+                  <span className="text-xs font-black">{formatRupiah(monthlyOmsetBreakdown.lazyBloom)}</span>
+                </div>
+                <div className="bg-slate-900 text-white rounded-2xl p-3 flex flex-col justify-center items-center text-center shadow-md">
+                  <span className="text-[10px] font-medium text-slate-300 mb-1">Deru Ombak</span>
+                  <span className="text-xs font-black">{formatRupiah(monthlyOmsetBreakdown.deruOmbak)}</span>
+                </div>
+                <div className="bg-slate-900 text-white rounded-2xl p-3 flex flex-col justify-center items-center text-center shadow-md">
+                  <span className="text-[10px] font-medium text-slate-300 mb-1">Sea Cafe</span>
+                  <span className="text-xs font-black">{formatRupiah(monthlyOmsetBreakdown.seaCafe)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Grid Menu 4x2 */}
+            <div className="grid grid-cols-4 gap-3">
+              <button onClick={() => setActiveTab('monitoring')} className="bg-white hover:bg-slate-50 transition p-3 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-2 cursor-pointer aspect-square">
+                <Activity className="w-6 h-6 text-slate-700" />
+                <span className="text-[10px] font-bold text-slate-700">Monitoring</span>
+              </button>
+              <button onClick={() => setActiveTab('cashier')} className="bg-white hover:bg-slate-50 transition p-3 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-2 cursor-pointer aspect-square">
+                <Banknote className="w-6 h-6 text-slate-700" />
+                <span className="text-[10px] font-bold text-slate-700 text-center leading-tight">Kas Outlet</span>
+              </button>
+              <button onClick={() => setActiveTab('approvals')} className="bg-white hover:bg-slate-50 transition p-3 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-2 cursor-pointer aspect-square relative">
+                {(pendingLeaves.length > 0 || pendingCorrections.length > 0) && (
+                  <span className="absolute top-2 right-2 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center animate-pulse">
+                    {pendingLeaves.length + pendingCorrections.length}
+                  </span>
+                )}
+                <CheckCircle2 className="w-6 h-6 text-slate-700" />
+                <span className="text-[10px] font-bold text-slate-700 text-center leading-tight">Persetujuan</span>
+              </button>
+              <button onClick={() => setActiveTab('gps')} className="bg-white hover:bg-slate-50 transition p-3 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-2 cursor-pointer aspect-square">
+                <MapPin className="w-6 h-6 text-slate-700" />
+                <span className="text-[10px] font-bold text-slate-700">Titik GPS</span>
+              </button>
+              
+              <button onClick={() => setActiveTab('security')} className="bg-white hover:bg-slate-50 transition p-3 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-2 cursor-pointer aspect-square">
+                <KeyRound className="w-6 h-6 text-slate-700" />
+                <span className="text-[10px] font-bold text-slate-700 text-center leading-tight">Kelola Staff</span>
+              </button>
+              <button onClick={() => setActiveTab('finance')} className="bg-white hover:bg-slate-50 transition p-3 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-2 cursor-pointer aspect-square">
+                <DollarSign className="w-6 h-6 text-slate-700" />
+                <span className="text-[10px] font-bold text-slate-700 text-center leading-tight">Finance</span>
+              </button>
+              <button className="bg-white opacity-50 p-3 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-2 cursor-not-allowed aspect-square">
+                <TrendingUp className="w-6 h-6 text-slate-400" />
+                <span className="text-[10px] font-bold text-slate-400">Invest</span>
+              </button>
+              <button className="bg-white opacity-50 p-3 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-2 cursor-not-allowed aspect-square">
+                <ArrowUpCircle className="w-6 h-6 text-slate-400" />
+                <span className="text-[10px] font-bold text-slate-400">Top up</span>
+              </button>
+            </div>
+
+            {/* Notifikasi Persetujuan */}
+            <div className="pt-2">
+              <div className="flex items-center justify-end mb-3">
+                <div className="bg-white px-4 py-1.5 rounded-full shadow-xs border border-slate-100">
+                  <span className="text-[11px] font-black text-slate-900">Notifikasi Persetujuan</span>
+                </div>
+              </div>
+
+              {pendingLeaves.length === 0 && pendingCorrections.length === 0 ? (
+                <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm text-center">
+                  <p className="text-xs text-slate-500 font-medium">Belum ada permintaan persetujuan baru.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {pendingCorrections.map((corr) => (
+                    <div key={corr.id} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full border-2 border-rose-500 flex items-center justify-center shrink-0">
+                          <ArrowUpCircle className="w-5 h-5 text-rose-500" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-slate-900">{corr.employees?.full_name || corr.employee_name || 'Tanpa Nama'}</h4>
+                          <p className="text-[11px] font-semibold text-slate-500">Koreksi Keterlambatan</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-medium text-slate-500 block">{corr.branch || 'Cabang'}</span>
+                        <span className="text-[10px] font-medium text-slate-400">{getLocalDateString(corr.attendance_date)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {pendingLeaves.map((leave) => (
+                    <div key={leave.id} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full border-2 border-amber-500 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-5 h-5 text-amber-500" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-slate-900">{leave.employees?.full_name || leave.employee_name || 'Tanpa Nama'}</h4>
+                          <p className="text-[11px] font-semibold text-slate-500">Pengajuan Izin - {leave.leave_type}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-medium text-slate-500 block">{leave.branch || 'Cabang'}</span>
+                        <span className="text-[10px] font-medium text-slate-400">{getLocalDateString(leave.start_date)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          <span className="truncate">Persetujuan</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('gps')}
-          className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 cursor-pointer ${
-            activeTab === 'gps'
-              ? 'bg-white text-slate-900 shadow-sm font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <MapPin className="w-4 h-4 text-teal-600" />
-          <span className="truncate">Titik GPS</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('security')}
-          className={`py-2 px-1 text-[9px] sm:text-[10px] font-bold rounded-xl transition text-center flex flex-col items-center gap-1 cursor-pointer ${
-            activeTab === 'security'
-              ? 'bg-white text-slate-900 shadow-sm font-black'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <KeyRound className="w-4 h-4 text-purple-600" />
-          <span className="truncate">Kelola PIN</span>
-        </button>
-      </div>
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* ======================= TAB 1: MONITORING REALTIME ====================== */}
@@ -821,15 +1080,19 @@ export default function AdminOwnerDashboard({ onBack }) {
       {activeTab === 'cashier' && (() => {
         const filteredCashier = cashierReports.filter((r) => {
           if (selectedCashierOutlet === 'all') return true;
-          return (r.branch || '').toLowerCase().includes(selectedCashierOutlet.toLowerCase());
+          const dbBranch = (r.branch || '').toLowerCase().replace(/\s/g, '');
+          const filterBranch = selectedCashierOutlet.toLowerCase().replace(/\s/g, '');
+          return dbBranch.includes(filterBranch);
         });
 
-        const totalOmzet = filteredCashier.reduce((sum, r) => sum + (Number(r.total_income) || (Number(r.income_cash) || 0) + (Number(r.income_qris) || 0)), 0);
-        const totalCash = filteredCashier.reduce((sum, r) => sum + (Number(r.income_cash) || 0), 0);
-        const totalQris = filteredCashier.reduce((sum, r) => sum + (Number(r.income_qris) || 0), 0);
-        const totalExpense = filteredCashier.reduce((sum, r) => sum + (Number(r.expense_amount) || 0), 0);
-        const totalActualCash = filteredCashier.reduce((sum, r) => sum + (Number(r.actual_cash_counted) || 0), 0);
-        const totalDifference = filteredCashier.reduce((sum, r) => sum + (Number(r.cash_difference) || 0), 0);
+        const activeCashier = filteredCashier.filter(r => !r.is_archived);
+
+        const totalOmzet = activeCashier.reduce((sum, r) => sum + (Number(r.total_income) || (Number(r.income_cash) || 0) + (Number(r.income_qris) || 0)), 0);
+        const totalCash = activeCashier.reduce((sum, r) => sum + (Number(r.income_cash) || 0), 0);
+        const totalQris = activeCashier.reduce((sum, r) => sum + (Number(r.income_qris) || 0), 0);
+        const totalExpense = activeCashier.reduce((sum, r) => sum + (Number(r.expense_amount) || 0), 0);
+        const totalActualCash = activeCashier.reduce((sum, r) => sum + (Number(r.actual_cash_counted) || 0), 0);
+        const totalDifference = activeCashier.reduce((sum, r) => sum + (Number(r.cash_difference) || 0), 0);
 
         return (
           <div className="space-y-3.5 animate-in fade-in duration-200">
@@ -912,12 +1175,12 @@ export default function AdminOwnerDashboard({ onBack }) {
               </div>
             </div>
 
-            {/* KPI Summary 4-Cards Grid - Compact & Clean */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {/* KPI Summary 3-Cards Grid - Compact & Clean */}
+            <div className="grid grid-cols-3 gap-2">
               {/* Omzet Total */}
               <div className="bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200/90 shadow-2xs space-y-1">
                 <div className="flex items-center justify-between text-slate-500">
-                  <span className="text-[10px] font-semibold">Total Omzet</span>
+                  <span className="text-[10px] font-semibold">Total omset</span>
                   <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
                 </div>
                 <div className="text-xs sm:text-sm font-black text-slate-900 truncate">
@@ -928,7 +1191,7 @@ export default function AdminOwnerDashboard({ onBack }) {
               {/* Penjualan Tunai */}
               <div className="bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200/90 shadow-2xs space-y-1">
                 <div className="flex items-center justify-between text-slate-500">
-                  <span className="text-[10px] font-semibold">Penjualan Tunai</span>
+                  <span className="text-[10px] font-semibold">Tunai</span>
                   <Banknote className="w-3.5 h-3.5 text-emerald-600" />
                 </div>
                 <div className="text-xs sm:text-sm font-black text-emerald-700 truncate">
@@ -939,22 +1202,11 @@ export default function AdminOwnerDashboard({ onBack }) {
               {/* Non-Tunai / QRIS */}
               <div className="bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200/90 shadow-2xs space-y-1">
                 <div className="flex items-center justify-between text-slate-500">
-                  <span className="text-[10px] font-semibold">Non-Tunai</span>
+                  <span className="text-[10px] font-semibold">Non-tunai</span>
                   <Wallet className="w-3.5 h-3.5 text-blue-600" />
                 </div>
                 <div className="text-xs sm:text-sm font-black text-blue-700 truncate">
                   {formatRupiah(totalQris)}
-                </div>
-              </div>
-
-              {/* Pengeluaran Kas */}
-              <div className="bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200/90 shadow-2xs space-y-1">
-                <div className="flex items-center justify-between text-slate-500">
-                  <span className="text-[10px] font-semibold">Pengeluaran Kas</span>
-                  <Receipt className="w-3.5 h-3.5 text-rose-600" />
-                </div>
-                <div className="text-xs sm:text-sm font-black text-rose-700 truncate">
-                  {formatRupiah(totalExpense)}
                 </div>
               </div>
             </div>
@@ -987,7 +1239,9 @@ export default function AdminOwnerDashboard({ onBack }) {
                   return (
                     <div
                       key={report.id}
-                      className="w-full bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden transition-all"
+                      className={`w-full bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden transition-all ${
+                        report.is_archived ? 'opacity-60 grayscale' : ''
+                      }`}
                     >
                       {/* Accordion Header / Summary Row: [Nama Cabang], [Tanggal] */}
                       <button
@@ -1010,17 +1264,21 @@ export default function AdminOwnerDashboard({ onBack }) {
                         <div className="flex items-center gap-2 shrink-0">
                           <span
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                              isVerified
+                              report.is_archived
+                                ? 'bg-slate-100 text-slate-500 border border-slate-200'
+                                : isVerified
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                 : 'bg-amber-50 text-amber-700 border border-amber-200'
                             }`}
                           >
-                            {isVerified ? (
+                            {report.is_archived ? (
+                              <Archive className="w-3 h-3 text-slate-500" />
+                            ) : isVerified ? (
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                             ) : (
                               <Clock className="w-3 h-3 text-amber-600" />
                             )}
-                            <span>{isVerified ? 'Diverifikasi' : 'Menunggu'}</span>
+                            <span>{report.is_archived ? 'Dibatalkan' : isVerified ? 'Diverifikasi' : 'Menunggu'}</span>
                           </span>
 
                           <div className="p-1 rounded-md text-slate-400">
@@ -1189,7 +1447,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                               </a>
 
                               {/* Verifikasi Button */}
-                              {!isVerified ? (
+                              {!report.is_archived && !isVerified ? (
                                 <button
                                   type="button"
                                   disabled={verifyingReportId === report.id}
@@ -1199,12 +1457,26 @@ export default function AdminOwnerDashboard({ onBack }) {
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   <span>{verifyingReportId === report.id ? 'Memverifikasi...' : 'Verifikasi'}</span>
                                 </button>
-                              ) : (
+                              ) : !report.is_archived && isVerified ? (
                                 <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>Diverifikasi Owner</span>
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Terverifikasi</span>
                                 </span>
+                              ) : null}
+
+                              {/* Arsipkan Button */}
+                              {!report.is_archived && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleArchiveReport(report)}
+                                  className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                                  title="Arsipkan / Batalkan laporan ini karena salah input"
+                                >
+                                  <Archive className="w-3.5 h-3.5" />
+                                  <span>Arsip</span>
+                                </button>
                               )}
+
                             </div>
                           </div>
                         </div>
@@ -1682,10 +1954,10 @@ export default function AdminOwnerDashboard({ onBack }) {
       )}
 
       {/* ========================================================================= */}
-      {/* ===================== TAB 4: KEAMANAN & KELOLA PIN ===================== */}
+      {/* ===================== TAB 4: KEAMANAN & KELOLA STAFF ===================== */}
       {/* ========================================================================= */}
       {/* ========================================================================= */}
-      {/* ===================== TAB 4: KEAMANAN & KELOLA PIN ===================== */}
+      {/* ===================== TAB 4: KEAMANAN & KELOLA STAFF ===================== */}
       {/* ========================================================================= */}
       {activeTab === 'security' && (
         <div className="space-y-4 animate-in fade-in duration-200">
@@ -1703,7 +1975,7 @@ export default function AdminOwnerDashboard({ onBack }) {
               <Users className="w-3.5 h-3.5" />
               <span>Reset PIN Staf</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-800 font-extrabold">
-                {staffList.length}
+                {staffList.filter(s => !(s.is_active === false || s.status === 'inactive' || s.status === 'nonaktif')).length}
               </span>
             </button>
 
@@ -1826,7 +2098,9 @@ export default function AdminOwnerDashboard({ onBack }) {
                       return (
                         <div
                           key={staff.id}
-                          className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs space-y-3 hover:border-purple-200 transition"
+                          className={`bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs space-y-3 transition ${
+                            (staff.is_active === false || staff.status === 'inactive' || staff.status === 'nonaktif') ? 'opacity-60 grayscale' : 'hover:border-purple-200'
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2.5">
@@ -1915,6 +2189,21 @@ export default function AdminOwnerDashboard({ onBack }) {
                                   <span>Kirim WA</span>
                                 </a>
                               )}
+                              
+                              {/* Edit Staff Button */}
+                              <button
+                                type="button"
+                                onClick={() => setModalEditStaff({
+                                  id: staff.id,
+                                  full_name: staff.full_name,
+                                  phone: staff.phone,
+                                  is_active: !(staff.is_active === false || staff.status === 'inactive' || staff.status === 'nonaktif')
+                                })}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold transition flex items-center justify-center cursor-pointer shadow-xs border border-slate-200"
+                                title="Edit Karyawan"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -1928,10 +2217,6 @@ export default function AdminOwnerDashboard({ onBack }) {
 
           {/* ================= SUB-TAB 2: MULTI-ADMIN & PIN MANAJEMEN ================= */}
           {securitySubTab === 'management' && (() => {
-            const ownerCount = managementList.filter((m) => ['owner', 'admin_owner'].includes(m.role)).length;
-            const leaderCount = managementList.filter((m) => ['leader', 'admin_leader'].includes(m.role)).length;
-            const financeCount = managementList.filter((m) => ['finance', 'admin_finance'].includes(m.role)).length;
-
             const filteredMgmt = managementList.filter((m) => {
               if (selectedMgmtRole === 'owner' && !['owner', 'admin_owner'].includes(m.role)) return false;
               if (selectedMgmtRole === 'leader' && !['leader', 'admin_leader'].includes(m.role)) return false;
@@ -1957,7 +2242,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                     </div>
                     <div className="min-w-0">
                       <h4 className="text-xs font-black text-slate-900 truncate">
-                        Manajemen Akun Pimpinan
+                        Manajemen Role
                       </h4>
                       <p className="text-[10px] font-semibold text-slate-500 mt-0.5">
                         {managementList.length} Akun Terdaftar
@@ -1981,7 +2266,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                     className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95"
                   >
                     <UserPlus className="w-3.5 h-3.5" />
-                    <span>+ Daftarkan Pimpinan</span>
+                    <span>+ Tambahkan Role</span>
                   </button>
                 </div>
 
@@ -1992,7 +2277,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                     <Search className="w-3.5 h-3.5 text-slate-400 mr-2 shrink-0" />
                     <input
                       type="text"
-                      placeholder="Cari nama pimpinan, nomor HP, atau jabatan..."
+                      placeholder="Cari nama, nomor HP, atau role..."
                       value={mgmtSearchQuery}
                       onChange={(e) => setMgmtSearchQuery(e.target.value)}
                       className="w-full bg-transparent text-xs text-slate-900 placeholder-slate-400 focus:outline-none font-medium"
@@ -2008,56 +2293,6 @@ export default function AdminOwnerDashboard({ onBack }) {
                     )}
                   </div>
 
-                  {/* Role Pills */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMgmtRole('all')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                        selectedMgmtRole === 'all'
-                          ? 'bg-slate-900 text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      Semua ({managementList.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMgmtRole('owner')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-                        selectedMgmtRole === 'owner'
-                          ? 'bg-purple-600 text-white shadow-xs'
-                          : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
-                      }`}
-                    >
-                      <Crown className="w-3.5 h-3.5" />
-                      <span>Owner ({ownerCount})</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMgmtRole('leader')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-                        selectedMgmtRole === 'leader'
-                          ? 'bg-[#EA580C] text-white shadow-xs'
-                          : 'bg-orange-50 text-[#EA580C] hover:bg-orange-100'
-                      }`}
-                    >
-                      <Briefcase className="w-3.5 h-3.5" />
-                      <span>Leader ({leaderCount})</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMgmtRole('finance')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-                        selectedMgmtRole === 'finance'
-                          ? 'bg-[#2563EB] text-white shadow-xs'
-                          : 'bg-blue-50 text-[#2563EB] hover:bg-blue-100'
-                      }`}
-                    >
-                      <DollarSign className="w-3.5 h-3.5" />
-                      <span>Finance ({financeCount})</span>
-                    </button>
-                  </div>
                 </div>
 
                 {/* Management Full-Width Card List (No Overlapping, Responsive) */}
@@ -2079,12 +2314,20 @@ export default function AdminOwnerDashboard({ onBack }) {
                       const isOwnerRole = ['owner', 'admin_owner'].includes(admin.role);
                       const isLeaderRole = ['leader', 'admin_leader'].includes(admin.role);
                       const isFinanceRole = ['finance', 'admin_finance'].includes(admin.role);
+                      const isPurchasingRole = ['purchasing', 'admin_purchasing'].includes(admin.role);
+                      const isGudangRole = ['gudang', 'admin_gudang'].includes(admin.role);
 
                       const roleBadgeConfig = isOwnerRole
                         ? { label: 'Owner', bg: 'bg-purple-50 text-purple-700 border-purple-200', icon: Crown }
                         : isLeaderRole
                         ? { label: 'Leader', bg: 'bg-orange-50 text-orange-700 border-orange-200', icon: Briefcase }
-                        : { label: 'Finance', bg: 'bg-blue-50 text-blue-700 border-blue-200', icon: DollarSign };
+                        : isFinanceRole
+                        ? { label: 'Finance', bg: 'bg-blue-50 text-blue-700 border-blue-200', icon: DollarSign }
+                        : isPurchasingRole
+                        ? { label: 'Purchasing', bg: 'bg-teal-50 text-teal-700 border-teal-200', icon: ShoppingCart }
+                        : isGudangRole
+                        ? { label: 'Gudang', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: Package }
+                        : { label: 'Staf', bg: 'bg-slate-50 text-slate-700 border-slate-200', icon: Users };
 
                       const RoleIcon = roleBadgeConfig.icon;
                       const isRevealed = Boolean(revealedMgmtPins[admin.id]);
@@ -2480,7 +2723,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                   <UserPlus className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-slate-900">Daftarkan Pimpinan Baru</h4>
+                  <h4 className="text-sm font-black text-slate-900">Tambahkan Role Baru</h4>
                 </div>
               </div>
               <button
@@ -2496,67 +2739,34 @@ export default function AdminOwnerDashboard({ onBack }) {
               {/* Role Selection */}
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-700">Pilih Role Akses *</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewAdminForm((prev) => ({
-                        ...prev,
-                        role: 'owner',
-                        position: '',
-                        branch: '3 Pillar All Outlets',
-                      }))
-                    }
-                    className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
-                      newAdminForm.role === 'owner'
-                        ? 'bg-purple-50 border-purple-500 text-purple-700 font-black shadow-xs'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50 font-bold'
-                    }`}
-                  >
-                    <Crown className="w-4 h-4" />
-                    <span className="text-[10px] leading-tight">👑 Owner</span>
-                  </button>
+                <select
+                  value={newAdminForm.role}
+                  onChange={(e) => {
+                    const r = e.target.value;
+                    let pos = '';
+                    let br = '3 Pillar All Outlets';
+                    
+                    if (r === 'owner') { pos = ''; br = '3 Pillar All Outlets'; }
+                    else if (r === 'admin_leader') { pos = 'Leader Outlet'; br = safeOutlets[0]?.name || 'Outlet Riau'; }
+                    else if (r === 'admin_finance') { pos = 'Finance & Payroll'; br = '3 Pillar All Outlets'; }
+                    else if (r === 'admin_purchasing') { pos = 'Purchasing Staff'; br = '3 Pillar All Outlets'; }
+                    else if (r === 'admin_gudang') { pos = 'Admin Gudang Pusat'; br = '3 Pillar All Outlets'; }
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewAdminForm((prev) => ({
-                        ...prev,
-                        role: 'admin_leader',
-                        position: prev.position || 'Leader Outlet',
-                        branch: safeOutlets[0]?.name || 'Outlet Riau',
-                      }))
-                    }
-                    className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
-                      newAdminForm.role === 'admin_leader'
-                        ? 'bg-orange-50 border-[#EA580C] text-[#EA580C] font-black shadow-xs'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50 font-bold'
-                    }`}
-                  >
-                    <Briefcase className="w-4 h-4" />
-                    <span className="text-[10px] leading-tight">📋 Leader Outlet</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewAdminForm((prev) => ({
-                        ...prev,
-                        role: 'admin_finance',
-                        position: prev.position || 'Finance & Payroll',
-                        branch: '3 Pillar All Outlets',
-                      }))
-                    }
-                    className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
-                      newAdminForm.role === 'admin_finance'
-                        ? 'bg-blue-50 border-[#2563EB] text-[#2563EB] font-black shadow-xs'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50 font-bold'
-                    }`}
-                  >
-                    <DollarSign className="w-4 h-4" />
-                    <span className="text-[10px] leading-tight">💼 Finance Staff</span>
-                  </button>
-                </div>
+                    setNewAdminForm((prev) => ({
+                      ...prev,
+                      role: r,
+                      position: pos,
+                      branch: br,
+                    }));
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 font-bold focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+                >
+                  <option value="owner">👑 Owner</option>
+                  <option value="admin_leader">📋 Leader Outlet</option>
+                  <option value="admin_finance">💼 Finance Staff</option>
+                  <option value="admin_purchasing">🛒 Purchasing Staff</option>
+                  <option value="admin_gudang">📦 Admin Gudang</option>
+                </select>
               </div>
 
               {/* Full Name */}
@@ -2699,7 +2909,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                   <Edit3 className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-slate-900">Edit Profil Pimpinan</h4>
+                  <h4 className="text-sm font-black text-slate-900">Edit Profil Role</h4>
                 </div>
               </div>
               <button
@@ -2723,6 +2933,8 @@ export default function AdminOwnerDashboard({ onBack }) {
                   <option value="owner">👑 Owner</option>
                   <option value="admin_leader">📋 Leader Outlet</option>
                   <option value="admin_finance">💼 Finance &amp; Payroll</option>
+                  <option value="admin_purchasing">🛒 Purchasing Staff</option>
+                  <option value="admin_gudang">📦 Admin Gudang</option>
                 </select>
               </div>
 
@@ -3021,6 +3233,93 @@ export default function AdminOwnerDashboard({ onBack }) {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL EDIT STAFF ================= */}
+      {modalEditStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative max-w-sm w-full bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-900">Edit Karyawan</h4>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalEditStaff(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateStaff} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Nama Lengkap</label>
+                <input
+                  type="text"
+                  required
+                  value={modalEditStaff.full_name}
+                  onChange={(e) => setModalEditStaff((prev) => ({ ...prev, full_name: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-slate-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Nomor WhatsApp</label>
+                <input
+                  type="tel"
+                  required
+                  value={modalEditStaff.phone}
+                  onChange={(e) => setModalEditStaff((prev) => ({ ...prev, phone: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-slate-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Status Karyawan</label>
+                <select
+                  value={modalEditStaff.is_active ? 'true' : 'false'}
+                  onChange={(e) => setModalEditStaff((prev) => ({ ...prev, is_active: e.target.value === 'true' }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-slate-500"
+                >
+                  <option value="true">Aktif</option>
+                  <option value="false">Tidak Aktif (Resign/Nonaktif)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Role / Hak Akses</label>
+                <select
+                  value={modalEditStaff.role || 'staff'}
+                  onChange={(e) => setModalEditStaff((prev) => ({ ...prev, role: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-slate-500"
+                >
+                  <option value="staff">Karyawan Outlet (Staff)</option>
+                  <option value="admin_leader">Leader Outlet</option>
+                  <option value="admin_finance">Admin Finance</option>
+                  <option value="admin_purchasing">Admin Purchasing</option>
+                  <option value="admin_gudang">Admin Gudang</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs rounded-xl shadow-lg shadow-slate-900/20 transition flex justify-center items-center gap-2 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  Simpan Perubahan
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

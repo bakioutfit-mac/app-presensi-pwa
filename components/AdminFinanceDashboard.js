@@ -34,6 +34,7 @@ import {
   Zap,
   Sliders,
   Sparkles,
+  Calendar,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -52,6 +53,7 @@ const YEARS = [currentYearNum - 1, currentYearNum, currentYearNum + 1, currentYe
 export default function AdminFinanceDashboard({ onBack }) {
   const {
     overtimeRequests,
+    loadOvertimeRequests,
     approveOvertimeRequest,
     rejectOvertimeRequest,
   } = useAuth();
@@ -118,6 +120,8 @@ export default function AdminFinanceDashboard({ onBack }) {
   });
 
   const [salaryList, setSalaryList] = useState([]);
+  const [expandedPeriods, setExpandedPeriods] = useState({});
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showDetailedComponents, setShowDetailedComponents] = useState(false);
   const [autoLateCount, setAutoLateCount] = useState(0);
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
@@ -138,10 +142,23 @@ export default function AdminFinanceDashboard({ onBack }) {
     return `${MONTHS[idx - 1]} ${y}`;
   };
 
+  const handleRefreshSalaries = async () => {
+    setIsRefreshing(true);
+    await loadInitialData();
+    setIsRefreshing(false);
+  };
+
+  const handleRefreshOvertimes = async () => {
+    setIsRefreshing(true);
+    if (loadOvertimeRequests) {
+      await loadOvertimeRequests();
+    }
+    setIsRefreshing(false);
+  };
+
   // Fetch real payslips & employees from Supabase on mount
-  useEffect(() => {
-    async function loadInitialData() {
-      try {
+  const loadInitialData = async () => {
+    try {
         // 1. Muat karyawan (staf aktif)
         const { data: emps } = await supabase
           .from('employees')
@@ -303,7 +320,9 @@ export default function AdminFinanceDashboard({ onBack }) {
       } catch (err) {
         console.warn('Fetch salaries error:', err);
       }
-    }
+    };
+
+  useEffect(() => {
     loadInitialData();
 
     // Listener sinkronisasi paket gaji otomatis saat diubah di Tabel Editor
@@ -1184,38 +1203,25 @@ export default function AdminFinanceDashboard({ onBack }) {
       </div>
 
       <div className="space-y-4">
-        {/* Tab Navigation: Kelola Gaji 3 Outlet | Master Gaji | Persetujuan Lembur */}
-        <div className="bg-slate-200/80 p-1.5 rounded-2xl flex items-center gap-1.5 border border-slate-300/60 shadow-inner">
+        {/* Tab Navigation: Scrollable Horizontal Menu */}
+        <div className="bg-slate-200/80 p-1.5 rounded-2xl flex items-center gap-1.5 border border-slate-300/60 shadow-inner overflow-x-auto whitespace-nowrap scrollbar-none">
             <button
               type="button"
               onClick={() => setPayrollSubTab('manage')}
-              className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 ${
-                payrollSubTab === 'manage'
+              className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer ${
+                ['manage', 'master'].includes(payrollSubTab)
                   ? 'bg-white text-[#2563EB] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Banknote className="w-4 h-4 shrink-0" />
-              <span>Kelola Gaji</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setPayrollSubTab('master')}
-              className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 ${
-                payrollSubTab === 'master'
-                  ? 'bg-white text-[#2563EB] shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Sliders className="w-4 h-4 shrink-0" />
-              <span>Master Gaji</span>
+              <span>Gaji</span>
             </button>
 
             <button
               type="button"
               onClick={() => setPayrollSubTab('overtime')}
-              className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 relative ${
+              className={`px-3 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 relative shrink-0 cursor-pointer ${
                 payrollSubTab === 'overtime'
                   ? 'bg-white text-[#2563EB] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1229,7 +1235,94 @@ export default function AdminFinanceDashboard({ onBack }) {
                 </span>
               )}
             </button>
+            <button
+              type="button"
+              onClick={() => setPayrollSubTab('revenue')}
+              className={`px-3 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer ${
+                payrollSubTab === 'revenue'
+                  ? 'bg-white text-[#2563EB] shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <DollarSign className="w-4 h-4 shrink-0" />
+              <span>Revenue</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPayrollSubTab('supplier')}
+              className={`px-3 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer ${
+                payrollSubTab === 'supplier'
+                  ? 'bg-white text-[#2563EB] shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ClipboardCheck className="w-4 h-4 shrink-0" />
+              <span>Bayar Supplier</span>
+            </button>
           </div>
+
+          {/* ================= NESTED TABS UNTUK GAJI ================= */}
+          {['manage', 'master'].includes(payrollSubTab) && (
+            <div className="bg-white p-1.5 rounded-2xl flex items-center gap-1.5 shadow-sm border border-slate-200 w-full mb-2">
+              <button
+                type="button"
+                onClick={() => setPayrollSubTab('manage')}
+                className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  payrollSubTab === 'manage'
+                    ? 'bg-[#2563EB]/10 text-[#2563EB] shadow-xs border border-[#2563EB]/20'
+                    : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                Kelola Slip
+              </button>
+              <button
+                type="button"
+                onClick={() => setPayrollSubTab('master')}
+                className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  payrollSubTab === 'master'
+                    ? 'bg-[#2563EB]/10 text-[#2563EB] shadow-xs border border-[#2563EB]/20'
+                    : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                Master Data
+              </button>
+            </div>
+          )}
+
+          {/* ================= SUB-TAB: KELOLA REVENUE ================= */}
+          {payrollSubTab === 'revenue' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center space-y-4">
+                <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center">
+                  <Sparkles className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800">Coming Soon!</h3>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Fitur <strong>Kelola Revenue</strong> sedang dalam tahap pengembangan dan akan segera hadir.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= SUB-TAB: BAYAR SUPPLIER ================= */}
+          {payrollSubTab === 'supplier' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center space-y-4">
+                <div className="w-16 h-16 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center">
+                  <Database className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800">Pembayaran PO / Supplier</h3>
+                  <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+                    Modul ini (Tahap 4) masih dalam pengembangan. Nantinya di sini Admin Finance dapat melihat daftar tagihan PO yang diteruskan oleh divisi Purchasing untuk dilunasi.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ================= SUB-TAB: PERSETUJUAN LEMBUR ================= */}
           {payrollSubTab === 'overtime' && (
@@ -1253,25 +1346,19 @@ export default function AdminFinanceDashboard({ onBack }) {
                       </p>
                     </div>
                   </div>
-                  <span className="text-[10px] font-black bg-white/10 px-2.5 py-1 rounded-full border border-white/20 text-blue-100">
-                    {pendingOvertimes.length} Menunggu
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-white/10 text-[11px] text-blue-100">
-                  <div className="flex items-start gap-1.5 bg-white/5 p-2 rounded-xl border border-white/10">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-white block font-bold">Jika Di-ACC / Disetujui:</strong>
-                      <span>Otomatis hilang dari antrean pending &amp; langsung masuk ke slip gaji bulan berjalan staf terkait.</span>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-1.5 bg-white/5 p-2 rounded-xl border border-white/10">
-                    <AlertCircle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-white block font-bold">Jika Ditolak:</strong>
-                      <span>Finance wajib memberikan alasan penolakan. Alasan ini akan tampil transparan pada slip gaji staf.</span>
-                    </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-black bg-white/10 px-2.5 py-1 rounded-full border border-white/20 text-blue-100">
+                      {pendingOvertimes.length} Menunggu
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRefreshOvertimes}
+                      disabled={isRefreshing}
+                      className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-black rounded-full border border-white/20 flex items-center gap-1 shadow-xs transition cursor-pointer disabled:opacity-50"
+                      title="Muat ulang data lembur"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1516,12 +1603,6 @@ export default function AdminFinanceDashboard({ onBack }) {
                       </p>
                     </div>
                   </div>
-                </div>
-                <div className="p-2 bg-white/5 border border-white/10 rounded-xl text-[10px] text-blue-100 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
-                  <span>
-                    <strong>Paling Ringkas:</strong> Setelah diatur di sini, saat Admin Finance menerbitkan gaji bulanan, nilai ini langsung otomatis terisi. Finance hanya perlu input <strong>Potongan Cash Bon</strong>, <strong>Potongan Makan</strong>, dan <strong>Potongan Kehadiran</strong>!
-                  </span>
                 </div>
               </div>
 
@@ -1899,6 +1980,16 @@ export default function AdminFinanceDashboard({ onBack }) {
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Tambah Slip Gaji</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRefreshSalaries}
+                  disabled={isRefreshing}
+                  className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black rounded-xl flex items-center gap-1 shadow-xs transition cursor-pointer disabled:opacity-50"
+                  title="Muat ulang data gaji"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
@@ -2403,7 +2494,7 @@ export default function AdminFinanceDashboard({ onBack }) {
             {/* Filter Outlet */}
             <div className="flex items-center gap-1.5 text-[10px] font-bold overflow-x-auto pb-1">
               <span className="text-slate-500">Filter Outlet:</span>
-              {['all', 'LazyBloom', 'Deru Ombak', 'Sea Cafe'].map((b) => (
+              {['all', 'LazyBloom', 'Deru Ombak', 'Sea Cafe', 'Mobile / Lapangan'].map((b) => (
                 <button
                   key={b}
                   type="button"
@@ -2420,117 +2511,158 @@ export default function AdminFinanceDashboard({ onBack }) {
             </div>
 
             {/* Tabel Daftar Slip Gaji */}
-            <div className="space-y-2">
-              {salaryList.filter(
-                (s) => selectedOutletSalary === 'all' || s.branch === selectedOutletSalary
-              ).length === 0 ? (
-                <div className="bg-white rounded-2xl p-8 border border-slate-200/80 text-center shadow-xs space-y-2">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-                    <Banknote className="w-5 h-5" />
-                  </div>
-                  <h5 className="text-xs font-bold text-slate-700">Belum Ada Data Penggajian</h5>
-                  <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
-                    Klik tombol "+ Buat &amp; Terbitkan Slip Gaji Baru" di atas untuk memproses gaji dan denda staf.
-                  </p>
-                </div>
-              ) : (
-                salaryList
-                  .filter(
-                    (s) => selectedOutletSalary === 'all' || s.branch === selectedOutletSalary
-                  )
-                  .map((slip) => (
-                    <div
-                      key={slip.id}
-                      className="p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2.5 hover:border-slate-300 transition shadow-xs w-full overflow-hidden"
-                    >
-                      {/* Informasi Karyawan & Gaji */}
-                      <div className="flex flex-col gap-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <h5 className="text-xs font-black text-slate-900">{slip.employee_name}</h5>
-                          <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
-                            {slip.branch}
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-medium">• {slip.period}</span>
-                        </div>
-                        <div className="flex flex-wrap items-baseline gap-2 mt-0.5">
-                          <span className="font-black text-sm text-[#2563EB]">
-                            Rp {Number(slip.net_salary || 0).toLocaleString('id-ID')}
-                          </span>
-                          <span className="text-slate-400 text-[10px]">
-                            (Gaji Pokok: Rp {Number(slip.basic_salary || 0).toLocaleString('id-ID')})
-                          </span>
-                        </div>
-                        {(Number(slip.plus_day_pay) > 0 || Number(slip.plus_day_count) > 0) && (
-                          <div className="mt-0.5">
-                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 inline-block">
-                              +Day: {slip.plus_day_count || 0} Hari (+Rp {Number(slip.plus_day_pay || 0).toLocaleString('id-ID')})
-                            </span>
-                          </div>
-                        )}
+            <div className="space-y-3">
+              {(() => {
+                const filteredSalaries = salaryList.filter(
+                  (s) => selectedOutletSalary === 'all' || s.branch === selectedOutletSalary
+                );
+
+                if (filteredSalaries.length === 0) {
+                  return (
+                    <div className="bg-white rounded-2xl p-8 border border-slate-200/80 text-center shadow-xs space-y-2">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                        <Banknote className="w-5 h-5" />
                       </div>
-
-                      {/* Tombol Aksi: Terbungkus Rapi di Dalam Kotak */}
-                      <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 w-full">
-                        {/* Tombol Status Rilis Slip */}
-                        <button
-                          type="button"
-                          onClick={() => handleToggleRelease(slip.id, slip.is_released)}
-                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition flex items-center gap-1.5 shadow-2xs cursor-pointer ${
-                            slip.is_released
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                              : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200'
-                          }`}
-                          title={slip.is_released ? 'Klik untuk mengunci kembali slip gaji' : 'Klik untuk merilis slip ke staf'}
-                        >
-                          {slip.is_released ? (
-                            <>
-                              <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              <span>Rilis (Terbuka)</span>
-                            </>
-                          ) : (
-                            <>
-                              <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                              <span>Terkunci (Draft)</span>
-                            </>
-                          )}
-                        </button>
-
-                        {/* Grup Tombol Cetak, Edit, Hapus */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => setPrintModalSlip(slip)}
-                            className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
-                            title="Pratinjau & Cetak Slip PDF Resmi"
-                          >
-                            <Printer className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Cetak</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleEditExistingSlip(slip)}
-                            className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-slate-50 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
-                            title="Edit / Sesuaikan Slip Gaji Ini"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Edit</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteSlip(slip)}
-                            className="px-2 py-1.5 rounded-xl text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
-                            title="Hapus Slip Gaji Ini Permanen"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                            <span>Hapus</span>
-                          </button>
-                        </div>
-                      </div>
+                      <h5 className="text-xs font-bold text-slate-700">Belum Ada Data Penggajian</h5>
+                      <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                        Klik tombol "+ Buat &amp; Terbitkan Slip Gaji Baru" di atas untuk memproses gaji dan denda staf.
+                      </p>
                     </div>
-                  ))
-              )}
+                  );
+                }
+
+                // Group by period
+                const grouped = filteredSalaries.reduce((acc, slip) => {
+                  const p = slip.period || 'Periode Lainnya';
+                  if (!acc[p]) acc[p] = [];
+                  acc[p].push(slip);
+                  return acc;
+                }, {});
+
+                return Object.entries(grouped).map(([period, slips]) => {
+                  const isExpanded = expandedPeriods[period] !== false; // default true
+                  return (
+                    <div key={period} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedPeriods(prev => ({ ...prev, [period]: !isExpanded }))}
+                        className="w-full px-4 py-3 bg-slate-50 flex items-center justify-between hover:bg-slate-100 transition cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center">
+                            <Calendar className="w-4 h-4" />
+                          </div>
+                          <div className="text-left">
+                            <h4 className="text-xs font-black text-slate-900">{period}</h4>
+                            <p className="text-[10px] font-medium text-slate-500">{slips.length} Slip Gaji</p>
+                          </div>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                        )}
+                      </button>
+                      
+                      {isExpanded && (
+                        <div className="p-3 bg-white space-y-2 border-t border-slate-100">
+                          {slips.map((slip) => (
+                            <div
+                              key={slip.id}
+                              className="p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2.5 hover:border-slate-300 transition shadow-xs w-full overflow-hidden"
+                            >
+                              {/* Informasi Karyawan & Gaji */}
+                              <div className="flex flex-col gap-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <h5 className="text-xs font-black text-slate-900">{slip.employee_name}</h5>
+                                  <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
+                                    {slip.branch}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap items-baseline gap-2 mt-0.5">
+                                  <span className="font-black text-sm text-[#2563EB]">
+                                    Rp {Number(slip.net_salary || 0).toLocaleString('id-ID')}
+                                  </span>
+                                  <span className="text-slate-400 text-[10px]">
+                                    (Gaji Pokok: Rp {Number(slip.basic_salary || 0).toLocaleString('id-ID')})
+                                  </span>
+                                </div>
+                                {(Number(slip.plus_day_pay) > 0 || Number(slip.plus_day_count) > 0) && (
+                                  <div className="mt-0.5">
+                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 inline-block">
+                                      +Day: {slip.plus_day_count || 0} Hari (+Rp {Number(slip.plus_day_pay || 0).toLocaleString('id-ID')})
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Tombol Aksi: Terbungkus Rapi di Dalam Kotak */}
+                              <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 w-full">
+                                {/* Tombol Status Rilis Slip */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleRelease(slip.id, slip.is_released)}
+                                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition flex items-center gap-1.5 shadow-2xs cursor-pointer ${
+                                    slip.is_released
+                                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                                      : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200'
+                                  }`}
+                                  title={slip.is_released ? 'Klik untuk mengunci kembali slip gaji' : 'Klik untuk merilis slip ke staf'}
+                                >
+                                  {slip.is_released ? (
+                                    <>
+                                      <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                      <span>Rilis (Terbuka)</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                      <span>Terkunci (Draft)</span>
+                                    </>
+                                  )}
+                                </button>
+
+                                {/* Grup Tombol Cetak, Edit, Hapus */}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPrintModalSlip(slip)}
+                                    className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                                    title="Pratinjau & Cetak Slip PDF Resmi"
+                                  >
+                                    <Printer className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>Cetak</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditExistingSlip(slip)}
+                                    className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-slate-50 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 text-slate-700 border border-slate-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                                    title="Edit / Sesuaikan Slip Gaji Ini"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>Edit</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSlip(slip)}
+                                    className="px-2 py-1.5 rounded-xl text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                                    title="Hapus Slip Gaji Ini Permanen"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Hapus</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>
