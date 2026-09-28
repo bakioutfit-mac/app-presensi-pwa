@@ -37,7 +37,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
         const { data: stockData, error: stockErr } = await supabase
           .from('inventory_catalogs')
           .select(`
-            id, item_name, uom, category, price,
+            id, item_name, uom, category,
             warehouse_stocks(qty_available, last_updated)
           `)
           .order('item_name', { ascending: true });
@@ -61,7 +61,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
             *,
             purchase_request_items(
               id, qty_requested, 
-              catalog:catalog_id(id, item_name, uom, price, category, supplier:supplier_id(id, name, contact_phone))
+              catalog:catalog_id(id, item_name, uom, category, supplier:supplier_id(id, name, contact_phone))
             )
           `)
           .neq('status', 'Selesai')
