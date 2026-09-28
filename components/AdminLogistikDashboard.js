@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ArrowLeft, Package, Truck, Search, Loader2, Layers, CheckCircle, Plus, Minus, ShoppingCart, History, ArrowDownToLine, ArrowUpFromLine, Trash2, ListChecks, ChevronUp, ChevronDown, Clock, Send } from 'lucide-react';
+import { ArrowLeft, Package, Truck, Search, Loader2, Layers, CheckCircle, Plus, Minus, ShoppingCart, History, ArrowDownToLine, ArrowUpFromLine, Trash2, ListChecks, ChevronUp, ChevronDown, Clock, Send, RefreshCw } from 'lucide-react';
 
 export default function AdminLogistikDashboard({ onBack, userRole }) {
   const [activeTab, setActiveTab] = useState('pos'); // 'pos' | 'requests' | 'stock' | 'history'
@@ -329,6 +329,9 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
             <p className="text-[10px] text-slate-500 font-medium">Gudang & Purchasing Terpadu</p>
           </div>
         </div>
+        <button onClick={fetchData} className="p-2 rounded-xl bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition shadow-xs">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
       {/* Tabs */}

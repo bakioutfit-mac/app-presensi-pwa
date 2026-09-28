@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ArrowLeft, Search, Loader2, Package, CheckCircle, Plus, Minus, ShoppingCart, History, Trash2, Edit3, Send } from 'lucide-react';
+import { ArrowLeft, Search, Loader2, Package, CheckCircle, Plus, Minus, ShoppingCart, History, Trash2, Edit3, Send, RefreshCw } from 'lucide-react';
 import { getLocalDateString } from '@/lib/date';
 
 export default function FormPermintaanBarang({ user, onBack }) {
@@ -179,6 +179,9 @@ export default function FormPermintaanBarang({ user, onBack }) {
             <p className="text-[10px] text-slate-500 font-medium">Outlet: {user?.branch || 'Pusat'}</p>
           </div>
         </div>
+        <button onClick={fetchData} className="p-2 rounded-xl bg-orange-50 text-orange-600 hover:bg-orange-100 transition shadow-xs">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
 
       {/* Tabs */}
