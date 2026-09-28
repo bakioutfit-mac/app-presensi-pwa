@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatRupiah } from '@/lib/currency';
-import { Receipt, AlertCircle, RefreshCw, Briefcase, FileText, Banknote, ShoppingCart, UserCheck, X, TrendingUp, Calendar, ChevronUp, ChevronDown } from 'lucide-react';
+import { CheckCircle2, Receipt, AlertCircle, RefreshCw, Briefcase, FileText, Banknote, ShoppingCart, UserCheck, X, TrendingUp, Calendar, ChevronUp, ChevronDown } from 'lucide-react';
 
 export default function OwnerFinanceTab({ user, onBack, showToast }) {
   const [subTab, setSubTab] = useState('gaji'); // 'gaji', 'revenue', 'po'
