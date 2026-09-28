@@ -61,7 +61,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
             *,
             purchase_request_items(
               id, qty_requested, 
-              catalog:catalog_id(id, item_name, uom, category, supplier:supplier_id(id, name, contact_phone))
+              catalog:catalog_id(id, item_name, uom, category, supplier:suppliers(id, name, wa_number))
             )
           `)
           .neq('status', 'Selesai')
@@ -146,14 +146,14 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
 
   // ================= APPROVAL LOGIC =================
   const sendWhatsAppToSupplier = (supplier, items, reqId) => {
-    if (!supplier?.contact_phone) return alert('Nomor supplier tidak tersedia!');
+    if (!supplier?.wa_number) return alert('Nomor supplier tidak tersedia!');
     let message = `Halo ${supplier.name},\nKami dari 3 Pillar Management ingin memesan:\n\n`;
     items.forEach((it, idx) => {
       message += `${idx + 1}. ${it.catalog?.item_name} - ${it.qty_requested} ${it.catalog?.uom}\n`;
     });
     message += `\nMohon konfirmasi ketersediaan barang. Terima kasih.`;
     
-    let phone = supplier.contact_phone.replace(/[^0-9]/g, '');
+    let phone = supplier.wa_number.replace(/[^0-9]/g, '');
     if (phone.startsWith('0')) phone = '62' + phone.substring(1);
     
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
