@@ -162,10 +162,17 @@ export default function AdminFinanceDashboard({ onBack }) {
         // 1. Muat karyawan (staf aktif)
         const { data: emps } = await supabase
           .from('employees')
-          .select('id, full_name, branch, position, role')
+          .select('id, full_name, branch, position, role, is_active, status')
           .eq('role', 'staff')
           .order('full_name', { ascending: true });
-        if (emps) setEmployeesList(emps);
+        
+        if (emps) {
+          // Hanya simpan karyawan yang aktif bekerja
+          const activeEmps = emps.filter(
+            (e) => e.is_active !== false && e.status !== 'inactive' && e.status !== 'nonaktif'
+          );
+          setEmployeesList(activeEmps);
+        }
 
         // 2. Muat paket gaji karyawan
         const pkgs = await fetchEmployeeSalaries();
@@ -2514,8 +2521,9 @@ export default function AdminFinanceDashboard({ onBack }) {
             {/* Tabel Daftar Slip Gaji */}
             <div className="space-y-3">
               {(() => {
+                const activeEmployeeIds = new Set(employeesList.map((e) => e.id));
                 const filteredSalaries = salaryList.filter(
-                  (s) => selectedOutletSalary === 'all' || s.branch === selectedOutletSalary
+                  (s) => (selectedOutletSalary === 'all' || s.branch === selectedOutletSalary) && activeEmployeeIds.has(s.employee_id)
                 );
 
                 if (filteredSalaries.length === 0) {
