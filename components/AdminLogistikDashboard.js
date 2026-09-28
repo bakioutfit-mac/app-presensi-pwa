@@ -17,6 +17,8 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   // PO Supplier State
   const [poCart, setPoCart] = useState({});
   const [expandedSupplier, setExpandedSupplier] = useState(null);
+  const [supplierSubTab, setSupplierSubTab] = useState('order'); // 'order' | 'data'
+  const [newSupplier, setNewSupplier] = useState({ name: '', wa_number: '', category: '' });
   
   // POS States
   const [cart, setCart] = useState([]);
@@ -151,6 +153,26 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     } catch (err) {
       if (err.code === '42P01') showToast('error', 'Tabel transaksi belum dibuat di SQL!');
       else showToast('error', err.message);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleAddSupplier = async () => {
+    if (!newSupplier.name || !newSupplier.wa_number) return showToast('error', 'Nama dan WA wajib diisi!');
+    setProcessingId('add-supplier');
+    try {
+      const { data, error } = await supabase.from('suppliers').insert({
+        name: newSupplier.name,
+        wa_number: newSupplier.wa_number,
+        category: newSupplier.category || 'Umum'
+      }).select().single();
+      if (error) throw error;
+      setSuppliers(prev => [...prev, data]);
+      setNewSupplier({ name: '', wa_number: '', category: '' });
+      showToast('success', 'Supplier berhasil ditambahkan!');
+    } catch (err) {
+      showToast('error', 'Gagal menambah supplier!');
     } finally {
       setProcessingId(null);
     }
@@ -555,12 +577,23 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
         </div>
       ) : activeTab === 'suppliers' ? (
         <div className="space-y-4">
-          {suppliers.length === 0 && (
-            <div className="py-10 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-200 rounded-2xl">
-              Belum ada data supplier.
-            </div>
-          )}
-          {suppliers.map(sup => {
+          <div className="flex bg-slate-200/50 p-1.5 rounded-2xl gap-1">
+            <button onClick={() => setSupplierSubTab('order')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${supplierSubTab === 'order' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <ShoppingCart className="w-3.5 h-3.5" /> Order via WA
+            </button>
+            <button onClick={() => setSupplierSubTab('data')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${supplierSubTab === 'data' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <Layers className="w-3.5 h-3.5" /> Master Data Supplier
+            </button>
+          </div>
+
+          {supplierSubTab === 'order' ? (
+            <div className="space-y-4 animate-in fade-in">
+              {suppliers.length === 0 && (
+                <div className="py-10 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-200 rounded-2xl">
+                  Belum ada data supplier.
+                </div>
+              )}
+              {suppliers.map(sup => {
             const itemsInCart = poCart[sup.id] || [];
             return (
               <div key={sup.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
@@ -617,6 +650,36 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
               </div>
             );
           })}
+            </div>
+          ) : (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+                <h4 className="text-xs font-black text-slate-900 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-indigo-500" />
+                  Tambah Supplier Baru
+                </h4>
+                <div className="space-y-2">
+                  <input type="text" placeholder="Nama Supplier / Toko" value={newSupplier.name} onChange={e => setNewSupplier({...newSupplier, name: e.target.value})} className="w-full p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:bg-white transition outline-none font-medium" />
+                  <input type="text" placeholder="Nomor WhatsApp (Cth: 0812...)" value={newSupplier.wa_number} onChange={e => setNewSupplier({...newSupplier, wa_number: e.target.value})} className="w-full p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:bg-white transition outline-none font-medium" />
+                  <input type="text" placeholder="Kategori (Opsional, cth: Sembako)" value={newSupplier.category} onChange={e => setNewSupplier({...newSupplier, category: e.target.value})} className="w-full p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:bg-white transition outline-none font-medium" />
+                  <button onClick={handleAddSupplier} disabled={processingId === 'add-supplier'} className="w-full py-3 bg-indigo-600 text-white rounded-xl text-xs font-black flex justify-center items-center gap-2 mt-2 shadow-sm disabled:opacity-50">
+                    {processingId === 'add-supplier' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Simpan Data Supplier
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {suppliers.map(sup => (
+                  <div key={sup.id} className="bg-white p-3 border border-slate-200 rounded-2xl flex items-center justify-between shadow-xs">
+                    <div>
+                      <h5 className="text-[11px] font-black text-slate-900">{sup.name}</h5>
+                      <p className="text-[10px] text-slate-500 font-medium mt-0.5">{sup.wa_number} • {sup.category || 'Umum'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
