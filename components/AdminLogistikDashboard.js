@@ -10,8 +10,13 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   const [stocks, setStocks] = useState([]);
   const [requests, setRequests] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
+  
+  // PO Supplier State
+  const [poCart, setPoCart] = useState({});
+  const [expandedSupplier, setExpandedSupplier] = useState(null);
   
   // POS States
   const [cart, setCart] = useState([]);
@@ -69,6 +74,13 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
           
         if (reqErr) throw reqErr;
         setRequests(reqData || []);
+      } else if (activeTab === 'suppliers') {
+        const { data: supData, error: supErr } = await supabase
+          .from('suppliers')
+          .select('*, inventory_catalogs(id, item_name, uom, category)')
+          .order('name', { ascending: true });
+        if (supErr) throw supErr;
+        setSuppliers(supData || []);
       }
     } catch (err) {
       console.error('Fetch error:', err);
@@ -142,6 +154,46 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     } finally {
       setProcessingId(null);
     }
+  };
+
+  // ================= PO SUPPLIER LOGIC =================
+  const updatePoCart = (supplierId, catalogItem, delta) => {
+    setPoCart(prev => {
+      const supplierCart = prev[supplierId] || [];
+      const existing = supplierCart.find(item => item.catalog.id === catalogItem.id);
+      let newSupplierCart;
+      
+      if (existing) {
+        newSupplierCart = supplierCart.map(item => 
+          item.catalog.id === catalogItem.id ? { ...item, qty: item.qty + delta } : item
+        ).filter(item => item.qty > 0);
+      } else if (delta > 0) {
+        newSupplierCart = [...supplierCart, { catalog: catalogItem, qty: delta }];
+      } else {
+        newSupplierCart = supplierCart;
+      }
+
+      return { ...prev, [supplierId]: newSupplierCart };
+    });
+  };
+
+  const sendPoToSupplier = (supplier) => {
+    const items = poCart[supplier.id] || [];
+    if (items.length === 0) return showToast('error', 'Pilih minimal 1 barang!');
+    if (!supplier.wa_number) return showToast('error', 'Nomor WA supplier tidak tersedia!');
+    
+    let message = `Halo ${supplier.name},\nKami dari 3 Pillar Management (Gudang Pusat) ingin memesan:\n\n`;
+    items.forEach((it, idx) => {
+      message += `${idx + 1}. ${it.catalog?.item_name} - ${it.qty} ${it.catalog?.uom}\n`;
+    });
+    message += `\nMohon diproses. Terima kasih.`;
+    
+    let phone = supplier.wa_number.replace(/[^0-9]/g, '');
+    if (phone.startsWith('0')) phone = '62' + phone.substring(1);
+    
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    
+    setPoCart(prev => ({ ...prev, [supplier.id]: [] }));
   };
 
   // ================= APPROVAL LOGIC =================
@@ -270,6 +322,9 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
         </button>
         <button onClick={() => setActiveTab('stock')} className={`flex-shrink-0 px-4 py-2 text-[11px] font-black rounded-xl flex items-center gap-1.5 transition ${activeTab === 'stock' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
           <Layers className="w-3.5 h-3.5" /> Master Stok
+        </button>
+        <button onClick={() => setActiveTab('suppliers')} className={`flex-shrink-0 px-4 py-2 text-[11px] font-black rounded-xl flex items-center gap-1.5 transition ${activeTab === 'suppliers' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          <Truck className="w-3.5 h-3.5" /> Order Supplier
         </button>
       </div>
 
@@ -497,6 +552,71 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
               </div>
             </div>
           ))}
+        </div>
+      ) : activeTab === 'suppliers' ? (
+        <div className="space-y-4">
+          {suppliers.length === 0 && (
+            <div className="py-10 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-200 rounded-2xl">
+              Belum ada data supplier.
+            </div>
+          )}
+          {suppliers.map(sup => {
+            const itemsInCart = poCart[sup.id] || [];
+            return (
+              <div key={sup.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <button onClick={() => setExpandedSupplier(expandedSupplier === sup.id ? null : sup.id)} className="w-full p-4 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl"><Truck className="w-4 h-4" /></div>
+                    <div className="text-left">
+                      <h4 className="text-xs font-black text-slate-900">{sup.name}</h4>
+                      <p className="text-[10px] text-slate-500">{sup.inventory_catalogs?.length || 0} Barang</p>
+                    </div>
+                  </div>
+                  {expandedSupplier === sup.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+
+                {expandedSupplier === sup.id && (
+                  <div className="p-4 border-t border-slate-100 space-y-4 bg-white">
+                    <div className="grid grid-cols-1 gap-2">
+                      {(sup.inventory_catalogs || []).map(cat => {
+                        const cartItem = itemsInCart.find(i => i.catalog.id === cat.id);
+                        const qty = cartItem ? cartItem.qty : 0;
+                        return (
+                          <div key={cat.id} className="flex items-center justify-between p-3 border border-slate-100 rounded-xl hover:border-indigo-200 transition">
+                            <div>
+                              <p className="text-[11px] font-black text-slate-900">{cat.item_name}</p>
+                              <p className="text-[9px] font-bold text-slate-500 uppercase">{cat.uom}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {qty > 0 && (
+                                <button onClick={() => updatePoCart(sup.id, cat, -1)} className="w-7 h-7 rounded bg-rose-50 text-rose-600 flex items-center justify-center font-black">
+                                  -
+                                </button>
+                              )}
+                              <span className="text-xs font-black w-6 text-center">{qty > 0 ? qty : ''}</span>
+                              <button onClick={() => updatePoCart(sup.id, cat, 1)} className="w-7 h-7 rounded bg-indigo-50 text-indigo-600 flex items-center justify-center font-black">
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {(sup.inventory_catalogs || []).length === 0 && (
+                        <p className="text-[10px] text-slate-400 italic text-center py-4">Belum ada barang tertaut ke supplier ini.</p>
+                      )}
+                    </div>
+                    {itemsInCart.length > 0 && (
+                      <div className="pt-2">
+                        <button onClick={() => sendPoToSupplier(sup)} className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[11px] font-black transition flex items-center justify-center gap-2 shadow-sm">
+                          <Send className="w-4 h-4" /> Kirim PO via WhatsApp ({itemsInCart.reduce((a,b)=>a+b.qty,0)} items)
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="space-y-4">
