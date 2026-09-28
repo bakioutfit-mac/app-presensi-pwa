@@ -250,6 +250,8 @@ export function AuthProvider({ children }) {
             setAdminRole('owner');
           } else if (r === 'admin_finance' || r === 'finance') {
             setAdminRole('finance');
+          } else if (r.includes('gudang') || r === 'admin_gudang') {
+            setAdminRole('gudang');
           } else {
             setAdminRole('');
           }
@@ -755,6 +757,8 @@ export function AuthProvider({ children }) {
           setAdminRole('owner');
         } else if (userRole === 'admin_finance' || userRole === 'finance') {
           setAdminRole('finance');
+        } else if (userRole.includes('gudang') || userRole === 'admin_gudang') {
+          setAdminRole('gudang');
         } else {
           setAdminRole('');
         }

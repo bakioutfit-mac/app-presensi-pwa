@@ -361,17 +361,6 @@ export default function HomeDashboard() {
             </button>
           )}
 
-          {user?.role?.includes('gudang') && (
-            <button
-              type="button"
-              onClick={() => setAdminRole('gudang')}
-              className="px-3 py-2 rounded-full text-white bg-blue-600 hover:bg-blue-700 shadow-md border-2 border-white transition text-[10px] font-black flex items-center gap-1.5"
-              title="Beralih ke Master Stock Gudang"
-            >
-              <Package className="w-3.5 h-3.5" />
-              TASK GUDANG
-            </button>
-          )}
         </div>
       </div>
 

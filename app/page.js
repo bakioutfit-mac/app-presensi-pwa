@@ -133,7 +133,7 @@ export default function MainPage() {
   if (adminRole === 'gudang') {
     return (
       <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
-        <AdminGudangDashboard onBack={() => setAdminRole('')} />
+        <AdminGudangDashboard onBack={logout} />
       </div>
     );
   }
