@@ -375,6 +375,8 @@ export default function AdminLeaderDashboard({ onBack }) {
     branch: 'LazyBloom',
     birth_date: '',
     address: '',
+    bank_name: '',
+    bank_account: '',
     default_shift: 'Shift Weekday (12:00 - 21:00)',
   });
   const [staffCreating, setStaffCreating] = useState(false);
@@ -463,6 +465,8 @@ export default function AdminLeaderDashboard({ onBack }) {
           branch: newStaff.branch,
           birth_date: newStaff.birth_date || '2000-01-01',
           address: newStaff.address || 'Alamat Belum Diisi',
+          bank_name: newStaff.bank_name || '',
+          bank_account: newStaff.bank_account || '',
           status: 'active',
           is_active: true,
         })
@@ -2126,6 +2130,33 @@ export default function AdminLeaderDashboard({ onBack }) {
                         placeholder="Barista / Kasir / Kitchen"
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
                         required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Nama Bank:
+                      </label>
+                      <input
+                        type="text"
+                        value={newStaff.bank_name}
+                        onChange={(e) => setNewStaff({ ...newStaff, bank_name: e.target.value })}
+                        placeholder="BCA / Mandiri / BNI / BRI"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Nomor Rekening:
+                      </label>
+                      <input
+                        type="text"
+                        value={newStaff.bank_account}
+                        onChange={(e) => setNewStaff({ ...newStaff, bank_account: e.target.value })}
+                        placeholder="Contoh: 1234567890"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#EA580C]/40"
                       />
                     </div>
                   </div>

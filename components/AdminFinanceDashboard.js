@@ -299,6 +299,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                 cash_bon: detail.cash_bon ?? p.deductions ?? 0,
                 net_salary: p.net_salary,
                 is_released: p.is_released,
+                is_paid: p.is_paid,
                 created_at: p.created_at,
               };
             });
@@ -2569,12 +2570,17 @@ export default function AdminFinanceDashboard({ onBack }) {
                           {slips.map((slip) => (
                             <div
                               key={slip.id}
-                              className="p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2.5 hover:border-slate-300 transition shadow-xs w-full overflow-hidden"
+                              className="p-3.5 bg-white border border-slate-200/90 rounded-2xl flex flex-col gap-2.5 hover:border-slate-300 transition shadow-xs w-full overflow-hidden relative"
                             >
+                              {slip.is_paid && (
+                                <span className="absolute top-3 right-3 text-[9px] font-black px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  Terbayarkan
+                                </span>
+                              )}
                               {/* Informasi Karyawan & Gaji */}
                               <div className="flex flex-col gap-1">
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <h5 className="text-xs font-black text-slate-900">{slip.employee_name}</h5>
+                                  <h5 className="text-xs font-black text-slate-900 pr-16">{slip.employee_name}</h5>
                                   <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
                                     {slip.branch}
                                   </span>

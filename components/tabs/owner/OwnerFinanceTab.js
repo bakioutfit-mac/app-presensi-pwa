@@ -18,7 +18,8 @@ export default function OwnerFinanceTab({ user, onBack, showToast }) {
         // Fetch dari payslips, ambil yang sudah di-release (atau semuanya karena payslip dibuat saat sudah fix)
         const { data, error } = await supabase
           .from('payslips')
-          .select('*, employees(full_name, branch, position)')
+          .select('*, employees(full_name, branch, position, bank_name, bank_account)')
+          .eq('is_released', true)
           .order('created_at', { ascending: false });
           
         if (error) throw error;
@@ -40,6 +41,30 @@ export default function OwnerFinanceTab({ user, onBack, showToast }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleTogglePaid = async (slipId, currentPaidStatus) => {
+    try {
+      const { error } = await supabase
+        .from('payslips')
+        .update({ is_paid: !currentPaidStatus })
+        .eq('id', slipId);
+
+      if (error) throw error;
+      
+      setSalaryList(prev => 
+        prev.map(slip => slip.id === slipId ? { ...slip, is_paid: !currentPaidStatus } : slip)
+      );
+      if (showToast) showToast('success', !currentPaidStatus ? 'Gaji berhasil ditandai Terbayar' : 'Status Terbayar dibatalkan');
+    } catch (err) {
+      if (showToast) showToast('error', 'Gagal update status: ' + err.message);
+    }
+  };
+
+  const handleCopyAccount = (accountNumber) => {
+    if (!accountNumber) return;
+    navigator.clipboard.writeText(accountNumber);
+    if (showToast) showToast('success', 'Nomor rekening disalin: ' + accountNumber);
   };
 
   useEffect(() => {
@@ -160,19 +185,50 @@ export default function OwnerFinanceTab({ user, onBack, showToast }) {
                         {isExpanded && (
                           <div className="p-3 bg-white space-y-2 border-t border-slate-100">
                             {slips.map((slip) => (
-                              <div key={slip.id} className="flex items-center justify-between p-3 rounded-2xl border border-slate-100 bg-slate-50">
+                              <div key={slip.id} className="flex items-center justify-between p-3 rounded-2xl border border-slate-100 bg-slate-50 gap-2">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0">
-                                    {slip.employees?.full_name ? slip.employees.full_name.charAt(0).toUpperCase() : '?'}
-                                  </div>
+                                  <button 
+                                    type="button"
+                                    onClick={() => handleTogglePaid(slip.id, slip.is_paid)}
+                                    className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 border transition ${
+                                      slip.is_paid 
+                                        ? 'bg-emerald-500 border-emerald-600 text-white shadow-inner' 
+                                        : 'bg-white border-slate-300 text-slate-300 hover:border-slate-400 hover:text-slate-400'
+                                    }`}
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  </button>
                                   <div>
                                     <p className="text-sm font-black text-slate-900">{slip.employees?.full_name || 'Tanpa Nama'}</p>
-                                    <p className="text-[10px] text-slate-500 font-medium">{slip.employees?.branch || 'Pusat'}</p>
+                                    <p className="text-[10px] text-slate-500 font-medium mb-1">{slip.employees?.branch || 'Pusat'}</p>
+                                    
+                                    {/* Bank Details */}
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                      <span className="text-[9px] font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded-md">
+                                        {slip.employees?.bank_name || 'Bank?'}
+                                      </span>
+                                      <span className="text-[10px] font-mono font-medium text-slate-700">
+                                        {slip.employees?.bank_account || '-'}
+                                      </span>
+                                      {slip.employees?.bank_account && (
+                                        <button 
+                                          type="button" 
+                                          onClick={() => handleCopyAccount(slip.employees.bank_account)}
+                                          className="text-blue-600 hover:text-blue-800 p-0.5 bg-blue-50 rounded"
+                                        >
+                                          <Receipt className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                                <div className="text-right">
+                                <div className="text-right shrink-0">
                                   <p className="text-xs font-black text-emerald-600">{formatRupiah(slip.net_salary)}</p>
-                                  <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold mt-1 inline-block">Paid</span>
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold mt-1 inline-block ${
+                                    slip.is_paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}>
+                                    {slip.is_paid ? 'Paid' : 'Pending'}
+                                  </span>
                                 </div>
                               </div>
                             ))}
