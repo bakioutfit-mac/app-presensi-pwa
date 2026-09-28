@@ -349,18 +349,6 @@ export default function HomeDashboard() {
             </button>
           )}
 
-          {user?.role?.includes('purchasing') && (
-            <button
-              type="button"
-              onClick={() => setAdminRole('purchasing')}
-              className="px-3 py-2 rounded-full text-white bg-emerald-600 hover:bg-emerald-700 shadow-md border-2 border-white transition text-[10px] font-black flex items-center gap-1.5"
-              title="Beralih ke Dashboard Purchasing"
-            >
-              <ListChecks className="w-3.5 h-3.5" />
-              TASK PURCHASING
-            </button>
-          )}
-
         </div>
       </div>
 
