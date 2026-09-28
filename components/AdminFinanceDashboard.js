@@ -121,6 +121,7 @@ export default function AdminFinanceDashboard({ onBack }) {
 
   const [salaryList, setSalaryList] = useState([]);
   const [expandedPeriods, setExpandedPeriods] = useState({});
+  const [expandedOtHistoryPeriods, setExpandedOtHistoryPeriods] = useState({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showDetailedComponents, setShowDetailedComponents] = useState(false);
   const [autoLateCount, setAutoLateCount] = useState(0);
@@ -1526,63 +1527,115 @@ export default function AdminFinanceDashboard({ onBack }) {
                     Belum ada riwayat keputusan lembur yang tersimpan.
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {processedOvertimes.map((ot) => {
-                      const isApproved = ot.status === 'Disetujui Finance';
-                      return (
-                        <div
-                          key={ot.id}
-                          className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-xs font-black text-slate-900">{ot.employee_name}</span>
-                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
-                                {ot.branch}
-                              </span>
-                              <span className="text-[10px] text-slate-500 font-medium">• {ot.date}</span>
-                              <span
-                                className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
-                                  isApproved
-                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                    : 'bg-rose-100 text-rose-800 border-rose-200'
-                                }`}
-                              >
-                                {isApproved ? 'Disetujui Finance' : 'Ditolak Finance'}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-slate-600">
-                              Durasi: <strong className="text-slate-900">{ot.hours} Jam</strong> • Tugas: <span className="italic">{ot.reason}</span>
-                            </p>
-                            {!isApproved && ot.rejection_reason && (
-                              <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 p-2 rounded-lg font-medium">
-                                <strong>Alasan Penolakan: </strong>
-                                &ldquo;{ot.rejection_reason}&rdquo; <span className="text-[10px] text-rose-500 block sm:inline sm:ml-1">• Tampil di slip gaji staf</span>
-                              </p>
-                            )}
-                          </div>
+                  <div className="space-y-3">
+                    {(() => {
+                      const groupedOt = processedOvertimes.reduce((acc, ot) => {
+                        const dateObj = new Date(ot.date);
+                        const monthName = dateObj.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+                        const period = isNaN(dateObj.getTime()) ? 'Periode Lainnya' : monthName;
+                        if (!acc[period]) acc[period] = [];
+                        acc[period].push(ot);
+                        return acc;
+                      }, {});
 
-                          <div className="text-right shrink-0">
-                            {isApproved ? (
-                              <div>
-                                <span className="text-[10px] text-slate-400 block font-medium">Uang Lembur:</span>
-                                <span className="text-xs font-black text-emerald-600">
-                                  +Rp {Number(ot.nominal || (ot.hours * (ot.hourly_rate || getOvertimeRateByPosition(ot.position)))).toLocaleString('id-ID')}
-                                </span>
-                                <span className="text-[9px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md block mt-1">
-                                  Masuk Slip Gaji
-                                </span>
+                      // Sort descending by date
+                      const sortedPeriods = Object.entries(groupedOt).sort((a, b) => {
+                        if (a[0] === 'Periode Lainnya') return 1;
+                        if (b[0] === 'Periode Lainnya') return -1;
+                        const dateA = new Date(a[1][0].date).getTime();
+                        const dateB = new Date(b[1][0].date).getTime();
+                        return dateB - dateA;
+                      });
+
+                      return sortedPeriods.map(([period, ots]) => {
+                        const isExpanded = expandedOtHistoryPeriods[period] !== false; // default true
+                        return (
+                          <div key={period} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedOtHistoryPeriods(prev => ({ ...prev, [period]: !isExpanded }))}
+                              className="w-full px-4 py-3 bg-slate-50 flex items-center justify-between hover:bg-slate-100 transition cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                                  <Calendar className="w-4 h-4" />
+                                </div>
+                                <div className="text-left">
+                                  <h4 className="text-xs font-black text-slate-900">{period}</h4>
+                                  <p className="text-[10px] font-medium text-slate-500">{ots.length} Keputusan Lembur</p>
+                                </div>
                               </div>
-                            ) : (
-                              <div>
-                                <span className="text-[10px] text-rose-500 block font-bold">Lembur Dibatalkan</span>
-                                <span className="text-xs font-black text-slate-400">Rp 0</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-slate-400" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-400" />
+                              )}
+                            </button>
+
+                            {isExpanded && (
+                              <div className="p-3 bg-white space-y-2 border-t border-slate-100">
+                                {ots.map((ot) => {
+                                  const isApproved = ot.status === 'Disetujui Finance';
+                                  return (
+                                    <div
+                                      key={ot.id}
+                                      className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                                    >
+                                      <div className="space-y-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="text-xs font-black text-slate-900">{ot.employee_name}</span>
+                                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
+                                            {ot.branch}
+                                          </span>
+                                          <span className="text-[10px] text-slate-500 font-medium">• {ot.date}</span>
+                                          <span
+                                            className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
+                                              isApproved
+                                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                                : 'bg-rose-100 text-rose-800 border-rose-200'
+                                            }`}
+                                          >
+                                            {isApproved ? 'Disetujui Finance' : 'Ditolak Finance'}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-600">
+                                          Durasi: <strong className="text-slate-900">{ot.hours} Jam</strong> • Tugas: <span className="italic">{ot.reason}</span>
+                                        </p>
+                                        {!isApproved && ot.rejection_reason && (
+                                          <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 p-2 rounded-lg font-medium">
+                                            <strong>Alasan Penolakan: </strong>
+                                            &ldquo;{ot.rejection_reason}&rdquo; <span className="text-[10px] text-rose-500 block sm:inline sm:ml-1">• Tampil di slip gaji staf</span>
+                                          </p>
+                                        )}
+                                      </div>
+
+                                      <div className="text-right shrink-0">
+                                        {isApproved ? (
+                                          <div>
+                                            <span className="text-[10px] text-slate-400 block font-medium">Uang Lembur:</span>
+                                            <span className="text-xs font-black text-emerald-600">
+                                              +Rp {Number(ot.nominal || (ot.hours * (ot.hourly_rate || getOvertimeRateByPosition(ot.position)))).toLocaleString('id-ID')}
+                                            </span>
+                                            <span className="text-[9px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md block mt-1">
+                                              Masuk Slip Gaji
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div>
+                                            <span className="text-[10px] text-rose-500 block font-bold">Lembur Dibatalkan</span>
+                                            <span className="text-xs font-black text-slate-400">Rp 0</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      });
+                    })()}
                   </div>
                 )}
               </div>
