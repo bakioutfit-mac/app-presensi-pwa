@@ -49,25 +49,17 @@ const FormPermintaanBarang = dynamic(() => import('@/components/FormPermintaanBa
   ssr: false,
 });
 
-const AdminPurchasingDashboard = dynamic(() => import('@/components/AdminPurchasingDashboard'), {
+const AdminLogistikDashboard = dynamic(() => import('@/components/AdminLogistikDashboard'), {
   loading: () => (
     <div className="flex items-center justify-center min-h-screen text-xs text-slate-500 font-semibold gap-2">
       <Loader2 className="w-4 h-4 animate-spin text-[#10B981]" />
-      <span>Memuat Dashboard Purchasing...</span>
+      <span>Memuat Dashboard Logistik...</span>
     </div>
   ),
   ssr: false,
 });
 
-const AdminGudangDashboard = dynamic(() => import('@/components/AdminGudangDashboard'), {
-  loading: () => (
-    <div className="flex items-center justify-center min-h-screen text-xs text-slate-500 font-semibold gap-2">
-      <Loader2 className="w-4 h-4 animate-spin text-[#2563EB]" />
-      <span>Memuat Dashboard Gudang...</span>
-    </div>
-  ),
-  ssr: false,
-});
+// AdminGudangDashboard is removed since we use AdminLogistikDashboard for both
 
 export default function MainPage() {
   const { user, loading, adminRole, setAdminRole, logout } = useAuth();
@@ -120,20 +112,11 @@ export default function MainPage() {
     );
   }
 
-  // Jika Akun Purchasing aktif
-  if (adminRole === 'purchasing') {
+  // Jika Akun Purchasing atau Gudang aktif (sekarang digabung di Logistik)
+  if (adminRole === 'purchasing' || adminRole === 'gudang') {
     return (
       <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
-        <AdminPurchasingDashboard onBack={logout} />
-      </div>
-    );
-  }
-
-  // Jika Akun Gudang aktif
-  if (adminRole === 'gudang') {
-    return (
-      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
-        <AdminGudangDashboard onBack={logout} />
+        <AdminLogistikDashboard onBack={logout} userRole={adminRole} />
       </div>
     );
   }
