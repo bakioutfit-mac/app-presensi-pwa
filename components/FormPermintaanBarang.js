@@ -198,44 +198,52 @@ export default function FormPermintaanBarang({ user, onBack }) {
       const outletName = user?.branch || 'Pusat';
       // Tambah ke stok outlet
       for (const item of req.purchase_request_items) {
+        if (!item.catalog) continue;
         const catalogId = item.catalog.id;
         const qtyToAdd = Number(item.qty_requested);
 
         // 1. Catat transaksi
-        await supabase.from('outlet_transactions').insert({
+        const { error: txErr } = await supabase.from('outlet_transactions').insert({
           outlet_name: outletName,
           catalog_id: catalogId,
           transaction_type: 'IN',
           qty: qtyToAdd,
           notes: 'Terima PO (Req ID: ' + req.id.substring(0,6) + ')'
-        }).catch(()=>{});
+        });
+        if (txErr) throw txErr;
 
         // 2. Update Stock
-        const { data: existStock } = await supabase.from('outlet_stocks')
+        const { data: existStock, error: existErr } = await supabase.from('outlet_stocks')
           .select('id, qty_available')
           .eq('outlet_name', outletName)
           .eq('catalog_id', catalogId)
           .single();
+        if (existErr && existErr.code !== 'PGRST116') throw existErr;
 
         if (existStock) {
-          await supabase.from('outlet_stocks').update({
+          const { error: updErr } = await supabase.from('outlet_stocks').update({
             qty_available: Number(existStock.qty_available) + qtyToAdd,
             last_updated: new Date().toISOString()
           }).eq('id', existStock.id);
+          if (updErr) throw updErr;
         } else {
-          await supabase.from('outlet_stocks').insert({
+          const { error: insErr } = await supabase.from('outlet_stocks').insert({
             outlet_name: outletName,
             catalog_id: catalogId,
             qty_available: qtyToAdd
           });
+          if (insErr) throw insErr;
         }
       }
 
-      await supabase.from('purchase_requests').update({ status: 'Selesai' }).eq('id', req.id);
+      const { error: reqErr } = await supabase.from('purchase_requests').update({ status: 'Selesai' }).eq('id', req.id);
+      if (reqErr) throw reqErr;
+      
       showToast('success', 'Penerimaan berhasil & Stok Outlet Bertambah!');
       fetchData();
     } catch (err) {
-      showToast('error', 'Gagal konfirmasi!');
+      console.error('Confirm Received Error:', JSON.stringify(err, null, 2));
+      showToast('error', (err && err.message) || 'Gagal konfirmasi!');
     } finally { setIsSubmitting(false); }
   };
 
