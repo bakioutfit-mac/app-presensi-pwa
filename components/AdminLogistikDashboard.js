@@ -556,7 +556,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
 
           <div className="grid grid-cols-2 gap-3">
             {stocks.filter(s => !searchQuery || s.item_name.toLowerCase().includes(searchQuery.toLowerCase())).map(stock => {
-                const qty = stock.warehouse_stocks?.[0]?.qty_available || 0;
+                const qty = Array.isArray(stock.warehouse_stocks) ? (stock.warehouse_stocks[0]?.qty_available || 0) : (stock.warehouse_stocks?.qty_available || 0);
                 return (
                   <button key={stock.id} onClick={() => addToCart(stock)} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 relative overflow-hidden text-left hover:border-indigo-400 transition">
                     <div className={`absolute left-0 top-0 bottom-0 w-1 ${qty <= 0 ? 'bg-rose-500' : 'bg-indigo-500'}`} />
@@ -757,7 +757,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
 
               <div className="grid grid-cols-2 gap-3 pb-20">
                 {stocks.filter(s => !searchQuery || s.item_name.toLowerCase().includes(searchQuery.toLowerCase())).map(stock => {
-                  const qty = stock.warehouse_stocks?.[0]?.qty_available || 0;
+                  const qty = Array.isArray(stock.warehouse_stocks) ? (stock.warehouse_stocks[0]?.qty_available || 0) : (stock.warehouse_stocks?.qty_available || 0);
                   return (
                     <button key={stock.id} onClick={() => addToPoCart(stock)} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 relative overflow-hidden text-left hover:border-green-400 transition">
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${qty <= 0 ? 'bg-rose-500' : 'bg-green-500'}`} />
@@ -826,7 +826,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
 
           <div className="grid grid-cols-2 gap-3">
             {stocks.filter(s => !searchQuery || s.item_name.toLowerCase().includes(searchQuery.toLowerCase())).map(stock => {
-              const qty = stock.warehouse_stocks?.[0]?.qty_available || 0;
+              const qty = Array.isArray(stock.warehouse_stocks) ? (stock.warehouse_stocks[0]?.qty_available || 0) : (stock.warehouse_stocks?.qty_available || 0);
               return (
                 <div key={stock.id} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 relative overflow-hidden group">
                   <div className={`absolute left-0 top-0 bottom-0 w-1 ${qty === 0 ? 'bg-rose-500' : 'bg-indigo-500'}`} />
