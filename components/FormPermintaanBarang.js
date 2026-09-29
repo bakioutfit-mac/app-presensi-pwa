@@ -43,7 +43,7 @@ export default function FormPermintaanBarang({ user, onBack }) {
         setCatalogs(data || []);
       } else if (activeTab === 'stock' || activeTab === 'mutasi') {
         const { data, error } = await supabase.from('outlet_stocks')
-          .select('*, catalog:catalog_id(item_name, uom, category)')
+          .select('*, catalog:catalog_id(id, item_name, uom, category)')
           .eq('outlet_name', user?.branch || 'Pusat')
           .order('catalog(item_name)', { ascending: true });
         if (error && error.code !== '42P01') throw error;
