@@ -23,7 +23,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   // POS States
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [editingCatalog, setEditingCatalog] = useState(null);
-  const [catalogForm, setCatalogForm] = useState({ item_name: '', uom: '', category: '' });
+  const [catalogForm, setCatalogForm] = useState({ item_name: '', uom: '', category: '', initial_stock: '' });
   const [cart, setCart] = useState([]);
   const [notes, setNotes] = useState('');
   const [selectedOutlet, setSelectedOutlet] = useState('');
@@ -95,10 +95,14 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   };
 
 
+
   const handleSaveCatalog = async () => {
     if (!catalogForm.item_name || !catalogForm.uom) return showToast('error', 'Nama dan Satuan wajib diisi!');
     setProcessingId('save-catalog');
     try {
+      const stockVal = Number(catalogForm.initial_stock) || 0;
+      let catalogIdToUse = editingCatalog?.id;
+      
       if (editingCatalog) {
         const { error } = await supabase.from('inventory_catalogs').update({
           item_name: catalogForm.item_name,
@@ -108,22 +112,43 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
         if (error) throw error;
         showToast('success', 'Barang berhasil diupdate!');
       } else {
-        const { error } = await supabase.from('inventory_catalogs').insert({
+        const { data, error } = await supabase.from('inventory_catalogs').insert({
           item_name: catalogForm.item_name,
           uom: catalogForm.uom,
           category: catalogForm.category || 'General'
-        });
+        }).select('id').single();
         if (error) throw error;
+        catalogIdToUse = data.id;
         showToast('success', 'Barang baru berhasil ditambahkan!');
       }
+
+      if (catalogIdToUse) {
+        const { data: existStock, error: existErr } = await supabase.from('warehouse_stocks').select('id, qty_available').eq('catalog_id', catalogIdToUse).single();
+        if (existErr && existErr.code !== 'PGRST116') throw existErr;
+
+        if (existStock) {
+           const diff = stockVal - Number(existStock.qty_available);
+           if (diff !== 0) {
+              await supabase.from('warehouse_stocks').update({ qty_available: stockVal, last_updated: new Date().toISOString() }).eq('id', existStock.id);
+              await supabase.from('warehouse_transactions').insert({ catalog_id: catalogIdToUse, transaction_type: diff > 0 ? 'IN' : 'OUT', qty: Math.abs(diff), notes: 'Penyesuaian (Master Stok)' });
+           }
+        } else if (stockVal !== 0 || !editingCatalog) {
+           await supabase.from('warehouse_stocks').insert({ catalog_id: catalogIdToUse, qty_available: stockVal, last_updated: new Date().toISOString() });
+           if (stockVal !== 0) {
+               await supabase.from('warehouse_transactions').insert({ catalog_id: catalogIdToUse, transaction_type: stockVal > 0 ? 'IN' : 'OUT', qty: Math.abs(stockVal), notes: 'Set Stok Awal (Master Stok)' });
+           }
+        }
+      }
+
       setShowCatalogModal(false);
       setEditingCatalog(null);
-      setCatalogForm({ item_name: '', uom: '', category: '' });
+      setCatalogForm({ item_name: '', uom: '', category: '', initial_stock: '' });
       fetchData();
     } catch (err) {
       showToast('error', 'Gagal menyimpan barang!');
     } finally { setProcessingId(null); }
   };
+
 
   const handleDeleteCatalog = async (id, name) => {
     if (!confirm(`Hapus permanen ${name} dari database?`)) return;
@@ -789,7 +814,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
                 className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-slate-700 focus:border-indigo-500 focus:ring-2 shadow-sm outline-none"
               />
             </div>
-            <button onClick={() => { setEditingCatalog(null); setCatalogForm({ item_name: '', uom: '', category: '' }); setShowCatalogModal(true); }} className="flex-shrink-0 w-10 h-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-md transition">
+            <button onClick={() => { setEditingCatalog(null); setCatalogForm({ item_name: '', uom: '', category: '', initial_stock: '' }); setShowCatalogModal(true); }} className="flex-shrink-0 w-10 h-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-md transition">
               <Plus className="w-5 h-5" />
             </button>
           </div>
@@ -806,7 +831,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
                       <h4 className="text-[11px] font-black text-slate-900 leading-tight">{stock.item_name}</h4>
                     </div>
                     <div className="flex flex-col gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => { setEditingCatalog(stock); setCatalogForm({ item_name: stock.item_name, uom: stock.uom, category: stock.category }); setShowCatalogModal(true); }} className="p-1 bg-slate-100 text-slate-600 rounded-md hover:bg-indigo-100 hover:text-indigo-600"><Edit3 className="w-3 h-3" /></button>
+                      <button onClick={() => { setEditingCatalog(stock); setCatalogForm({ item_name: stock.item_name, uom: stock.uom, category: stock.category, initial_stock: qty }); setShowCatalogModal(true); }} className="p-1 bg-slate-100 text-slate-600 rounded-md hover:bg-indigo-100 hover:text-indigo-600"><Edit3 className="w-3 h-3" /></button>
                       <button onClick={() => handleDeleteCatalog(stock.id, stock.item_name)} disabled={processingId === stock.id} className="p-1 bg-slate-100 text-slate-600 rounded-md hover:bg-rose-100 hover:text-rose-600"><Trash2 className="w-3 h-3" /></button>
                     </div>
                   </div>
@@ -842,6 +867,10 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Kategori</label>
                     <input type="text" value={catalogForm.category} onChange={e => setCatalogForm({...catalogForm, category: e.target.value})} className="w-full mt-1 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none font-medium" placeholder="Cth: Bahan Baku" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Stok Gudang Saat Ini (Pcs/Kg/Dll)</label>
+                    <input type="number" value={catalogForm.initial_stock || ''} onChange={e => setCatalogForm({...catalogForm, initial_stock: e.target.value})} className="w-full mt-1 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none font-medium" placeholder="0" />
                   </div>
                 </div>
                 <div className="p-4 border-t border-slate-100">
