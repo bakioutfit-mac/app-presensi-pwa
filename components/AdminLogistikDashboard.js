@@ -284,11 +284,12 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     if (items.length === 0) return showToast('error', 'Pilih minimal 1 barang!');
     if (!supplier.wa_number) return showToast('error', 'Nomor WA supplier tidak tersedia!');
     
-    let message = `Halo ${supplier.name},\nKami dari 3 Pillar Management (Gudang Pusat) ingin memesan:\n\n`;
-    items.forEach((it, idx) => {
-      message += `${idx + 1}. ${it.catalog?.item_name} - ${it.qty} ${it.catalog?.uom}\n`;
+    const dateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    let message = `${dateStr} dari 3 pillar order :\n`;
+    items.forEach((it) => {
+      message += `- ${it.catalog?.item_name} - ${it.qty} ${it.catalog?.uom}\n`;
     });
-    message += `\nMohon diproses. Terima kasih.`;
+    message += `\nkonfirmasi ketersediaanya?`;
     
     let phone = supplier.wa_number.replace(/[^0-9]/g, '');
     if (phone.startsWith('0')) phone = '62' + phone.substring(1);
@@ -330,11 +331,12 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     const supplier = suppliers.find(s => s.id === selectedSupplierForWa);
     if (!supplier?.wa_number) return showToast('error', 'Nomor WhatsApp supplier tidak tersedia!');
 
-    let message = `Halo ${supplier.name},\nKami dari 3 Pillar Management ingin memesan barang berikut:\n\n`;
-    poCart.forEach((it, idx) => {
-      message += `${idx + 1}. ${it.catalog?.item_name} - ${it.qty} ${it.catalog?.uom}\n`;
+    const dateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    let message = `${dateStr} dari 3 pillar order :\n`;
+    poCart.forEach((it) => {
+      message += `- ${it.catalog?.item_name} - ${it.qty} ${it.catalog?.uom}\n`;
     });
-    message += `\nMohon konfirmasi ketersediaannya ya. Terima kasih.`;
+    message += `\nkonfirmasi ketersediaanya?`;
     
     let phone = supplier.wa_number.replace(/[^0-9]/g, '');
     if (phone.startsWith('0')) phone = '62' + phone.substring(1);
@@ -347,11 +349,12 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   // ================= APPROVAL LOGIC =================
   const sendWhatsAppToSupplier = (supplier, items, reqId) => {
     if (!supplier?.wa_number) return alert('Nomor supplier tidak tersedia!');
-    let message = `Halo ${supplier.name},\nKami dari 3 Pillar Management ingin memesan:\n\n`;
-    items.forEach((it, idx) => {
-      message += `${idx + 1}. ${it.catalog?.item_name} - ${it.qty_requested} ${it.catalog?.uom}\n`;
+    const dateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    let message = `${dateStr} dari 3 pillar order :\n`;
+    items.forEach((it) => {
+      message += `- ${it.catalog?.item_name} - ${it.qty_requested} ${it.catalog?.uom}\n`;
     });
-    message += `\nMohon konfirmasi ketersediaan barang. Terima kasih.`;
+    message += `\nkonfirmasi ketersediaanya?`;
     
     let phone = supplier.wa_number.replace(/[^0-9]/g, '');
     if (phone.startsWith('0')) phone = '62' + phone.substring(1);
