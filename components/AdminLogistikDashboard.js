@@ -17,7 +17,8 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   // PO Supplier State
   const [poCart, setPoCart] = useState([]);
   const [expandedSupplier, setExpandedSupplier] = useState(null);
-  const [supplierSubTab, setSupplierSubTab] = useState('order'); // 'order' | 'data'
+  const [supplierSubTab, setSupplierSubTab] = useState('order');
+  const [supplierOrderHistory, setSupplierOrderHistory] = useState([]); // 'order' | 'data'
   const [newSupplier, setNewSupplier] = useState({ name: '', wa_number: '', category: '' });
   
   // POS States
@@ -80,12 +81,19 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
         if (reqErr) throw reqErr;
         setRequests(reqData || []);
       } else if (activeTab === 'suppliers') {
-        const { data: supData, error: supErr } = await supabase
+const { data: supData, error: supErr } = await supabase
           .from('suppliers')
           .select('*, inventory_catalogs(id, item_name, uom, category)')
           .order('name', { ascending: true });
         if (supErr) throw supErr;
         setSuppliers(supData || []);
+        
+        const { data: histData, error: histErr } = await supabase
+          .from('supplier_orders')
+          .select('*, supplier:supplier_id(name), supplier_order_items(*, catalog:catalog_id(item_name, uom))')
+          .order('created_at', { ascending: false });
+        if (histErr && histErr.code !== '42P01') throw histErr;
+        setSupplierOrderHistory(histData || []);
       }
     } catch (err) {
       console.error('Fetch error:', err);
@@ -324,26 +332,56 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
 
   const [selectedSupplierForWa, setSelectedSupplierForWa] = useState('');
 
-  const handleSendWaGlobal = () => {
+  const handleSendWaGlobal = async () => {
     if (poCart.length === 0) return showToast('error', 'Keranjang masih kosong!');
     if (!selectedSupplierForWa) return showToast('error', 'Pilih supplier tujuan!');
     
-    const supplier = suppliers.find(s => s.id === selectedSupplierForWa);
+const supplier = suppliers.find(s => s.id === selectedSupplierForWa);
     if (!supplier?.wa_number) return showToast('error', 'Nomor WhatsApp supplier tidak tersedia!');
 
-    const dateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-    let message = `${dateStr} dari 3 pillar order :\n`;
-    poCart.forEach((it) => {
-      message += `- ${it.catalog?.item_name} - ${it.qty} ${it.catalog?.uom}\n`;
-    });
-    message += `\nkonfirmasi ketersediaanya?`;
-    
-    let phone = supplier.wa_number.replace(/[^0-9]/g, '');
-    if (phone.startsWith('0')) phone = '62' + phone.substring(1);
-    
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
-    // Opsional: kosongkan keranjang setelah kirim WA
-    // setPoCart([]);
+    setProcessingId('wa-global');
+    try {
+      // Create Order Record
+      const { data: newOrder, error: orderErr } = await supabase.from('supplier_orders').insert({
+        supplier_id: supplier.id,
+        status: 'Dikirim ke Supplier'
+      }).select().single();
+      
+      if (orderErr) throw orderErr;
+
+      // Create Order Items
+      const orderItems = poCart.map(item => ({
+        order_id: newOrder.id,
+        catalog_id: item.catalog.id,
+        qty: item.qty
+      }));
+      
+      const { error: itemsErr } = await supabase.from('supplier_order_items').insert(orderItems);
+      if (itemsErr) throw itemsErr;
+
+      const dateStr = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      let message = `${dateStr} dari 3 pillar order :
+`;
+      poCart.forEach((it) => {
+        message += `- ${it.catalog?.item_name} - ${it.qty} ${it.catalog?.uom}
+`;
+      });
+      message += `
+konfirmasi ketersediaanya?`;
+      
+      let phone = supplier.wa_number.replace(/[^0-9]/g, '');
+      if (phone.startsWith('0')) phone = '62' + phone.substring(1);
+      
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+      setPoCart([]); // Kosongkan setelah kirim WA
+      fetchData(); // Refresh history
+      showToast('success', 'Order berhasil dicatat & WA dibuka!');
+    } catch (err) {
+      console.error(err);
+      showToast('error', 'Gagal mencatat order!');
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   // ================= APPROVAL LOGIC =================
@@ -683,15 +721,50 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
       ) : activeTab === 'suppliers' ? (
         <div className="space-y-4">
           <div className="flex bg-slate-200/50 p-1.5 rounded-2xl gap-1">
-            <button onClick={() => setSupplierSubTab('order')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${supplierSubTab === 'order' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+<button onClick={() => setSupplierSubTab('order')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${supplierSubTab === 'order' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
               <ShoppingCart className="w-3.5 h-3.5" /> Order via WA
+            </button>
+            <button onClick={() => setSupplierSubTab('riwayat')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${supplierSubTab === 'riwayat' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <History className="w-3.5 h-3.5" /> Riwayat Order
             </button>
             <button onClick={() => setSupplierSubTab('data')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${supplierSubTab === 'data' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
               <Layers className="w-3.5 h-3.5" /> Master Data Supplier
             </button>
           </div>
 
-          {supplierSubTab === 'order' ? (
+{supplierSubTab === 'riwayat' ? (
+            <div className="space-y-4 animate-in fade-in pb-24">
+              {supplierOrderHistory.length === 0 ? (
+                <div className="bg-white p-6 rounded-2xl text-center border border-slate-200">
+                   <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                   <p className="text-xs font-bold text-slate-500">Belum ada riwayat order</p>
+                </div>
+              ) : (
+                supplierOrderHistory.map(order => (
+                  <div key={order.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                    <div className="flex justify-between items-start border-b border-slate-100 pb-2">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Tujuan Supplier</p>
+                        <h4 className="text-sm font-black text-slate-800">{order.supplier?.name || 'Tidak diketahui'}</h4>
+                        <p className="text-[10px] font-medium text-slate-500 mt-0.5">{getLocalDateString(order.created_at)}</p>
+                      </div>
+                      <span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[9px] font-black uppercase">
+                        {order.status}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {order.supplier_order_items?.map(it => (
+                         <div key={it.id} className="flex justify-between text-xs font-medium text-slate-700 bg-slate-50 p-2 rounded-lg">
+                           <span>{it.catalog?.item_name}</span>
+                           <span className="font-bold text-indigo-600">{it.qty} {it.catalog?.uom}</span>
+                         </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : supplierSubTab === 'order' ? (
             <div className="space-y-4 animate-in fade-in">
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
                 <h4 className="text-xs font-black text-slate-800 flex items-center gap-2">
