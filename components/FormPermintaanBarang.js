@@ -603,14 +603,14 @@ export default function FormPermintaanBarang({ user, onBack }) {
       ) : (
             history.map(req => (
               <div key={req.id} className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-3 relative overflow-hidden">
-                <div className={`absolute left-0 top-0 bottom-0 w-1 ${req.status === 'Selesai' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                <div className={`absolute left-0 top-0 bottom-0 w-1 ${req.status === 'Selesai' ? 'bg-emerald-500' : req.status === 'Menunggu Persetujuan' ? 'bg-rose-400' : 'bg-amber-400'}`} />
                 
                 <div className="flex justify-between items-start pl-2">
                   <div>
                     <h5 className="text-[10px] font-black text-slate-900">{req.request_date}</h5>
                     <p className="text-[9px] text-slate-500">{req.notes || '-'}</p>
                   </div>
-                  <span className={`px-2 py-1 text-[9px] font-black rounded-lg ${req.status === 'Selesai' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{req.status}</span>
+                  <span className={`px-2 py-1 text-[9px] font-black rounded-lg ${req.status === 'Selesai' ? 'bg-emerald-100 text-emerald-700' : req.status === 'Menunggu Persetujuan' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>{req.status}</span>
                 </div>
 
                 <div className="pl-2">
@@ -626,7 +626,7 @@ export default function FormPermintaanBarang({ user, onBack }) {
                   </div>
                 </div>
 
-                {req.status === 'Diterima Gudang' && (
+                {req.status === 'Siap diambil' && (
                   <div className="pl-2 pt-1">
                     <button onClick={() => handleConfirmReceived(req)} disabled={isSubmitting} className="w-full py-2.5 bg-emerald-600 text-white text-[11px] font-black rounded-xl">
                       Konfirmasi Barang Diterima di Outlet

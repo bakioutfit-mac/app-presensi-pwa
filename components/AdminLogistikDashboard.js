@@ -326,55 +326,24 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
-  const handleProcessRequest = async (reqId) => {
-    if (!confirm('Tandai sebagai diproses (Sedang dibeli/dikirim dari supplier)?')) return;
+
+  const handleAcceptRequest = async (reqId) => {
+    if (!confirm('Terima request ini dan mulai siapkan barangnya?')) return;
     setProcessingId(reqId);
     try {
-      await supabase.from('purchase_requests').update({ status: 'Diproses' }).eq('id', reqId);
-      showToast('success', 'Status diubah jadi Diproses!');
+      await supabase.from('purchase_requests').update({ status: 'Sedang disiapkan' }).eq('id', reqId);
+      showToast('success', 'Status diubah jadi Sedang disiapkan!');
       fetchData();
     } catch (e) {
       showToast('error', 'Gagal memproses!');
     } finally { setProcessingId(null); }
   };
 
-  const handleReceiveToWarehouse = async (reqId, items) => {
-    if (!confirm('Barang telah tiba di Gudang Pusat? Stok akan otomatis bertambah.')) return;
-    setProcessingId(reqId);
-    try {
-      for (const item of items) {
-        if (!item.catalog) continue; // Skip jika katalog terhapus
-        const catalogId = item.catalog.id;
-        const qtyToAdd = Number(item.qty_requested);
 
-        const { data: existStock, error: existErr } = await supabase.from('warehouse_stocks').select('id, qty_available').eq('catalog_id', catalogId).single();
-        if (existErr && existErr.code !== 'PGRST116') throw existErr;
 
-        if (existStock) {
-          const { error: updErr } = await supabase.from('warehouse_stocks').update({ qty_available: Number(existStock.qty_available) + qtyToAdd, last_updated: new Date().toISOString() }).eq('id', existStock.id);
-          if (updErr) throw updErr;
-        } else {
-          const { error: insErr } = await supabase.from('warehouse_stocks').insert({ catalog_id: catalogId, qty_available: qtyToAdd, last_updated: new Date().toISOString() });
-          if (insErr) throw insErr;
-        }
-        
-        const { error: txErr } = await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'IN', qty: qtyToAdd, notes: 'PO Masuk ke Gudang' });
-        if (txErr && txErr.code !== '42P01') throw txErr;
-      }
-
-      const { error: reqErr } = await supabase.from('purchase_requests').update({ status: 'Diterima Gudang' }).eq('id', reqId);
-      if (reqErr) throw reqErr;
-      
-      showToast('success', 'Stok Gudang Bertambah!');
-      fetchData();
-    } catch (e) {
-      console.error(e);
-      showToast('error', e.message || 'Gagal terima barang!');
-    } finally { setProcessingId(null); }
-  };
 
   const handleSendToOutlet = async (reqId, outletName, items) => {
-    if (!confirm(`Kirim ke ${outletName}? Stok pusat akan berkurang otomatis.`)) return;
+    if (!confirm(`Serahkan barang ke ${outletName}? Stok pusat akan berkurang otomatis.`)) return;
     setProcessingId(reqId);
     try {
       for (const item of items) {
@@ -389,20 +358,21 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
           const { error: updErr } = await supabase.from('warehouse_stocks').update({ qty_available: Number(existStock.qty_available) - qtyToSent, last_updated: new Date().toISOString() }).eq('id', existStock.id);
           if (updErr) throw updErr;
         }
-        const { error: txErr } = await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'OUT', qty: qtyToSent, notes: `Distribusi PO ke ${outletName}` });
+        const { error: txErr } = await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'OUT', qty: qtyToSent, notes: `Distribusi ke ${outletName}` });
         if (txErr && txErr.code !== '42P01') throw txErr;
       }
 
-      const { error: reqErr } = await supabase.from('purchase_requests').update({ status: 'Dikirim' }).eq('id', reqId);
+      const { error: reqErr } = await supabase.from('purchase_requests').update({ status: 'Siap diambil' }).eq('id', reqId);
       if (reqErr) throw reqErr;
       
-      showToast('success', 'Barang terkirim ke Outlet (Menunggu Konfirmasi)!');
+      showToast('success', 'Barang diserahkan ke Outlet (Menunggu Konfirmasi Leader)!');
       fetchData();
     } catch (e) {
       console.error(e);
-      showToast('error', e.message || 'Gagal kirim ke outlet!');
+      showToast('error', e.message || 'Gagal serahkan barang!');
     } finally { setProcessingId(null); }
   };
+
 
   // Render logic
   const groupedRequests = requests.reduce((acc, req) => {
@@ -450,7 +420,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
           <ShoppingCart className="w-3.5 h-3.5" /> POS Mutasi
         </button>
         <button onClick={() => setActiveTab('requests')} className={`flex-shrink-0 px-4 py-2 text-[11px] font-black rounded-xl flex items-center gap-1.5 transition ${activeTab === 'requests' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-          <ListChecks className="w-3.5 h-3.5" /> Request Leader
+          <ListChecks className="w-3.5 h-3.5" /> Request Outlet
         </button>
         <button onClick={() => setActiveTab('history')} className={`flex-shrink-0 px-4 py-2 text-[11px] font-black rounded-xl flex items-center gap-1.5 transition ${activeTab === 'history' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
           <History className="w-3.5 h-3.5" /> Riwayat
@@ -606,56 +576,42 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
 
                       return (
                         <div key={req.id} className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-3 relative overflow-hidden">
-                          <div className={`absolute left-0 top-0 bottom-0 w-1 ${req.status === 'Menunggu Persetujuan' ? 'bg-rose-400' : req.status === 'Diproses' ? 'bg-amber-400' : 'bg-emerald-500'}`} />
+                          <div className={`absolute left-0 top-0 bottom-0 w-1 ${req.status === 'Menunggu Persetujuan' ? 'bg-rose-400' : req.status === 'Sedang disiapkan' ? 'bg-amber-400' : 'bg-emerald-500'}`} />
                           
                           <div className="flex justify-between items-start pl-2">
                             <div>
                               <h5 className="text-xs font-black text-slate-900">{req.outlet_name}</h5>
                               <p className="text-[10px] text-slate-500">Oleh: {req.requested_by}</p>
                             </div>
-                            <span className={`px-2 py-1 text-[9px] font-black rounded-lg ${req.status === 'Menunggu Persetujuan' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>{req.status}</span>
+                            <span className={`px-2 py-1 text-[9px] font-black rounded-lg ${req.status === 'Menunggu Persetujuan' ? 'bg-rose-100 text-rose-700' : req.status === 'Sedang disiapkan' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{req.status}</span>
                           </div>
 
+
                           <div className="pl-2 space-y-2">
-                            {Object.entries(itemsBySupplier).map(([supId, data]) => (
-                              <div key={supId} className="bg-slate-50 border border-slate-100 rounded-xl overflow-hidden">
-                                <div className="px-2.5 py-2 bg-slate-100/50 flex justify-between items-center">
-                                  <span className="text-[10px] font-black text-slate-700">{data.supplier?.name || 'Tanpa Supplier / Internal'}</span>
-                                  {req.status === 'Menunggu Persetujuan' && data.supplier && (
-                                    <button onClick={() => sendWhatsAppToSupplier(data.supplier, data.items, req.id)} className="flex items-center gap-1 text-[9px] font-black text-emerald-600 bg-emerald-100 px-2 py-1 rounded-md">
-                                      <Send className="w-3 h-3" /> Chat Supplier
-                                    </button>
-                                  )}
-                                </div>
-                                <ul className="p-2.5 space-y-1">
-                                  {data.items.map(item => (
-                                    <li key={item.id} className="text-[11px] flex justify-between border-b border-slate-100 pb-1 last:border-0 last:pb-0">
-                                      <span className="text-slate-600">{item.catalog?.item_name}</span>
-                                      <span className="font-bold text-slate-900">{item.qty_requested} {item.catalog?.uom}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ))}
+                            <ul className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 space-y-1">
+                              {req.purchase_request_items.map(item => (
+                                <li key={item.id} className="text-[11px] flex justify-between border-b border-slate-100 pb-1 last:border-0 last:pb-0">
+                                  <span className="text-slate-600">{item.catalog?.item_name || 'Barang Terhapus'}</span>
+                                  <span className="font-bold text-slate-900">{item.qty_requested} {item.catalog?.uom || ''}</span>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
+
 
                           <div className="pl-2 pt-1 flex gap-2">
                             {req.status === 'Menunggu Persetujuan' && (
-                              <button onClick={() => handleProcessRequest(req.id)} disabled={processingId === req.id} className="flex-1 py-2.5 bg-indigo-600 text-white text-[11px] font-black rounded-xl">
-                                {processingId === req.id ? 'Memproses...' : 'Tandai Sedang Diproses (Beli/Kirim)'}
+                              <button onClick={() => handleAcceptRequest(req.id)} disabled={processingId === req.id} className="flex-1 py-2.5 bg-indigo-600 text-white text-[11px] font-black rounded-xl hover:bg-indigo-700 transition">
+                                {processingId === req.id ? 'Memproses...' : 'Terima Request (Siapkan)'}
                               </button>
                             )}
-                            {req.status === 'Diproses' && (
-                              <button onClick={() => handleReceiveToWarehouse(req.id, req.purchase_request_items)} disabled={processingId === req.id} className="flex-1 py-2.5 bg-emerald-600 text-white text-[11px] font-black rounded-xl">
-                                {processingId === req.id ? 'Memproses...' : 'Masuk ke Gudang (Tiba)'}
-                              </button>
-                            )}
-                            {req.status === 'Diterima Gudang' && (
-                              <button onClick={() => handleSendToOutlet(req.id, req.outlet_name, req.purchase_request_items)} disabled={processingId === req.id} className="flex-1 py-2.5 bg-amber-500 text-white text-[11px] font-black rounded-xl">
-                                {processingId === req.id ? 'Memproses...' : `Kirim & Selesai ke ${req.outlet_name}`}
+                            {req.status === 'Sedang disiapkan' && (
+                              <button onClick={() => handleSendToOutlet(req.id, req.outlet_name, req.purchase_request_items)} disabled={processingId === req.id} className="flex-1 py-2.5 bg-emerald-600 text-white text-[11px] font-black rounded-xl hover:bg-emerald-700 transition">
+                                {processingId === req.id ? 'Memproses...' : 'Serahkan Barang (Selesai Disiapkan)'}
                               </button>
                             )}
                           </div>
+
                         </div>
                       );
                     })}
