@@ -129,12 +129,15 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     if (!confirm(`Hapus permanen ${name} dari database?`)) return;
     setProcessingId(id);
     try {
+      // Hapus relasi yang mencegah penghapusan (RESTRICT)
+      await supabase.from('purchase_request_items').delete().eq('catalog_id', id);
+      
       const { error } = await supabase.from('inventory_catalogs').delete().eq('id', id);
       if (error) throw error;
       showToast('success', `${name} berhasil dihapus!`);
       fetchData();
     } catch (err) {
-      showToast('error', 'Gagal menghapus barang!');
+      console.error(err); showToast('error', err.message || 'Gagal menghapus barang!');
     } finally { setProcessingId(null); }
   };
 
