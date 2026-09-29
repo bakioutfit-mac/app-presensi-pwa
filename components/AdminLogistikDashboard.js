@@ -728,7 +728,7 @@ konfirmasi ketersediaanya?`;
               <History className="w-3.5 h-3.5" /> Riwayat Order
             </button>
             <button onClick={() => setSupplierSubTab('data')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${supplierSubTab === 'data' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-              <Layers className="w-3.5 h-3.5" /> Master Data Supplier
+              <Layers className="w-3.5 h-3.5" /> Data Supplier
             </button>
           </div>
 
@@ -746,7 +746,7 @@ konfirmasi ketersediaanya?`;
                       <div>
                         <p className="text-[10px] font-bold text-slate-400 uppercase">Tujuan Supplier</p>
                         <h4 className="text-sm font-black text-slate-800">{order.supplier?.name || 'Tidak diketahui'}</h4>
-                        <p className="text-[10px] font-medium text-slate-500 mt-0.5">{getLocalDateString(order.created_at)}</p>
+                        <p className="text-[10px] font-medium text-slate-500 mt-0.5">{new Date(order.created_at).toLocaleString('id-ID')}</p>
                       </div>
                       <span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[9px] font-black uppercase">
                         {order.status}
