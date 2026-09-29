@@ -674,14 +674,30 @@ const handleTogglePayment = async (orderId, currentIsPaid) => {
 
 
                           <div className="pl-2 space-y-2">
-                            <ul className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 space-y-1">
-                              {req.purchase_request_items.map(item => (
-                                <li key={item.id} className="text-[11px] flex justify-between border-b border-slate-100 pb-1 last:border-0 last:pb-0">
-                                  <span className="text-slate-600">{item.catalog?.item_name || 'Barang Terhapus'}</span>
-                                  <span className="font-bold text-slate-900">{item.qty_requested} {item.catalog?.uom || ''}</span>
-                                </li>
+                            <div className="space-y-2">
+                              {Object.entries(
+                                req.purchase_request_items.reduce((acc, item) => {
+                                  const cat = item.catalog?.category || 'Lainnya';
+                                  if (!acc[cat]) acc[cat] = [];
+                                  acc[cat].push(item);
+                                  return acc;
+                                }, {})
+                              ).map(([categoryName, items]) => (
+                                <div key={categoryName} className="bg-slate-50 border border-slate-100 rounded-xl overflow-hidden">
+                                  <div className="bg-slate-200/50 px-2.5 py-1.5 border-b border-slate-100">
+                                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-wide">{categoryName}</span>
+                                  </div>
+                                  <ul className="p-2.5 space-y-1">
+                                    {items.map(item => (
+                                      <li key={item.id} className="text-[11px] flex justify-between border-b border-slate-100 pb-1 last:border-0 last:pb-0">
+                                        <span className="text-slate-600">{item.catalog?.item_name || 'Barang Terhapus'}</span>
+                                        <span className="font-bold text-slate-900">{item.qty_requested} {item.catalog?.uom || ''}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
                               ))}
-                            </ul>
+                            </div>
                           </div>
 
 
