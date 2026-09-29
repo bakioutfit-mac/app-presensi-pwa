@@ -129,13 +129,17 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
         if (existStock) {
            const diff = stockVal - Number(existStock.qty_available);
            if (diff !== 0) {
-              await supabase.from('warehouse_stocks').update({ qty_available: stockVal, last_updated: new Date().toISOString() }).eq('id', existStock.id);
-              await supabase.from('warehouse_transactions').insert({ catalog_id: catalogIdToUse, transaction_type: diff > 0 ? 'IN' : 'OUT', qty: Math.abs(diff), notes: 'Penyesuaian (Master Stok)' });
+              const { error: updErr } = await supabase.from('warehouse_stocks').update({ qty_available: stockVal, last_updated: new Date().toISOString() }).eq('id', existStock.id);
+              if (updErr) throw updErr;
+              const { error: txErr } = await supabase.from('warehouse_transactions').insert({ catalog_id: catalogIdToUse, transaction_type: diff > 0 ? 'IN' : 'OUT', qty: Math.abs(diff), notes: 'Penyesuaian (Master Stok)' });
+              if (txErr) throw txErr;
            }
         } else if (stockVal !== 0 || !editingCatalog) {
-           await supabase.from('warehouse_stocks').insert({ catalog_id: catalogIdToUse, qty_available: stockVal, last_updated: new Date().toISOString() });
+           const { error: insErr } = await supabase.from('warehouse_stocks').insert({ catalog_id: catalogIdToUse, qty_available: stockVal, last_updated: new Date().toISOString() });
+           if (insErr) throw insErr;
            if (stockVal !== 0) {
-               await supabase.from('warehouse_transactions').insert({ catalog_id: catalogIdToUse, transaction_type: stockVal > 0 ? 'IN' : 'OUT', qty: Math.abs(stockVal), notes: 'Set Stok Awal (Master Stok)' });
+               const { error: txErr } = await supabase.from('warehouse_transactions').insert({ catalog_id: catalogIdToUse, transaction_type: stockVal > 0 ? 'IN' : 'OUT', qty: Math.abs(stockVal), notes: 'Set Stok Awal (Master Stok)' });
+               if (txErr) throw txErr;
            }
         }
       }
@@ -145,7 +149,8 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
       setCatalogForm({ item_name: '', uom: '', category: '', initial_stock: '' });
       fetchData();
     } catch (err) {
-      showToast('error', 'Gagal menyimpan barang!');
+      console.error('Save Catalog Error:', err);
+      showToast('error', err.message || 'Gagal menyimpan barang!');
     } finally { setProcessingId(null); }
   };
 
