@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ArrowLeft, Search, Loader2, Package, CheckCircle, Plus, Minus, ShoppingCart, History, Trash2, Edit3, Send, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Layers, UserMinus, UserCheck, Search, Loader2, Package, CheckCircle, Plus, Minus, ShoppingCart, History, Trash2, Edit3, Send, RefreshCw } from 'lucide-react';
 import { getLocalDateString } from '@/lib/date';
 
 export default function FormPermintaanBarang({ user, onBack }) {
@@ -10,6 +10,8 @@ export default function FormPermintaanBarang({ user, onBack }) {
   
   const [catalogs, setCatalogs] = useState([]);
   const [history, setHistory] = useState([]);
+  const [stocks, setStocks] = useState([]);
+  const [outletCart, setOutletCart] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -39,6 +41,13 @@ export default function FormPermintaanBarang({ user, onBack }) {
         const { data, error } = await supabase.from('inventory_catalogs').select('*').order('item_name', { ascending: true });
         if (error) throw error;
         setCatalogs(data || []);
+      } else if (activeTab === 'stock' || activeTab === 'mutasi') {
+        const { data, error } = await supabase.from('outlet_stocks')
+          .select('*, catalog:catalog_id(item_name, uom, category)')
+          .eq('outlet_name', user?.branch || 'Pusat')
+          .order('catalog(item_name)', { ascending: true });
+        if (error && error.code !== '42P01') throw error;
+        setStocks(data || []);
       } else {
         const { data, error } = await supabase.from('purchase_requests')
           .select(`*, purchase_request_items(id, qty_requested, status, catalog:catalog_id(item_name, uom))`)
@@ -52,6 +61,49 @@ export default function FormPermintaanBarang({ user, onBack }) {
     } finally {
       setLoading(false);
     }
+  };
+
+
+  const updateOutletCart = (stockItem, delta) => {
+    setOutletCart(prev => {
+      const existing = prev.find(item => item.catalog.id === stockItem.catalog.id);
+      if (existing) {
+        return prev.map(item => item.catalog.id === stockItem.catalog.id ? { ...item, qty: item.qty + delta } : item).filter(i => i.qty > 0);
+      }
+      if (delta > 0) return [...prev, { catalog: stockItem.catalog, qty: delta, stockId: stockItem.id, available: stockItem.qty_available }];
+      return prev;
+    });
+  };
+
+  const processOutletUsage = async () => {
+    if (outletCart.length === 0) return showToast('error', 'Keranjang pemakaian kosong!');
+    setIsSubmitting(true);
+    try {
+      const outletName = user?.branch || 'Pusat';
+      for (const item of outletCart) {
+        const catalogId = item.catalog.id;
+        const qty = Number(item.qty);
+        
+        await supabase.from('outlet_transactions').insert({
+          outlet_name: outletName,
+          catalog_id: catalogId,
+          transaction_type: 'OUT',
+          qty: qty,
+          notes: 'Pemakaian Harian (Produksi)'
+        }).catch(()=>{});
+
+        await supabase.from('outlet_stocks').update({
+          qty_available: Number(item.available) - qty,
+          last_updated: new Date().toISOString()
+        }).eq('id', item.stockId);
+      }
+
+      showToast('success', 'Pemakaian stok berhasil dicatat!');
+      setOutletCart([]);
+      fetchData();
+    } catch (err) {
+      showToast('error', 'Gagal memproses pemakaian!');
+    } finally { setIsSubmitting(false); }
   };
 
   // ================= POS LOGIC =================
@@ -139,13 +191,48 @@ export default function FormPermintaanBarang({ user, onBack }) {
     }
   };
 
-  const handleConfirmReceived = async (reqId) => {
-    if (!confirm('Tandai barang sudah diterima di outlet?')) return;
+  const handleConfirmReceived = async (req) => {
+    if (!confirm('Tandai barang sudah diterima di outlet? Stok Outlet akan otomatis bertambah!')) return;
     setIsSubmitting(true);
     try {
-      await supabase.from('purchase_requests').update({ status: 'Selesai' }).eq('id', reqId);
-      await supabase.from('stock_distributions').update({ status: 'Diterima Outlet' }).eq('request_id', reqId).catch(() => {});
-      showToast('success', 'Penerimaan berhasil dikonfirmasi!');
+      const outletName = user?.branch || 'Pusat';
+      // Tambah ke stok outlet
+      for (const item of req.purchase_request_items) {
+        const catalogId = item.catalog.id;
+        const qtyToAdd = Number(item.qty_requested);
+
+        // 1. Catat transaksi
+        await supabase.from('outlet_transactions').insert({
+          outlet_name: outletName,
+          catalog_id: catalogId,
+          transaction_type: 'IN',
+          qty: qtyToAdd,
+          notes: 'Terima PO (Req ID: ' + req.id.substring(0,6) + ')'
+        }).catch(()=>{});
+
+        // 2. Update Stock
+        const { data: existStock } = await supabase.from('outlet_stocks')
+          .select('id, qty_available')
+          .eq('outlet_name', outletName)
+          .eq('catalog_id', catalogId)
+          .single();
+
+        if (existStock) {
+          await supabase.from('outlet_stocks').update({
+            qty_available: Number(existStock.qty_available) + qtyToAdd,
+            last_updated: new Date().toISOString()
+          }).eq('id', existStock.id);
+        } else {
+          await supabase.from('outlet_stocks').insert({
+            outlet_name: outletName,
+            catalog_id: catalogId,
+            qty_available: qtyToAdd
+          });
+        }
+      }
+
+      await supabase.from('purchase_requests').update({ status: 'Selesai' }).eq('id', req.id);
+      showToast('success', 'Penerimaan berhasil & Stok Outlet Bertambah!');
       fetchData();
     } catch (err) {
       showToast('error', 'Gagal konfirmasi!');
@@ -185,12 +272,18 @@ export default function FormPermintaanBarang({ user, onBack }) {
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-slate-200/50 p-1.5 rounded-2xl gap-1">
-        <button onClick={() => setActiveTab('pos')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${activeTab === 'pos' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-          <ShoppingCart className="w-3.5 h-3.5" /> Pilih Barang
+      <div className="flex flex-wrap bg-slate-200/50 p-1.5 rounded-2xl gap-1">
+        <button onClick={() => setActiveTab('pos')} className={`flex-1 py-2 text-[10px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${activeTab === 'pos' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          <ShoppingCart className="w-3.5 h-3.5" /> Order
         </button>
-        <button onClick={() => setActiveTab('history')} className={`flex-1 py-2 text-[11px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${activeTab === 'history' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-          <History className="w-3.5 h-3.5" /> Riwayat Request
+        <button onClick={() => setActiveTab('stock')} className={`flex-1 py-2 text-[10px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${activeTab === 'stock' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          <Layers className="w-3.5 h-3.5" /> Stok
+        </button>
+        <button onClick={() => setActiveTab('mutasi')} className={`flex-1 py-2 text-[10px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${activeTab === 'mutasi' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          <Minus className="w-3.5 h-3.5" /> Pemakaian
+        </button>
+        <button onClick={() => setActiveTab('history')} className={`flex-1 py-2 text-[10px] font-black rounded-xl flex items-center justify-center gap-1.5 transition ${activeTab === 'history' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          <History className="w-3.5 h-3.5" /> Riwayat
         </button>
       </div>
 
@@ -211,7 +304,79 @@ export default function FormPermintaanBarang({ user, onBack }) {
               <div className="py-6 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-100 rounded-xl">
                 Ketuk barang di katalog bawah untuk menambah.
               </div>
+            ) : activeTab === 'stock' ? (
+        <div className="space-y-3 animate-in fade-in">
+          {stocks.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-400 font-medium border-2 border-dashed border-slate-200 rounded-2xl">
+              Stok Outlet Kosong.<br/>Order barang dari Pusat dulu.
+            </div>
+          ) : (
+            stocks.map(st => (
+              <div key={st.id} className="bg-white p-3 border border-slate-200 rounded-xl shadow-xs flex justify-between items-center">
+                <div>
+                  <h4 className="text-[11px] font-black text-slate-900">{st.catalog?.item_name}</h4>
+                  <p className="text-[9px] text-slate-500 font-medium">Kategori: {st.catalog?.category || 'Umum'}</p>
+                </div>
+                <div className="text-right">
+                  <span className={`text-sm font-black ${st.qty_available <= 5 ? 'text-rose-600' : 'text-slate-800'}`}>{st.qty_available}</span>
+                  <span className="text-[9px] text-slate-500 uppercase ml-1">{st.catalog?.uom}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : activeTab === 'mutasi' ? (
+        <div className="space-y-4 animate-in fade-in">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <h4 className="text-xs font-black text-slate-800 flex items-center gap-2">
+              <Minus className="w-4 h-4 text-orange-500" />
+              Catat Pemakaian Stok ({outletCart.length} item)
+            </h4>
+            
+            {outletCart.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-100 rounded-xl">
+                Pilih stok di bawah untuk dicatat pemakaiannya.
+              </div>
             ) : (
+              <div className="space-y-2">
+                {outletCart.map(item => (
+                  <div key={item.catalog.id} className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <div className="flex-1">
+                      <p className="text-[11px] font-black text-slate-900">{item.catalog.item_name}</p>
+                      <p className="text-[9px] text-slate-500 font-bold uppercase">Stok: {item.available} {item.catalog.uom}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => updateOutletCart(item, -1)} className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-600">-</button>
+                      <span className="text-xs font-black w-6 text-center">{item.qty}</span>
+                      <button onClick={() => updateOutletCart(item, 1)} disabled={item.qty >= item.available} className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-600 disabled:opacity-30">+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={processOutletUsage} disabled={isSubmitting || outletCart.length === 0} className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-2 mt-2 shadow-md disabled:opacity-50">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+              KONFIRMASI PEMAKAIAN
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {stocks.filter(s => s.qty_available > 0).map(stock => {
+              const inCart = outletCart.find(i => i.catalog.id === stock.catalog.id)?.qty || 0;
+              return (
+                <button key={stock.id} onClick={() => updateOutletCart(stock, 1)} disabled={inCart >= stock.qty_available} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 text-left disabled:opacity-50">
+                  <div className="pl-1">
+                    <h4 className="text-[11px] font-black text-slate-900 leading-tight">{stock.catalog?.item_name}</h4>
+                  </div>
+                  <div className="pl-1 mt-auto pt-2 border-t border-slate-100 flex items-end justify-between w-full">
+                    <span className="text-[10px] font-bold text-emerald-600">Sisa: {stock.qty_available}</span>
+                    <Minus className="w-4 h-4 text-orange-500 bg-orange-50 rounded-full p-0.5" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
               <div className="space-y-2">
                 {cart.map(item => (
                   <div key={item.catalog.id} className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100">
@@ -284,6 +449,78 @@ export default function FormPermintaanBarang({ user, onBack }) {
             ))}
           </div>
         </div>
+      ) : activeTab === 'stock' ? (
+        <div className="space-y-3 animate-in fade-in">
+          {stocks.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-400 font-medium border-2 border-dashed border-slate-200 rounded-2xl">
+              Stok Outlet Kosong.<br/>Order barang dari Pusat dulu.
+            </div>
+          ) : (
+            stocks.map(st => (
+              <div key={st.id} className="bg-white p-3 border border-slate-200 rounded-xl shadow-xs flex justify-between items-center">
+                <div>
+                  <h4 className="text-[11px] font-black text-slate-900">{st.catalog?.item_name}</h4>
+                  <p className="text-[9px] text-slate-500 font-medium">Kategori: {st.catalog?.category || 'Umum'}</p>
+                </div>
+                <div className="text-right">
+                  <span className={`text-sm font-black ${st.qty_available <= 5 ? 'text-rose-600' : 'text-slate-800'}`}>{st.qty_available}</span>
+                  <span className="text-[9px] text-slate-500 uppercase ml-1">{st.catalog?.uom}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : activeTab === 'mutasi' ? (
+        <div className="space-y-4 animate-in fade-in">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <h4 className="text-xs font-black text-slate-800 flex items-center gap-2">
+              <Minus className="w-4 h-4 text-orange-500" />
+              Catat Pemakaian Stok ({outletCart.length} item)
+            </h4>
+            
+            {outletCart.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-100 rounded-xl">
+                Pilih stok di bawah untuk dicatat pemakaiannya.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {outletCart.map(item => (
+                  <div key={item.catalog.id} className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <div className="flex-1">
+                      <p className="text-[11px] font-black text-slate-900">{item.catalog.item_name}</p>
+                      <p className="text-[9px] text-slate-500 font-bold uppercase">Stok: {item.available} {item.catalog.uom}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => updateOutletCart(item, -1)} className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-600">-</button>
+                      <span className="text-xs font-black w-6 text-center">{item.qty}</span>
+                      <button onClick={() => updateOutletCart(item, 1)} disabled={item.qty >= item.available} className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-600 disabled:opacity-30">+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={processOutletUsage} disabled={isSubmitting || outletCart.length === 0} className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-2 mt-2 shadow-md disabled:opacity-50">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+              KONFIRMASI PEMAKAIAN
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {stocks.filter(s => s.qty_available > 0).map(stock => {
+              const inCart = outletCart.find(i => i.catalog.id === stock.catalog.id)?.qty || 0;
+              return (
+                <button key={stock.id} onClick={() => updateOutletCart(stock, 1)} disabled={inCart >= stock.qty_available} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 text-left disabled:opacity-50">
+                  <div className="pl-1">
+                    <h4 className="text-[11px] font-black text-slate-900 leading-tight">{stock.catalog?.item_name}</h4>
+                  </div>
+                  <div className="pl-1 mt-auto pt-2 border-t border-slate-100 flex items-end justify-between w-full">
+                    <span className="text-[10px] font-bold text-emerald-600">Sisa: {stock.qty_available}</span>
+                    <Minus className="w-4 h-4 text-orange-500 bg-orange-50 rounded-full p-0.5" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       ) : (
         <div className="space-y-3">
           {history.length === 0 ? (
@@ -291,7 +528,79 @@ export default function FormPermintaanBarang({ user, onBack }) {
                <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                <h4 className="text-sm font-black text-slate-600">Belum Ada Riwayat</h4>
              </div>
+          ) : activeTab === 'stock' ? (
+        <div className="space-y-3 animate-in fade-in">
+          {stocks.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-400 font-medium border-2 border-dashed border-slate-200 rounded-2xl">
+              Stok Outlet Kosong.<br/>Order barang dari Pusat dulu.
+            </div>
           ) : (
+            stocks.map(st => (
+              <div key={st.id} className="bg-white p-3 border border-slate-200 rounded-xl shadow-xs flex justify-between items-center">
+                <div>
+                  <h4 className="text-[11px] font-black text-slate-900">{st.catalog?.item_name}</h4>
+                  <p className="text-[9px] text-slate-500 font-medium">Kategori: {st.catalog?.category || 'Umum'}</p>
+                </div>
+                <div className="text-right">
+                  <span className={`text-sm font-black ${st.qty_available <= 5 ? 'text-rose-600' : 'text-slate-800'}`}>{st.qty_available}</span>
+                  <span className="text-[9px] text-slate-500 uppercase ml-1">{st.catalog?.uom}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : activeTab === 'mutasi' ? (
+        <div className="space-y-4 animate-in fade-in">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <h4 className="text-xs font-black text-slate-800 flex items-center gap-2">
+              <Minus className="w-4 h-4 text-orange-500" />
+              Catat Pemakaian Stok ({outletCart.length} item)
+            </h4>
+            
+            {outletCart.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-100 rounded-xl">
+                Pilih stok di bawah untuk dicatat pemakaiannya.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {outletCart.map(item => (
+                  <div key={item.catalog.id} className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <div className="flex-1">
+                      <p className="text-[11px] font-black text-slate-900">{item.catalog.item_name}</p>
+                      <p className="text-[9px] text-slate-500 font-bold uppercase">Stok: {item.available} {item.catalog.uom}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => updateOutletCart(item, -1)} className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-600">-</button>
+                      <span className="text-xs font-black w-6 text-center">{item.qty}</span>
+                      <button onClick={() => updateOutletCart(item, 1)} disabled={item.qty >= item.available} className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-600 disabled:opacity-30">+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={processOutletUsage} disabled={isSubmitting || outletCart.length === 0} className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-2 mt-2 shadow-md disabled:opacity-50">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+              KONFIRMASI PEMAKAIAN
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {stocks.filter(s => s.qty_available > 0).map(stock => {
+              const inCart = outletCart.find(i => i.catalog.id === stock.catalog.id)?.qty || 0;
+              return (
+                <button key={stock.id} onClick={() => updateOutletCart(stock, 1)} disabled={inCart >= stock.qty_available} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 text-left disabled:opacity-50">
+                  <div className="pl-1">
+                    <h4 className="text-[11px] font-black text-slate-900 leading-tight">{stock.catalog?.item_name}</h4>
+                  </div>
+                  <div className="pl-1 mt-auto pt-2 border-t border-slate-100 flex items-end justify-between w-full">
+                    <span className="text-[10px] font-bold text-emerald-600">Sisa: {stock.qty_available}</span>
+                    <Minus className="w-4 h-4 text-orange-500 bg-orange-50 rounded-full p-0.5" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
             history.map(req => (
               <div key={req.id} className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-xs space-y-3 relative overflow-hidden">
                 <div className={`absolute left-0 top-0 bottom-0 w-1 ${req.status === 'Selesai' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
@@ -319,7 +628,7 @@ export default function FormPermintaanBarang({ user, onBack }) {
 
                 {req.status === 'Diterima Gudang' && (
                   <div className="pl-2 pt-1">
-                    <button onClick={() => handleConfirmReceived(req.id)} disabled={isSubmitting} className="w-full py-2.5 bg-emerald-600 text-white text-[11px] font-black rounded-xl">
+                    <button onClick={() => handleConfirmReceived(req)} disabled={isSubmitting} className="w-full py-2.5 bg-emerald-600 text-white text-[11px] font-black rounded-xl">
                       Konfirmasi Barang Diterima di Outlet
                     </button>
                   </div>

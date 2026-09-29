@@ -286,8 +286,8 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
         await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'OUT', qty: qtyToSent, notes: `Distribusi PO ke ${outletName}` }).catch(() => {});
       }
 
-      await supabase.from('purchase_requests').update({ status: 'Selesai' }).eq('id', reqId);
-      showToast('success', 'Barang terkirim ke Outlet!');
+      await supabase.from('purchase_requests').update({ status: 'Dikirim' }).eq('id', reqId);
+      showToast('success', 'Barang terkirim ke Outlet (Menunggu Konfirmasi)!');
       fetchData();
     } catch (e) {
       showToast('error', 'Gagal kirim ke outlet!');
