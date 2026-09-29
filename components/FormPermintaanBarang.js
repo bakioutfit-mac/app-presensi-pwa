@@ -50,7 +50,7 @@ export default function FormPermintaanBarang({ user, onBack }) {
         setStocks(data || []);
       } else {
         const { data, error } = await supabase.from('purchase_requests')
-          .select(`*, purchase_request_items(id, qty_requested, status, catalog:catalog_id(item_name, uom))`)
+          .select(`*, purchase_request_items(id, catalog_id, qty_requested, status, catalog:catalog_id(id, item_name, uom))`)
           .eq('outlet_name', user?.branch || 'Pusat')
           .order('created_at', { ascending: false }).limit(20);
         if (error) throw error;
@@ -198,8 +198,9 @@ export default function FormPermintaanBarang({ user, onBack }) {
       const outletName = user?.branch || 'Pusat';
       // Tambah ke stok outlet
       for (const item of req.purchase_request_items) {
-        if (!item.catalog) continue;
-        const catalogId = item.catalog.id;
+        if (!item.catalog_id && !item.catalog) continue;
+        const catalogId = item.catalog_id || (item.catalog && item.catalog.id);
+        if (!catalogId) continue;
         const qtyToAdd = Number(item.qty_requested);
 
         // 1. Catat transaksi
