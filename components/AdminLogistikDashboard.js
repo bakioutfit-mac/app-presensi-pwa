@@ -15,7 +15,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   const [processingId, setProcessingId] = useState(null);
   
   // PO Supplier State
-  const [poCart, setPoCart] = useState({});
+  const [poCart, setPoCart] = useState([]);
   const [expandedSupplier, setExpandedSupplier] = useState(null);
   const [supplierSubTab, setSupplierSubTab] = useState('order'); // 'order' | 'data'
   const [newSupplier, setNewSupplier] = useState({ name: '', wa_number: '', category: '' });
@@ -263,6 +263,52 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
     
     setPoCart(prev => ({ ...prev, [supplier.id]: [] }));
+  };
+
+
+  const addToPoCart = (stockItem) => {
+    setPoCart(prev => {
+      const existing = prev.find(item => item.catalog.id === stockItem.id || item.catalog.id === stockItem.catalog?.id);
+      if (existing) {
+        return prev.map(item => (item.catalog.id === stockItem.id || item.catalog.id === stockItem.catalog?.id) ? { ...item, qty: item.qty + 1 } : item);
+      }
+      return [...prev, { catalog: stockItem.catalog || stockItem, qty: 1 }];
+    });
+  };
+
+  const updatePoCartQty = (catalogId, delta) => {
+    setPoCart(prev => prev.map(item => {
+      if (item.catalog.id === catalogId) {
+        const newQty = item.qty + delta;
+        return newQty > 0 ? { ...item, qty: newQty } : item;
+      }
+      return item;
+    }));
+  };
+
+  const removeFromPoCart = (catalogId) => setPoCart(prev => prev.filter(item => item.catalog.id !== catalogId));
+
+  const [selectedSupplierForWa, setSelectedSupplierForWa] = useState('');
+
+  const handleSendWaGlobal = () => {
+    if (poCart.length === 0) return showToast('error', 'Keranjang masih kosong!');
+    if (!selectedSupplierForWa) return showToast('error', 'Pilih supplier tujuan!');
+    
+    const supplier = suppliers.find(s => s.id === selectedSupplierForWa);
+    if (!supplier?.wa_number) return showToast('error', 'Nomor WhatsApp supplier tidak tersedia!');
+
+    let message = `Halo ${supplier.name},\nKami dari 3 Pillar Management ingin memesan barang berikut:\n\n`;
+    poCart.forEach((it, idx) => {
+      message += `${idx + 1}. ${it.catalog?.item_name} - ${it.qty} ${it.catalog?.uom}\n`;
+    });
+    message += `\nMohon konfirmasi ketersediaannya ya. Terima kasih.`;
+    
+    let phone = supplier.wa_number.replace(/[^0-9]/g, '');
+    if (phone.startsWith('0')) phone = '62' + phone.substring(1);
+    
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    // Opsional: kosongkan keranjang setelah kirim WA
+    // setPoCart([]);
   };
 
   // ================= APPROVAL LOGIC =================
@@ -655,68 +701,91 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
 
           {supplierSubTab === 'order' ? (
             <div className="space-y-4 animate-in fade-in">
-              {suppliers.length === 0 && (
-                <div className="py-10 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-200 rounded-2xl">
-                  Belum ada data supplier.
-                </div>
-              )}
-              {suppliers.map(sup => {
-            const itemsInCart = poCart[sup.id] || [];
-            return (
-              <div key={sup.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                <button onClick={() => setExpandedSupplier(expandedSupplier === sup.id ? null : sup.id)} className="w-full p-4 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl"><Truck className="w-4 h-4" /></div>
-                    <div className="text-left">
-                      <h4 className="text-xs font-black text-slate-900">{sup.name}</h4>
-                      <p className="text-[10px] text-slate-500">{sup.inventory_catalogs?.length || 0} Barang</p>
-                    </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                <h4 className="text-xs font-black text-slate-800 flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4 text-green-500" />
+                  Rekapan Order ({poCart.length} item)
+                </h4>
+                
+                {poCart.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400 font-medium italic border-2 border-dashed border-slate-100 rounded-xl">
+                    Keranjang kosong. Pilih barang dari daftar di bawah.
                   </div>
-                  {expandedSupplier === sup.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
-
-                {expandedSupplier === sup.id && (
-                  <div className="p-4 border-t border-slate-100 space-y-4 bg-white">
-                    <div className="grid grid-cols-1 gap-2">
-                      {(sup.inventory_catalogs || []).map(cat => {
-                        const cartItem = itemsInCart.find(i => i.catalog.id === cat.id);
-                        const qty = cartItem ? cartItem.qty : 0;
-                        return (
-                          <div key={cat.id} className="flex items-center justify-between p-3 border border-slate-100 rounded-xl hover:border-indigo-200 transition">
-                            <div>
-                              <p className="text-[11px] font-black text-slate-900">{cat.item_name}</p>
-                              <p className="text-[9px] font-bold text-slate-500 uppercase">{cat.uom}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {qty > 0 && (
-                                <button onClick={() => updatePoCart(sup.id, cat, -1)} className="w-7 h-7 rounded bg-rose-50 text-rose-600 flex items-center justify-center font-black">
-                                  -
-                                </button>
-                              )}
-                              <span className="text-xs font-black w-6 text-center">{qty > 0 ? qty : ''}</span>
-                              <button onClick={() => updatePoCart(sup.id, cat, 1)} className="w-7 h-7 rounded bg-indigo-50 text-indigo-600 flex items-center justify-center font-black">
-                                +
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {(sup.inventory_catalogs || []).length === 0 && (
-                        <p className="text-[10px] text-slate-400 italic text-center py-4">Belum ada barang tertaut ke supplier ini.</p>
-                      )}
-                    </div>
-                    {itemsInCart.length > 0 && (
-                      <div className="pt-2">
-                        <button onClick={() => sendPoToSupplier(sup)} className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[11px] font-black transition flex items-center justify-center gap-2 shadow-sm">
-                          <Send className="w-4 h-4" /> Kirim PO via WhatsApp ({itemsInCart.reduce((a,b)=>a+b.qty,0)} items)
-                        </button>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+                    {poCart.map(item => (
+                      <div key={item.catalog.id} className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <div className="flex-1">
+                          <p className="text-[11px] font-black text-slate-900">{item.catalog.item_name}</p>
+                          <p className="text-[9px] text-slate-500">{item.catalog.uom}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => updatePoCartQty(item.catalog.id, -1)} className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-600">
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="text-xs font-black w-6 text-center">{item.qty}</span>
+                          <button onClick={() => updatePoCartQty(item.catalog.id, 1)} className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-600">
+                            <Plus className="w-3 h-3" />
+                          </button>
+                          <button onClick={() => removeFromPoCart(item.catalog.id)} className="w-6 h-6 ml-2 rounded bg-rose-50 text-rose-600 flex items-center justify-center">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
+
+                <div className="pt-2 space-y-2 border-t border-slate-100">
+                  <select
+                    value={selectedSupplierForWa}
+                    onChange={e => setSelectedSupplierForWa(e.target.value)}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-green-500 outline-none"
+                  >
+                    <option value="">-- Pilih Supplier Tujuan --</option>
+                    {suppliers.map(sup => (
+                      <option key={sup.id} value={sup.id}>{sup.name} ({sup.category || 'Umum'})</option>
+                    ))}
+                  </select>
+
+                  <button onClick={handleSendWaGlobal} disabled={poCart.length === 0 || !selectedSupplierForWa} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50">
+                    <Send className="w-4 h-4" />
+                    KIRIM REKAPAN VIA WA
+                  </button>
+                </div>
               </div>
-            );
-          })}
+
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Cari & Tap barang ke rekap..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-3 text-xs font-medium text-slate-700 focus:border-green-500 focus:ring-2 shadow-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pb-20">
+                {stocks.filter(s => !searchQuery || s.item_name.toLowerCase().includes(searchQuery.toLowerCase())).map(stock => {
+                  const qty = stock.warehouse_stocks?.[0]?.qty_available || 0;
+                  return (
+                    <button key={stock.id} onClick={() => addToPoCart(stock)} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 relative overflow-hidden text-left hover:border-green-400 transition">
+                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${qty <= 0 ? 'bg-rose-500' : 'bg-green-500'}`} />
+                      <div className="pl-2">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase">{stock.category || 'Barang'}</span>
+                        <h4 className="text-[11px] font-black text-slate-900 leading-tight mt-0.5">{stock.item_name}</h4>
+                      </div>
+                      <div className="pl-2 mt-auto pt-2 border-t border-slate-100 flex items-end justify-between w-full">
+                        <span className="text-[10px] font-bold text-slate-500">
+                          Sisa: <span className={qty <= 0 ? 'text-rose-600' : 'text-slate-900'}>{qty}</span>
+                        </span>
+                        <Plus className="w-3.5 h-3.5 text-green-500 bg-green-50 rounded-full p-0.5" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div className="space-y-4 animate-in fade-in">
