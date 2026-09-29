@@ -250,24 +250,33 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     setProcessingId(reqId);
     try {
       for (const item of items) {
+        if (!item.catalog) continue; // Skip jika katalog terhapus
         const catalogId = item.catalog.id;
         const qtyToAdd = Number(item.qty_requested);
 
-        const { data: existStock } = await supabase.from('warehouse_stocks').select('id, qty_available').eq('catalog_id', catalogId).single();
+        const { data: existStock, error: existErr } = await supabase.from('warehouse_stocks').select('id, qty_available').eq('catalog_id', catalogId).single();
+        if (existErr && existErr.code !== 'PGRST116') throw existErr;
+
         if (existStock) {
-          await supabase.from('warehouse_stocks').update({ qty_available: Number(existStock.qty_available) + qtyToAdd, last_updated: new Date().toISOString() }).eq('id', existStock.id);
+          const { error: updErr } = await supabase.from('warehouse_stocks').update({ qty_available: Number(existStock.qty_available) + qtyToAdd, last_updated: new Date().toISOString() }).eq('id', existStock.id);
+          if (updErr) throw updErr;
         } else {
-          await supabase.from('warehouse_stocks').insert({ catalog_id: catalogId, qty_available: qtyToAdd, last_updated: new Date().toISOString() });
+          const { error: insErr } = await supabase.from('warehouse_stocks').insert({ catalog_id: catalogId, qty_available: qtyToAdd, last_updated: new Date().toISOString() });
+          if (insErr) throw insErr;
         }
         
-        await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'IN', qty: qtyToAdd, notes: 'PO Masuk ke Gudang' }).catch(() => {});
+        const { error: txErr } = await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'IN', qty: qtyToAdd, notes: 'PO Masuk ke Gudang' });
+        if (txErr && txErr.code !== '42P01') throw txErr;
       }
 
-      await supabase.from('purchase_requests').update({ status: 'Diterima Gudang' }).eq('id', reqId);
+      const { error: reqErr } = await supabase.from('purchase_requests').update({ status: 'Diterima Gudang' }).eq('id', reqId);
+      if (reqErr) throw reqErr;
+      
       showToast('success', 'Stok Gudang Bertambah!');
       fetchData();
     } catch (e) {
-      showToast('error', 'Gagal terima barang!');
+      console.error(e);
+      showToast('error', e.message || 'Gagal terima barang!');
     } finally { setProcessingId(null); }
   };
 
@@ -276,21 +285,29 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     setProcessingId(reqId);
     try {
       for (const item of items) {
+        if (!item.catalog) continue;
         const catalogId = item.catalog.id;
         const qtyToSent = Number(item.qty_requested);
 
-        const { data: existStock } = await supabase.from('warehouse_stocks').select('id, qty_available').eq('catalog_id', catalogId).single();
+        const { data: existStock, error: existErr } = await supabase.from('warehouse_stocks').select('id, qty_available').eq('catalog_id', catalogId).single();
+        if (existErr && existErr.code !== 'PGRST116') throw existErr;
+        
         if (existStock) {
-          await supabase.from('warehouse_stocks').update({ qty_available: Number(existStock.qty_available) - qtyToSent, last_updated: new Date().toISOString() }).eq('id', existStock.id);
+          const { error: updErr } = await supabase.from('warehouse_stocks').update({ qty_available: Number(existStock.qty_available) - qtyToSent, last_updated: new Date().toISOString() }).eq('id', existStock.id);
+          if (updErr) throw updErr;
         }
-        await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'OUT', qty: qtyToSent, notes: `Distribusi PO ke ${outletName}` }).catch(() => {});
+        const { error: txErr } = await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'OUT', qty: qtyToSent, notes: `Distribusi PO ke ${outletName}` });
+        if (txErr && txErr.code !== '42P01') throw txErr;
       }
 
-      await supabase.from('purchase_requests').update({ status: 'Dikirim' }).eq('id', reqId);
+      const { error: reqErr } = await supabase.from('purchase_requests').update({ status: 'Dikirim' }).eq('id', reqId);
+      if (reqErr) throw reqErr;
+      
       showToast('success', 'Barang terkirim ke Outlet (Menunggu Konfirmasi)!');
       fetchData();
     } catch (e) {
-      showToast('error', 'Gagal kirim ke outlet!');
+      console.error(e);
+      showToast('error', e.message || 'Gagal kirim ke outlet!');
     } finally { setProcessingId(null); }
   };
 
