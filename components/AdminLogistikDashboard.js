@@ -391,8 +391,8 @@ const handleTogglePayment = async (orderId, currentIsPaid) => {
       showToast('success', `Status pembayaran berhasil diubah!`);
       fetchData();
     } catch (err) {
-      console.error(err);
-      showToast('error', 'Gagal mengubah status pembayaran!');
+      console.error("Toggle Payment Error:", JSON.stringify(err, null, 2));
+      showToast('error', 'Gagal mengubah status: ' + (err.message || 'Unknown error'));
     }
   };
 
