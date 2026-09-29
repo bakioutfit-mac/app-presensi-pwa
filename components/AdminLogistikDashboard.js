@@ -384,6 +384,18 @@ konfirmasi ketersediaanya?`;
     }
   };
 
+const handleTogglePayment = async (orderId, currentIsPaid) => {
+    try {
+      const { error } = await supabase.from('supplier_orders').update({ is_paid: !currentIsPaid }).eq('id', orderId);
+      if (error) throw error;
+      showToast('success', `Status pembayaran berhasil diubah!`);
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      showToast('error', 'Gagal mengubah status pembayaran!');
+    }
+  };
+
   // ================= APPROVAL LOGIC =================
   const sendWhatsAppToSupplier = (supplier, items, reqId) => {
     if (!supplier?.wa_number) return alert('Nomor supplier tidak tersedia!');
@@ -748,9 +760,17 @@ konfirmasi ketersediaanya?`;
                         <h4 className="text-sm font-black text-slate-800">{order.supplier?.name || 'Tidak diketahui'}</h4>
                         <p className="text-[10px] font-medium text-slate-500 mt-0.5">{new Date(order.created_at).toLocaleString('id-ID')}</p>
                       </div>
-                      <span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[9px] font-black uppercase">
-                        {order.status}
-                      </span>
+<div className="flex flex-col items-end gap-2">
+                        <span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[9px] font-black uppercase">
+                          {order.status}
+                        </span>
+                        <button 
+                          onClick={() => handleTogglePayment(order.id, order.is_paid)}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition shadow-sm ${order.is_paid ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-rose-500 text-white hover:bg-rose-600'}`}
+                        >
+                          {order.is_paid ? 'Sudah Dibayar' : 'Belum Dibayar'}
+                        </button>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       {order.supplier_order_items?.map(it => (
