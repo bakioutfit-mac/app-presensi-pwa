@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ArrowLeft, Package, Truck, Search, Loader2, Layers, CheckCircle, Plus, Minus, ShoppingCart, History, ArrowDownToLine, ArrowUpFromLine, Trash2, ListChecks, ChevronUp, ChevronDown, Clock, Send, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Edit3, X, Save, Package, Truck, Search, Loader2, Layers, CheckCircle, Plus, Minus, ShoppingCart, History, ArrowDownToLine, ArrowUpFromLine, Trash2, ListChecks, ChevronUp, ChevronDown, Clock, Send, RefreshCw } from 'lucide-react';
 
 export default function AdminLogistikDashboard({ onBack, userRole }) {
   const [activeTab, setActiveTab] = useState('pos'); // 'pos' | 'requests' | 'stock' | 'history'
@@ -21,6 +21,9 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   const [newSupplier, setNewSupplier] = useState({ name: '', wa_number: '', category: '' });
   
   // POS States
+  const [showCatalogModal, setShowCatalogModal] = useState(false);
+  const [editingCatalog, setEditingCatalog] = useState(null);
+  const [catalogForm, setCatalogForm] = useState({ item_name: '', uom: '', category: '' });
   const [cart, setCart] = useState([]);
   const [notes, setNotes] = useState('');
   const [selectedOutlet, setSelectedOutlet] = useState('');
@@ -89,6 +92,50 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
     } finally {
       setLoading(false);
     }
+  };
+
+
+  const handleSaveCatalog = async () => {
+    if (!catalogForm.item_name || !catalogForm.uom) return showToast('error', 'Nama dan Satuan wajib diisi!');
+    setProcessingId('save-catalog');
+    try {
+      if (editingCatalog) {
+        const { error } = await supabase.from('inventory_catalogs').update({
+          item_name: catalogForm.item_name,
+          uom: catalogForm.uom,
+          category: catalogForm.category || 'General'
+        }).eq('id', editingCatalog.id);
+        if (error) throw error;
+        showToast('success', 'Barang berhasil diupdate!');
+      } else {
+        const { error } = await supabase.from('inventory_catalogs').insert({
+          item_name: catalogForm.item_name,
+          uom: catalogForm.uom,
+          category: catalogForm.category || 'General'
+        });
+        if (error) throw error;
+        showToast('success', 'Barang baru berhasil ditambahkan!');
+      }
+      setShowCatalogModal(false);
+      setEditingCatalog(null);
+      setCatalogForm({ item_name: '', uom: '', category: '' });
+      fetchData();
+    } catch (err) {
+      showToast('error', 'Gagal menyimpan barang!');
+    } finally { setProcessingId(null); }
+  };
+
+  const handleDeleteCatalog = async (id, name) => {
+    if (!confirm(`Hapus permanen ${name} dari database?`)) return;
+    setProcessingId(id);
+    try {
+      const { error } = await supabase.from('inventory_catalogs').delete().eq('id', id);
+      if (error) throw error;
+      showToast('success', `${name} berhasil dihapus!`);
+      fetchData();
+    } catch (err) {
+      showToast('error', 'Gagal menghapus barang!');
+    } finally { setProcessingId(null); }
   };
 
   // ================= POS LOGIC =================
@@ -702,19 +749,41 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
           )}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 animate-in fade-in">
+          <div className="flex items-center justify-between">
+            <div className="relative flex-1 mr-2">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Cari master barang..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-slate-700 focus:border-indigo-500 focus:ring-2 shadow-sm outline-none"
+              />
+            </div>
+            <button onClick={() => { setEditingCatalog(null); setCatalogForm({ item_name: '', uom: '', category: '' }); setShowCatalogModal(true); }} className="flex-shrink-0 w-10 h-10 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-md transition">
+              <Plus className="w-5 h-5" />
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
-            {stocks.map(stock => {
+            {stocks.filter(s => !searchQuery || s.item_name.toLowerCase().includes(searchQuery.toLowerCase())).map(stock => {
               const qty = stock.warehouse_stocks?.[0]?.qty_available || 0;
               return (
-                <div key={stock.id} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 relative overflow-hidden">
+                <div key={stock.id} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-2 relative overflow-hidden group">
                   <div className={`absolute left-0 top-0 bottom-0 w-1 ${qty === 0 ? 'bg-rose-500' : 'bg-indigo-500'}`} />
-                  <div className="pl-2">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase">{stock.category || 'Barang'}</span>
-                    <h4 className="text-xs font-black text-slate-900">{stock.item_name}</h4>
+                  <div className="pl-2 pr-1 flex justify-between items-start">
+                    <div>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase">{stock.category || 'Barang'}</span>
+                      <h4 className="text-[11px] font-black text-slate-900 leading-tight">{stock.item_name}</h4>
+                    </div>
+                    <div className="flex flex-col gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => { setEditingCatalog(stock); setCatalogForm({ item_name: stock.item_name, uom: stock.uom, category: stock.category }); setShowCatalogModal(true); }} className="p-1 bg-slate-100 text-slate-600 rounded-md hover:bg-indigo-100 hover:text-indigo-600"><Edit3 className="w-3 h-3" /></button>
+                      <button onClick={() => handleDeleteCatalog(stock.id, stock.item_name)} disabled={processingId === stock.id} className="p-1 bg-slate-100 text-slate-600 rounded-md hover:bg-rose-100 hover:text-rose-600"><Trash2 className="w-3 h-3" /></button>
+                    </div>
                   </div>
                   <div className="pl-2 mt-auto pt-2 border-t border-slate-100">
-                    <span className="text-[9px] text-slate-500 block mb-0.5">Stok Saat Ini:</span>
+                    <span className="text-[9px] text-slate-500 block mb-0.5">Stok Gudang:</span>
                     <div className="flex items-baseline gap-1">
                       <span className={`text-lg font-black leading-none ${qty === 0 ? 'text-rose-600' : 'text-indigo-600'}`}>{qty}</span>
                       <span className="text-[10px] font-bold text-slate-400">{stock.uom}</span>
@@ -724,6 +793,38 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
               );
             })}
           </div>
+
+          {/* Modal Catalog */}
+          {showCatalogModal && (
+            <div className="fixed inset-0 bg-slate-900/50 z-[100] flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                  <h3 className="text-sm font-black text-slate-900">{editingCatalog ? 'Edit Barang' : 'Tambah Barang Baru'}</h3>
+                  <button onClick={() => setShowCatalogModal(false)} className="p-2 bg-slate-100 rounded-xl text-slate-500 hover:bg-rose-100 hover:text-rose-600"><X className="w-4 h-4" /></button>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Nama Barang</label>
+                    <input type="text" value={catalogForm.item_name} onChange={e => setCatalogForm({...catalogForm, item_name: e.target.value})} className="w-full mt-1 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none font-medium" placeholder="Cth: Kopi Arabica" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Satuan (UOM)</label>
+                    <input type="text" value={catalogForm.uom} onChange={e => setCatalogForm({...catalogForm, uom: e.target.value})} className="w-full mt-1 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none font-medium" placeholder="Cth: kg / pcs / renceng" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Kategori</label>
+                    <input type="text" value={catalogForm.category} onChange={e => setCatalogForm({...catalogForm, category: e.target.value})} className="w-full mt-1 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 outline-none font-medium" placeholder="Cth: Bahan Baku" />
+                  </div>
+                </div>
+                <div className="p-4 border-t border-slate-100">
+                  <button onClick={handleSaveCatalog} disabled={processingId === 'save-catalog'} className="w-full py-3 bg-indigo-600 text-white rounded-xl text-xs font-black flex justify-center items-center gap-2 shadow-sm">
+                    {processingId === 'save-catalog' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Simpan Data
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
