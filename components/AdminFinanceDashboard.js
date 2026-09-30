@@ -2150,6 +2150,14 @@ export default function AdminFinanceDashboard({ onBack }) {
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
                 </button>
+                <button
+                  onClick={handleExportCSV}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-[10px] font-black rounded-xl flex items-center gap-1 shadow-xs transition cursor-pointer"
+                  title="Export seluruh slip gaji bulan ini ke CSV/Excel"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Export Laporan</span>
+                </button>
               </div>
             </div>
 
