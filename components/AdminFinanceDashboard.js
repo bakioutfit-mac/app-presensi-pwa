@@ -192,7 +192,6 @@ export default function AdminFinanceDashboard({ onBack }) {
         const { data: emps } = await supabase
           .from('employees')
           .select('id, full_name, branch, position, role, is_active, status')
-          .eq('role', 'staff')
           .order('full_name', { ascending: true });
         
         if (emps) {
@@ -697,15 +696,15 @@ export default function AdminFinanceDashboard({ onBack }) {
 
         let lateDeduction = 0;
         try {
-          const monthIdx = MONTHS.indexOf(salaryMonth);
-          if (monthIdx !== -1 && emp.id) {
-            const mStr = String(monthIdx + 1).padStart(2, '0');
+          const payday = pkg?.payday_date || 1;
+          const dr = getCutoffDateRange(salaryMonth, salaryYear, payday);
+          if (dr && emp.id) {
             const { data: attRecords } = await supabase
               .from('attendance')
               .select('discipline_penalty, is_late, status')
               .eq('employee_id', emp.id)
-              .gte('attendance_date', `${salaryYear}-${mStr}-01`)
-              .lte('attendance_date', `${salaryYear}-${mStr}-31`);
+              .gte('attendance_date', dr.start)
+              .lte('attendance_date', dr.end);
 
             if (attRecords && attRecords.length > 0) {
               attRecords.forEach((a) => {
