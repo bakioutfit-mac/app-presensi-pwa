@@ -96,7 +96,7 @@ const { data: supData, error: supErr } = await supabase
         setSupplierOrderHistory(histData || []);
       }
     } catch (err) {
-      console.error('Fetch error:', err);
+      console.error('Fetch error:', JSON.stringify(err, null, 2));
     } finally {
       setLoading(false);
     }
