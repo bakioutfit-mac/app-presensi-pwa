@@ -84,25 +84,28 @@ export default function FormPermintaanBarang({ user, onBack }) {
         const catalogId = item.catalog.id;
         const qty = Number(item.qty);
         
-        await supabase.from('outlet_transactions').insert({
+        const { error: txErr } = await supabase.from('outlet_transactions').insert({
           outlet_name: outletName,
           catalog_id: catalogId,
           transaction_type: 'OUT',
           qty: qty,
           notes: 'Pemakaian Harian (Produksi)'
-        }).catch(()=>{});
+        });
+        if (txErr) throw txErr;
 
-        await supabase.from('outlet_stocks').update({
+        const { error: updErr } = await supabase.from('outlet_stocks').update({
           qty_available: Number(item.available) - qty,
           last_updated: new Date().toISOString()
         }).eq('id', item.stockId);
+        if (updErr) throw updErr;
       }
 
       showToast('success', 'Pemakaian stok berhasil dicatat!');
       setOutletCart([]);
       fetchData();
     } catch (err) {
-      showToast('error', 'Gagal memproses pemakaian!');
+      console.error('Pemakaian error:', JSON.stringify(err, null, 2));
+      showToast('error', 'Gagal memproses pemakaian: ' + (err.message || 'Unknown error'));
     } finally { setIsSubmitting(false); }
   };
 
