@@ -29,6 +29,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
   const [notes, setNotes] = useState('');
   const [selectedOutlet, setSelectedOutlet] = useState('');
   const [expandedDate, setExpandedDate] = useState(null);
+  const [expandedHistoryDate, setExpandedHistoryDate] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState({ type: '', text: '' });
 
@@ -61,7 +62,7 @@ export default function AdminLogistikDashboard({ onBack, userRole }) {
           .from('warehouse_transactions')
           .select(`*, catalog:catalog_id(item_name, uom, category)`)
           .order('created_at', { ascending: false })
-          .limit(100);
+          .limit(1500);
         if (historyErr && historyErr.code !== '42P01') throw historyErr;
         setTransactions(historyData || []);
 
@@ -741,28 +742,113 @@ const handleTogglePayment = async (orderId, currentIsPaid) => {
              ))
           )}
         </div>
-      ) : activeTab === 'history' ? (
-        <div className="space-y-3 animate-in fade-in">
-          {transactions.map(tx => (
-            <div key={tx.id} className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${tx.transaction_type === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                    {tx.transaction_type === 'IN' ? 'MASUK' : 'KELUAR'}
-                  </span>
-                  <span className="text-[9px] text-slate-400 font-medium">{new Date(tx.created_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })}</span>
+) : activeTab === 'history' ? (
+        <div className="space-y-3 animate-in fade-in pb-24">
+          {(() => {
+            const groupedHistory = transactions.reduce((acc, tx) => {
+              const date = new Date(tx.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+              if (!acc[date]) acc[date] = { IN: {}, OUT: {} };
+              const type = tx.transaction_type;
+              const cat = tx.catalog?.category || 'Lainnya';
+              if (!acc[date][type][cat]) acc[date][type][cat] = [];
+              acc[date][type][cat].push(tx);
+              return acc;
+            }, {});
+
+            if (Object.keys(groupedHistory).length === 0) {
+              return (
+                <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center">
+                  <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <h4 className="text-sm font-black text-slate-600">Belum ada mutasi gudang</h4>
                 </div>
-                <h4 className="text-[11px] font-black text-slate-900">{tx.catalog?.item_name}</h4>
-                <p className="text-[10px] text-slate-500 italic mt-0.5">{tx.notes}</p>
-              </div>
-              <div className="text-right">
-                <span className={`text-sm font-black ${tx.transaction_type === 'IN' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                  {tx.transaction_type === 'IN' ? '+' : '-'}{tx.qty}
-                </span>
-                <span className="text-[9px] text-slate-500 block">{tx.catalog?.uom}</span>
-              </div>
-            </div>
-          ))}
+              );
+            }
+
+            return Object.keys(groupedHistory).map(date => {
+              const dayData = groupedHistory[date];
+              const isExpanded = expandedHistoryDate === date;
+              const totalItems = Object.values(dayData.IN).flat().length + Object.values(dayData.OUT).flat().length;
+
+              return (
+                <div key={date} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                  <button onClick={() => setExpandedHistoryDate(isExpanded ? null : date)} className="w-full p-4 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl"><Clock className="w-4 h-4" /></div>
+                      <div className="text-left">
+                        <h4 className="text-xs font-black text-slate-900">{date}</h4>
+                        <p className="text-[10px] text-slate-500">{totalItems} Transaksi Mutasi</p>
+                      </div>
+                    </div>
+                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+
+                  {isExpanded && (
+                    <div className="p-4 border-t border-slate-100 flex flex-col md:flex-row gap-4">
+                      {/* IN (MASUK) */}
+                      <div className="flex-1 space-y-3">
+                        <div className="flex items-center gap-2 pb-2 border-b border-emerald-100">
+                          <ArrowDownToLine className="w-4 h-4 text-emerald-500" />
+                          <h5 className="text-xs font-black text-emerald-700">BARANG MASUK (IN)</h5>
+                        </div>
+                        {Object.keys(dayData.IN).length === 0 ? (
+                          <p className="text-[10px] text-slate-400 italic">Tidak ada barang masuk.</p>
+                        ) : (
+                          Object.entries(dayData.IN).map(([cat, items]) => (
+                            <div key={cat} className="bg-emerald-50/50 border border-emerald-100/50 rounded-xl overflow-hidden">
+                              <div className="bg-emerald-100/50 px-2.5 py-1.5 border-b border-emerald-100/50">
+                                <span className="text-[10px] font-black text-emerald-800 uppercase">{cat}</span>
+                              </div>
+                              <ul className="p-2 space-y-1">
+                                {items.map(tx => (
+                                  <li key={tx.id} className="bg-white p-2 border border-slate-100 rounded-lg flex justify-between items-center shadow-xs">
+                                    <div>
+                                      <span className="text-[11px] font-bold text-slate-700 block">{tx.catalog?.item_name || 'Terhapus'}</span>
+                                      <span className="text-[9px] text-slate-500">{new Date(tx.created_at).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})} • {tx.notes || '-'}</span>
+                                    </div>
+                                    <span className="text-[11px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">+{tx.qty} {tx.catalog?.uom}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {/* OUT (KELUAR) */}
+                      <div className="flex-1 space-y-3">
+                        <div className="flex items-center gap-2 pb-2 border-b border-rose-100">
+                          <ArrowUpFromLine className="w-4 h-4 text-rose-500" />
+                          <h5 className="text-xs font-black text-rose-700">BARANG KELUAR (OUT)</h5>
+                        </div>
+                        {Object.keys(dayData.OUT).length === 0 ? (
+                          <p className="text-[10px] text-slate-400 italic">Tidak ada barang keluar.</p>
+                        ) : (
+                          Object.entries(dayData.OUT).map(([cat, items]) => (
+                            <div key={cat} className="bg-rose-50/50 border border-rose-100/50 rounded-xl overflow-hidden">
+                              <div className="bg-rose-100/50 px-2.5 py-1.5 border-b border-rose-100/50">
+                                <span className="text-[10px] font-black text-rose-800 uppercase">{cat}</span>
+                              </div>
+                              <ul className="p-2 space-y-1">
+                                {items.map(tx => (
+                                  <li key={tx.id} className="bg-white p-2 border border-slate-100 rounded-lg flex justify-between items-center shadow-xs">
+                                    <div>
+                                      <span className="text-[11px] font-bold text-slate-700 block">{tx.catalog?.item_name || 'Terhapus'}</span>
+                                      <span className="text-[9px] text-slate-500">{new Date(tx.created_at).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})} • {tx.notes || '-'}</span>
+                                    </div>
+                                    <span className="text-[11px] font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">-{tx.qty} {tx.catalog?.uom}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
         </div>
       ) : activeTab === 'suppliers' ? (
         <div className="space-y-4">
