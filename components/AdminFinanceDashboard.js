@@ -1848,6 +1848,24 @@ export default function AdminFinanceDashboard({ onBack }) {
                         Nilai ini tersimpan di sistem cloud dan otomatis diisikan ke form gaji bulanan staf <strong>{editingStaffSalary.full_name}</strong>.
                       </div>
 
+                      {/* 0. Tanggal Gajian */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                          Tanggal Gajian (Cut-Off)
+                        </label>
+                        <select
+                          value={editingStaffSalary.payday_date || '1'}
+                          onChange={(e) => setEditingStaffSalary(prev => ({...prev, payday_date: e.target.value}))}
+                          className="w-full text-xs font-bold text-slate-900 border border-slate-300 rounded-xl px-3 py-2 bg-slate-50 focus:bg-white cursor-pointer"
+                        >
+                          <option value="1">Tanggal 1 (1 s.d akhir bulan)</option>
+                          <option value="10">Tanggal 10 (10 bln lalu s.d 9 bulan ini)</option>
+                          <option value="15">Tanggal 15 (15 bln lalu s.d 14 bulan ini)</option>
+                          <option value="16">Tanggal 16 (16 bln lalu s.d 15 bulan ini)</option>
+                          <option value="25">Tanggal 25 (25 bln lalu s.d 24 bulan ini)</option>
+                        </select>
+                      </div>
+
                       {/* Gaji Pokok */}
                       <div>
                         <label className="block text-[10px] font-bold text-slate-700 mb-1">
