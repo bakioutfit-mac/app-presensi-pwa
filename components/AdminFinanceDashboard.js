@@ -50,7 +50,35 @@ const MONTHS = [
 const currentYearNum = new Date().getFullYear();
 const YEARS = [currentYearNum - 1, currentYearNum, currentYearNum + 1, currentYearNum + 2].map(String);
 
+
+const getCutoffDateRange = (targetMonth, targetYear, payday) => {
+  const monthIdx = MONTHS.indexOf(targetMonth);
+  if (monthIdx === -1) return null;
+  
+  if (!payday || Number(payday) === 1) {
+     const lastDay = new Date(targetYear, monthIdx + 1, 0).getDate();
+     return {
+       start: `${targetYear}-${String(monthIdx + 1).padStart(2, '0')}-01`,
+       end: `${targetYear}-${String(monthIdx + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+     };
+  }
+  
+  const pd = Number(payday);
+  let prevMonthIdx = monthIdx - 1;
+  let prevYear = Number(targetYear);
+  if (prevMonthIdx < 0) {
+    prevMonthIdx = 11;
+    prevYear -= 1;
+  }
+  const endDay = pd - 1;
+  return {
+    start: `${prevYear}-${String(prevMonthIdx + 1).padStart(2, '0')}-${String(pd).padStart(2, '0')}`,
+    end: `${targetYear}-${String(monthIdx + 1).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`
+  };
+};
+
 export default function AdminFinanceDashboard({ onBack }) {
+
   const {
     overtimeRequests,
     loadOvertimeRequests,
@@ -408,7 +436,15 @@ export default function AdminFinanceDashboard({ onBack }) {
       const approvedOtSum = (overtimeRequests || [])
         .filter((ot) => {
           const matchEmp = (staff && ot.employee_id === staff.id) || ot.employee_name === empName;
-          const matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+          const payday = pkg?.payday_date || 1;
+          const dr = getCutoffDateRange(targetMonth, targetYear, payday);
+          let matchPeriod = false;
+          if (dr) {
+             const otD = new Date(ot.date);
+             matchPeriod = otD >= new Date(dr.start) && otD <= new Date(dr.end);
+          } else {
+             matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+          }
           return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
         })
         .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
@@ -418,15 +454,15 @@ export default function AdminFinanceDashboard({ onBack }) {
       let lateTimes = 0;
       if (empId) {
         try {
-          const monthIdx = MONTHS.indexOf(targetMonth);
-          if (monthIdx !== -1) {
-            const mStr = String(monthIdx + 1).padStart(2, '0');
-            const { data: attRecords } = await supabase
-              .from('attendance')
-              .select('discipline_penalty, is_late, status')
-              .eq('employee_id', empId)
-              .gte('attendance_date', `${targetYear}-${mStr}-01`)
-              .lte('attendance_date', `${targetYear}-${mStr}-31`);
+          const payday = pkg?.payday_date || 1;
+            const dr = getCutoffDateRange(targetMonth, targetYear, payday);
+            if (dr) {
+              const { data: attRecords } = await supabase
+                .from('attendance')
+                .select('discipline_penalty, is_late, status')
+                .eq('employee_id', empId)
+                .gte('attendance_date', dr.start)
+                .lte('attendance_date', dr.end);
 
             if (attRecords && attRecords.length > 0) {
               attRecords.forEach((a) => {
@@ -503,7 +539,61 @@ export default function AdminFinanceDashboard({ onBack }) {
     }
   };
 
+
+  const handleExportCSV = () => {
+    if (salaryList.length === 0) {
+      alert("Tidak ada slip gaji untuk diekspor di bulan ini!");
+      return;
+    }
+    
+    // Prepare CSV data
+    const headers = [
+      "Nama Pegawai", "Cabang/Outlet", "Periode", "Cut-Off (Tgl Gajian)",
+      "Gaji Pokok", "Tj. Jabatan", "Tj. Anak", "Tj. Istri", "Uang Makan", "Uang Lembur", "Insentif Tambahan",
+      "Potongan Kehadiran", "Potongan Disiplin/Lain", "Potongan Uang Makan", "Cash Bon",
+      "TAKE HOME PAY"
+    ];
+    
+    const rows = salaryList.map(slip => {
+      const pkg = employeeSalaries[slip.employee_id] || employeeSalaries[slip.employee_name] || {};
+      const payday = pkg.payday_date || 1;
+      
+      const totalPendapatan = (slip.basic_salary||0) + (slip.position_allowance||0) + (slip.child_allowance||0) + (slip.spouse_allowance||0) + (slip.meal_allowance||0) + (slip.overtime_pay||0) + (slip.plus_day_pay||0);
+      const totalPotongan = (slip.attendance_deduction||0) + (slip.discipline_deduction||0) + (slip.meal_deduction||0) + (slip.cash_bon||0);
+      const thp = totalPendapatan - totalPotongan;
+      
+      return [
+        slip.employee_name,
+        slip.branch || "-",
+        slip.period,
+        `Tgl ${payday}`,
+        slip.basic_salary || 0,
+        slip.position_allowance || 0,
+        slip.child_allowance || 0,
+        slip.spouse_allowance || 0,
+        slip.meal_allowance || 0,
+        slip.overtime_pay || 0,
+        slip.plus_day_pay || 0,
+        slip.attendance_deduction || 0,
+        slip.discipline_deduction || 0,
+        slip.meal_deduction || 0,
+        slip.cash_bon || 0,
+        thp
+      ].map(v => `"${v}"`).join(",");
+    });
+    
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Laporan_Gaji_${salaryMonth}_${salaryYear}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Handler saat nama karyawan di dropdown form slip gaji dipilih
+
   const handleSelectEmployee = (empName) => {
     populateSalaryForm(empName, newSalary.branch, salaryMonth, salaryYear);
   };
@@ -592,7 +682,15 @@ export default function AdminFinanceDashboard({ onBack }) {
         const approvedOtSum = (overtimeRequests || [])
           .filter((ot) => {
             const matchEmp = (emp.id && ot.employee_id === emp.id) || ot.employee_name === emp.full_name;
-            const matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+            const payday = pkg?.payday_date || 1;
+            const dr = getCutoffDateRange(salaryMonth, salaryYear, payday);
+            let matchPeriod = false;
+            if (dr) {
+               const otD = new Date(ot.date);
+               matchPeriod = otD >= new Date(dr.start) && otD <= new Date(dr.end);
+            } else {
+               matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+            }
             return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
           })
           .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
