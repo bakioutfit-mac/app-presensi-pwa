@@ -2852,7 +2852,19 @@ export default function AdminOwnerDashboard({ onBack }) {
                 <label className="text-[11px] font-bold text-slate-700">Role Akses</label>
                 <select
                   value={modalEditAdmin.role}
-                  onChange={(e) => setModalEditAdmin((prev) => ({ ...prev, role: e.target.value }))}
+                  onChange={(e) => {
+                    const r = e.target.value;
+                    let pos = modalEditAdmin.position;
+                    let br = modalEditAdmin.branch;
+                    
+                    if (r === 'owner') { pos = 'Owner'; br = '3 Pillar All Outlets'; }
+                    else if (r === 'admin_leader') { pos = 'Leader Outlet'; }
+                    else if (r === 'admin_finance') { pos = 'Finance & Payroll'; br = '3 Pillar All Outlets'; }
+                    else if (r === 'admin_purchasing') { pos = 'Purchasing Staff'; br = '3 Pillar All Outlets'; }
+                    else if (r === 'admin_gudang') { pos = 'Admin Gudang Pusat'; br = '3 Pillar All Outlets'; }
+
+                    setModalEditAdmin((prev) => ({ ...prev, role: r, position: pos, branch: br }));
+                  }}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-500 cursor-pointer"
                 >
                   <option value="owner">👑 Owner</option>
