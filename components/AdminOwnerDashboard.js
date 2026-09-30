@@ -657,7 +657,8 @@ export default function AdminOwnerDashboard({ onBack }) {
       setModalEditAdmin(null);
       showToast('success', `Data akun ${modalEditAdmin.full_name} berhasil diperbarui!`);
     } catch (err) {
-      showToast('error', err.message || 'Gagal memperbarui akun.');
+      console.error('Update Admin Error:', JSON.stringify(err, null, 2));
+      showToast('error', 'Gagal memperbarui akun: ' + (err.message || 'Unknown error'));
     } finally {
       setSavingAdmin(false);
     }
