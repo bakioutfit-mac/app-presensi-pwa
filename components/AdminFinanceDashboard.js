@@ -70,10 +70,19 @@ const getCutoffDateRange = (targetMonth, targetYear, payday) => {
     prevMonthIdx = 11;
     prevYear -= 1;
   }
-  const endDay = pd - 1;
+  
+  const maxPrevDays = new Date(prevYear, prevMonthIdx + 1, 0).getDate();
+  const safePd = Math.min(pd, maxPrevDays);
+  
+  let endDay = pd - 1;
+  if (endDay < 1) endDay = 1;
+  
+  const maxCurrDays = new Date(targetYear, monthIdx + 1, 0).getDate();
+  const safeEndDay = Math.min(endDay, maxCurrDays);
+
   return {
-    start: `${prevYear}-${String(prevMonthIdx + 1).padStart(2, '0')}-${String(pd).padStart(2, '0')}`,
-    end: `${targetYear}-${String(monthIdx + 1).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`
+    start: `${prevYear}-${String(prevMonthIdx + 1).padStart(2, '0')}-${String(safePd).padStart(2, '0')}`,
+    end: `${targetYear}-${String(monthIdx + 1).padStart(2, '0')}-${String(safeEndDay).padStart(2, '0')}`
   };
 };
 
@@ -1853,17 +1862,19 @@ export default function AdminFinanceDashboard({ onBack }) {
                         <label className="block text-[10px] font-bold text-slate-700 mb-1">
                           Tanggal Gajian (Cut-Off)
                         </label>
-                        <select
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
                           value={editingStaffSalary.payday_date || '1'}
                           onChange={(e) => setEditingStaffSalary(prev => ({...prev, payday_date: e.target.value}))}
-                          className="w-full text-xs font-bold text-slate-900 border border-slate-300 rounded-xl px-3 py-2 bg-slate-50 focus:bg-white cursor-pointer"
-                        >
-                          <option value="1">Tanggal 1 (1 s.d akhir bulan)</option>
-                          <option value="10">Tanggal 10 (10 bln lalu s.d 9 bulan ini)</option>
-                          <option value="15">Tanggal 15 (15 bln lalu s.d 14 bulan ini)</option>
-                          <option value="16">Tanggal 16 (16 bln lalu s.d 15 bulan ini)</option>
-                          <option value="25">Tanggal 25 (25 bln lalu s.d 24 bulan ini)</option>
-                        </select>
+                          className="w-full text-xs font-bold text-slate-900 border border-slate-300 rounded-xl px-3 py-2 bg-slate-50 focus:bg-white cursor-text"
+                          placeholder="Contoh: 1, 10, 15, 25"
+                        />
+                        <p className="text-[9px] text-slate-500 mt-1 px-1">
+                          Jika diisi 1 = Hitungan dari tgl 1 s.d akhir bulan.<br/>
+                          Jika diisi 16 = Hitungan dari tgl 16 bulan lalu s.d 15 bulan ini.
+                        </p>
                       </div>
 
                       {/* Gaji Pokok */}
