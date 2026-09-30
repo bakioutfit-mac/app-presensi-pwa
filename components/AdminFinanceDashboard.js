@@ -606,6 +606,79 @@ export default function AdminFinanceDashboard({ onBack }) {
     populateSalaryForm(empName, newSalary.branch, salaryMonth, salaryYear);
   };
 
+  // Handler untuk menghitung ulang lembur dan denda absen secara manual saat di mode edit
+  const handleRecalculateCurrentSlip = async () => {
+    if (!newSalary.employee_name || !newSalary.employee_id) {
+       alert("Pilih staf terlebih dahulu!");
+       return;
+    }
+    
+    setSalaryMsg({ type: '', text: 'Mengkalkulasi ulang...' });
+    
+    const targetMonth = salaryMonth;
+    const targetYear = salaryYear;
+    const empName = newSalary.employee_name;
+    const empId = newSalary.employee_id;
+    const targetPeriod = `${targetMonth} ${targetYear}`;
+    
+    const staff = employeesList.find((e) => e.id === empId);
+    const pkg = staff ? (employeeSalaries[staff.id] || employeeSalaries[staff.full_name] || null) : null;
+    
+    const approvedOtSum = (overtimeRequests || [])
+      .filter((ot) => {
+        const matchEmp = (staff && ot.employee_id === staff.id) || ot.employee_name === empName;
+        const payday = pkg?.payday_date || 1;
+        const dr = getCutoffDateRange(targetMonth, targetYear, payday);
+        let matchPeriod = false;
+        if (dr) {
+           const otD = new Date(ot.date);
+           matchPeriod = otD >= new Date(dr.start) && otD <= new Date(dr.end);
+        } else {
+           matchPeriod = getPeriodFromDate(ot.date) === targetPeriod;
+        }
+        return matchEmp && matchPeriod && ot.status === 'Disetujui Finance';
+      })
+      .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
+
+    let autoLateFee = 0;
+    let lateTimes = 0;
+    try {
+      const payday = pkg?.payday_date || 1;
+      const dr = getCutoffDateRange(targetMonth, targetYear, payday);
+      if (dr) {
+        const { data: attRecords } = await supabase
+          .from('attendance')
+          .select('discipline_penalty, is_late, status')
+          .eq('employee_id', empId)
+          .gte('attendance_date', dr.start)
+          .lte('attendance_date', dr.end);
+
+        if (attRecords && attRecords.length > 0) {
+          attRecords.forEach((a) => {
+            const isLate = a.is_late || (typeof a.status === 'string' && a.status.includes('Terlambat'));
+            if (isLate) {
+              lateTimes += 1;
+              autoLateFee += Number(a.discipline_penalty) > 0 ? Number(a.discipline_penalty) : 10000;
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Calculate late penalty error:', e);
+    }
+    
+    setAutoLateCount(lateTimes);
+    
+    setNewSalary(prev => ({
+      ...prev,
+      overtime_pay: approvedOtSum,
+      discipline_deduction: autoLateFee
+    }));
+    
+    setSalaryMsg({ type: 'success', text: `Scan ulang berhasil! Ditemukan: ${lateTimes}x Terlambat & Total Lembur Rp ${approvedOtSum.toLocaleString('id-ID')}` });
+    setTimeout(() => setSalaryMsg({ type: '', text: '' }), 4000);
+  };
+
   // Handler Salin Gaji dari Bulan Sebelumnya
   const handleCopyPreviousSalary = () => {
     const prevPeriod = getPreviousPeriod(salaryMonth, salaryYear);
@@ -2321,13 +2394,21 @@ export default function AdminFinanceDashboard({ onBack }) {
                         <span>Gaji staf <strong>{newSalary.employee_name}</strong></span>
                         {autoLateCount > 0 ? (
                           <span className="block text-rose-700 font-bold mt-0.5">
-                            • Denda presensi: Rp {Number(newSalary.discipline_deduction).toLocaleString('id-ID')} (Terdeteksi {autoLateCount}x Terlambat)
+                            • Terdeteksi {autoLateCount}x Terlambat
                           </span>
                         ) : (
                           <span className="block text-emerald-700 font-medium mt-0.5">
                             • Presensi tepat waktu (Tidak ada denda)
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={handleRecalculateCurrentSlip}
+                          className="mt-2 py-1 px-2.5 bg-[#2563EB] hover:bg-blue-600 text-white text-[9px] font-black rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          Hitung Ulang Absen & Lembur (Sesuai Cut-Off)
+                        </button>
                       </div>
                     </div>
 
