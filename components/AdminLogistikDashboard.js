@@ -432,18 +432,36 @@ const handleTogglePayment = async (orderId, currentIsPaid) => {
     if (!confirm(`Serahkan barang ke ${outletName}? Stok pusat akan berkurang otomatis.`)) return;
     setProcessingId(reqId);
     try {
+      // 1. VALIDASI STOK SEBELUM MEMPROSES APAPUN
       for (const item of items) {
         if (!item.catalog) continue;
         const catalogId = item.catalog.id;
         const qtyToSent = Number(item.qty_requested);
 
-        const { data: existStock, error: existErr } = await supabase.from('warehouse_stocks').select('id, qty_available').eq('catalog_id', catalogId).single();
+        const { data: existStock, error: existErr } = await supabase.from('warehouse_stocks').select('qty_available').eq('catalog_id', catalogId).single();
+        
         if (existErr && existErr.code !== 'PGRST116') throw existErr;
         
-        if (existStock) {
-          const { error: updErr } = await supabase.from('warehouse_stocks').update({ qty_available: Number(existStock.qty_available) - qtyToSent, last_updated: new Date().toISOString() }).eq('id', existStock.id);
-          if (updErr) throw updErr;
+        if (!existStock) {
+          throw new Error(`Stok pusat untuk "${item.catalog.item_name}" belum pernah diisi (Kosong)!`);
         }
+        
+        if (Number(existStock.qty_available) < qtyToSent) {
+          throw new Error(`Stok "${item.catalog.item_name}" tidak cukup! (Request: ${qtyToSent}, Sisa Pusat: ${existStock.qty_available})`);
+        }
+      }
+
+      // 2. JIKA LOLOS SEMUA VALIDASI, BARU PROSES PENGURANGAN
+      for (const item of items) {
+        if (!item.catalog) continue;
+        const catalogId = item.catalog.id;
+        const qtyToSent = Number(item.qty_requested);
+
+        const { data: existStock } = await supabase.from('warehouse_stocks').select('id, qty_available').eq('catalog_id', catalogId).single();
+        
+        const { error: updErr } = await supabase.from('warehouse_stocks').update({ qty_available: Number(existStock.qty_available) - qtyToSent, last_updated: new Date().toISOString() }).eq('id', existStock.id);
+        if (updErr) throw updErr;
+
         const { error: txErr } = await supabase.from('warehouse_transactions').insert({ catalog_id: catalogId, transaction_type: 'OUT', qty: qtyToSent, notes: `Distribusi ke ${outletName}` });
         if (txErr && txErr.code !== '42P01') throw txErr;
       }
