@@ -2632,6 +2632,13 @@ export default function AdminFinanceDashboard({ onBack }) {
                         </span>
                       </div>
                     </div>
+                    
+                    {attendanceSummaryText && (
+                      <div className="mt-1 mb-1 p-2 bg-blue-100/60 border border-blue-200/80 rounded-lg text-[10px] text-blue-900 flex items-center gap-1.5 shadow-[inset_0_1px_2px_rgba(255,255,255,0.5)]">
+                        <Clock className="w-3.5 h-3.5 text-blue-600" />
+                        <span className="font-bold">{attendanceSummaryText}</span>
+                      </div>
+                    )}
 
                     <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 text-[10px] text-slate-600">
                       <div className="flex items-center gap-2">
