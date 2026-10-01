@@ -162,6 +162,7 @@ export default function AdminFinanceDashboard({ onBack }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showDetailedComponents, setShowDetailedComponents] = useState(false);
   const [autoLateCount, setAutoLateCount] = useState(0);
+  const [attendanceSummaryText, setAttendanceSummaryText] = useState('');
   const [isBulkGenerating, setIsBulkGenerating] = useState(false);
 
   // State Tab Master Data Gaji Staf
@@ -461,6 +462,8 @@ export default function AdminFinanceDashboard({ onBack }) {
       let autoLateFee = 0;
       let lateTimes = 0;
       let workedDays = 0;
+      let presentDays = 0;
+      let paidLeaveDays = 0;
       if (empId) {
         try {
           const payday = pkg?.payday_date || 1;
@@ -486,6 +489,8 @@ export default function AdminFinanceDashboard({ onBack }) {
                       for (let d = s; d <= e; d += 86400000) {
                          if (d >= cutStart && d <= cutEnd) {
                             workedDays++;
+                      paidLeaveDays++;
+                            paidLeaveDays++;
                          }
                       }
                     }
@@ -502,7 +507,9 @@ export default function AdminFinanceDashboard({ onBack }) {
               if (error) console.error('Supabase attendance err:', error);
 
               if (attRecords && attRecords.length > 0) {
-                workedDays += attRecords.length;
+                presentDays = attRecords.length;
+                presentDays = attRecords.length;
+          workedDays += attRecords.length;
                 attRecords.forEach((a) => {
                   const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
                   const isExcused = approvedLateDates.has(a.attendance_date);
@@ -519,6 +526,8 @@ export default function AdminFinanceDashboard({ onBack }) {
       }
 
       setAutoLateCount(lateTimes);
+    setAttendanceSummaryText(`Kehadiran: ${presentDays} hari, Izin Berbayar: ${paidLeaveDays} hari. (Total Dihitung: ${workedDays}/26)`);
+      setAttendanceSummaryText(`Kehadiran: ${presentDays} hari, Izin Berbayar: ${paidLeaveDays} hari. (Total Dihitung: ${workedDays}/26)`);
       
       let masterBasic = (pkg && Number(pkg.basic_salary) > 0) ? Number(pkg.basic_salary) : Number(prevSlip?.basic_salary ?? 0);
       let calculatedBasic = masterBasic;
@@ -680,6 +689,8 @@ export default function AdminFinanceDashboard({ onBack }) {
     let autoLateFee = 0;
     let lateTimes = 0;
     let workedDays = 0;
+    let presentDays = 0;
+    let paidLeaveDays = 0;
     try {
       const payday = pkg?.payday_date || 1;
       const dr = getCutoffDateRange(targetMonth, targetYear, payday);
@@ -2778,6 +2789,12 @@ export default function AdminFinanceDashboard({ onBack }) {
                         <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 block mb-1.5">
                           Penyesuaian Pendapatan Khusus Bulan Ini:
                         </span>
+                        {attendanceSummaryText && (
+                          <div className="mb-2 p-1.5 bg-blue-50/50 border border-blue-100 rounded text-[10px] text-blue-700 flex items-center gap-1.5">
+                            <Clock className="w-3 h-3 text-blue-500" />
+                            <span className="font-semibold">{attendanceSummaryText}</span>
+                          </div>
+                        )}
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                           <div>
                             <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Gaji Pokok</label>
