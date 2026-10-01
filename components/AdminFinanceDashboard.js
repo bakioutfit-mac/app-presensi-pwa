@@ -1010,6 +1010,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           meal_allowance: Number(editingStaffSalary.meal_allowance || 0),
           child_allowance: Number(editingStaffSalary.child_allowance || 0),
           spouse_allowance: Number(editingStaffSalary.spouse_allowance || 0),
+          payday_date: Number(editingStaffSalary.payday_date) || 1,
         },
         [empName]: {
           basic_salary: Number(editingStaffSalary.basic_salary || 0),
@@ -1017,6 +1018,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           meal_allowance: Number(editingStaffSalary.meal_allowance || 0),
           child_allowance: Number(editingStaffSalary.child_allowance || 0),
           spouse_allowance: Number(editingStaffSalary.spouse_allowance || 0),
+          payday_date: Number(editingStaffSalary.payday_date) || 1,
         },
       };
 
@@ -2068,7 +2070,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                           type="number"
                           min="1"
                           max="31"
-                          value={editingStaffSalary.payday_date || '1'}
+                          value={editingStaffSalary.payday_date !== undefined ? editingStaffSalary.payday_date : '1'}
                           onChange={(e) => setEditingStaffSalary(prev => ({...prev, payday_date: e.target.value}))}
                           className="w-full text-xs font-bold text-slate-900 border border-slate-300 rounded-xl px-3 py-2 bg-slate-50 focus:bg-white cursor-text"
                           placeholder="Contoh: 1, 10, 15, 25"
