@@ -457,9 +457,10 @@ export default function AdminFinanceDashboard({ onBack }) {
         })
         .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
 
-      // Hitung otomatis denda presensi dari tabel attendance di periode ini
+      // Hitung otomatis denda presensi dan proporsional gaji pokok
       let autoLateFee = 0;
       let lateTimes = 0;
+      let workedDays = 0;
       if (empId) {
         try {
           const payday = pkg?.payday_date || 1;
@@ -475,6 +476,7 @@ export default function AdminFinanceDashboard({ onBack }) {
               if (error) console.error('Supabase attendance err:', error);
 
             if (attRecords && attRecords.length > 0) {
+              workedDays = attRecords.length;
               attRecords.forEach((a) => {
                 const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
                 if (isLate) {
@@ -485,11 +487,17 @@ export default function AdminFinanceDashboard({ onBack }) {
             }
           }
         } catch (e) {
-          console.warn('Calculate late penalty error:', e);
+          console.warn('Calculate attendance error:', e);
         }
       }
 
       setAutoLateCount(lateTimes);
+      
+      let masterBasic = (pkg && Number(pkg.basic_salary) > 0) ? Number(pkg.basic_salary) : Number(prevSlip?.basic_salary ?? 0);
+      let calculatedBasic = masterBasic;
+      if (workedDays > 0 && workedDays < 26) {
+         calculatedBasic = Math.round((masterBasic / 26) * workedDays);
+      }
 
       setNewSalary({
         existing_slip_id: null,
@@ -497,7 +505,7 @@ export default function AdminFinanceDashboard({ onBack }) {
         employee_id: empId,
         branch: staff?.branch || branch,
         period: targetPeriod,
-        basic_salary: (pkg && Number(pkg.basic_salary) > 0) ? pkg.basic_salary : (prevSlip?.basic_salary ?? 0),
+        basic_salary: calculatedBasic,
         child_allowance: (pkg && pkg.child_allowance !== undefined) ? pkg.child_allowance : (prevSlip?.child_allowance ?? 0),
         spouse_allowance: (pkg && pkg.spouse_allowance !== undefined) ? pkg.spouse_allowance : (prevSlip?.spouse_allowance ?? 0),
         position_allowance: (pkg && pkg.position_allowance !== undefined) ? pkg.position_allowance : (prevSlip?.position_allowance ?? 0),
@@ -644,6 +652,7 @@ export default function AdminFinanceDashboard({ onBack }) {
 
     let autoLateFee = 0;
     let lateTimes = 0;
+    let workedDays = 0;
     try {
       const payday = pkg?.payday_date || 1;
       const dr = getCutoffDateRange(targetMonth, targetYear, payday);
@@ -658,6 +667,7 @@ export default function AdminFinanceDashboard({ onBack }) {
         if (error) console.error('Supabase attendance recalc err:', error);
 
         if (attRecords && attRecords.length > 0) {
+          workedDays = attRecords.length;
           attRecords.forEach((a) => {
             const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
             if (isLate) {
@@ -668,18 +678,25 @@ export default function AdminFinanceDashboard({ onBack }) {
         }
       }
     } catch (e) {
-      console.warn('Calculate late penalty error:', e);
+      console.warn('Calculate attendance error:', e);
     }
     
     setAutoLateCount(lateTimes);
     
+    let masterBasic = Number(pkg?.basic_salary || newSalary.basic_salary || 0);
+    let calculatedBasic = masterBasic;
+    if (workedDays > 0 && workedDays < 26) {
+       calculatedBasic = Math.round((masterBasic / 26) * workedDays);
+    }
+    
     setNewSalary(prev => ({
       ...prev,
+      basic_salary: calculatedBasic,
       overtime_pay: approvedOtSum,
       discipline_deduction: autoLateFee
     }));
     
-    setSalaryMsg({ type: 'success', text: `Scan ulang berhasil! Ditemukan: ${lateTimes}x Terlambat & Total Lembur Rp ${approvedOtSum.toLocaleString('id-ID')}` });
+    setSalaryMsg({ type: 'success', text: `Scan ulang berhasil! Hadir: ${workedDays} hari. Terlambat: ${lateTimes}x. Lembur Rp ${approvedOtSum.toLocaleString('id-ID')}` });
     setTimeout(() => setSalaryMsg({ type: '', text: '' }), 4000);
   };
 
@@ -781,6 +798,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           .reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
 
         let lateDeduction = 0;
+        let workedDays = 0;
         try {
           const payday = pkg?.payday_date || 1;
           const dr = getCutoffDateRange(salaryMonth, salaryYear, payday);
@@ -795,6 +813,7 @@ export default function AdminFinanceDashboard({ onBack }) {
             if (error) console.error('Supabase attendance bulk err:', error);
 
             if (attRecords && attRecords.length > 0) {
+              workedDays = attRecords.length;
               attRecords.forEach((a) => {
                 const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
                 if (isLate) {
@@ -805,14 +824,22 @@ export default function AdminFinanceDashboard({ onBack }) {
           }
         } catch (e) {}
 
-        const net = basic + child + spouse + pos + meal + approvedOtSum - lateDeduction;
+        let masterBasic = Number(prevSlip?.basic_salary ?? pkg?.basic_salary ?? 2000000);
+        let calculatedBasic = masterBasic;
+        if (workedDays > 0 && workedDays < 26) {
+           calculatedBasic = Math.round((masterBasic / 26) * workedDays);
+        }
+
+        const finalBasic = calculatedBasic;
+
+        const net = finalBasic + child + spouse + pos + meal + approvedOtSum - lateDeduction;
 
         const totalAllowances = child + spouse + pos;
         
         const basePayload = {
           employee_id: emp.id,
           period: targetPeriod,
-          basic_salary: basic,
+          basic_salary: finalBasic,
           attendance_allowance: meal,
           transport_allowance: totalAllowances,
           overtime_pay: approvedOtSum,
@@ -834,7 +861,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           employee_name: emp.full_name,
           branch: emp.branch,
           period: targetPeriod,
-          basic_salary: basic,
+          basic_salary: finalBasic,
           child_allowance: child,
           spouse_allowance: spouse,
           position_allowance: pos,
