@@ -465,19 +465,21 @@ export default function AdminFinanceDashboard({ onBack }) {
           const payday = pkg?.payday_date || 1;
             const dr = getCutoffDateRange(targetMonth, targetYear, payday);
             if (dr) {
-              const { data: attRecords } = await supabase
+              const { data: attRecords, error } = await supabase
                 .from('attendance')
-                .select('discipline_penalty, is_late, status')
+                .select('status')
                 .eq('employee_id', empId)
                 .gte('attendance_date', dr.start)
                 .lte('attendance_date', dr.end);
 
+              if (error) console.error('Supabase attendance err:', error);
+
             if (attRecords && attRecords.length > 0) {
               attRecords.forEach((a) => {
-                const isLate = a.is_late || (typeof a.status === 'string' && a.status.includes('Terlambat'));
+                const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
                 if (isLate) {
                   lateTimes += 1;
-                  autoLateFee += Number(a.discipline_penalty) > 0 ? Number(a.discipline_penalty) : 10000;
+                  autoLateFee += 10000; // Flat 10k per late
                 }
               });
             }
@@ -646,19 +648,21 @@ export default function AdminFinanceDashboard({ onBack }) {
       const payday = pkg?.payday_date || 1;
       const dr = getCutoffDateRange(targetMonth, targetYear, payday);
       if (dr) {
-        const { data: attRecords } = await supabase
+        const { data: attRecords, error } = await supabase
           .from('attendance')
-          .select('discipline_penalty, is_late, status')
+          .select('status')
           .eq('employee_id', empId)
           .gte('attendance_date', dr.start)
           .lte('attendance_date', dr.end);
+        
+        if (error) console.error('Supabase attendance recalc err:', error);
 
         if (attRecords && attRecords.length > 0) {
           attRecords.forEach((a) => {
-            const isLate = a.is_late || (typeof a.status === 'string' && a.status.includes('Terlambat'));
+            const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
             if (isLate) {
               lateTimes += 1;
-              autoLateFee += Number(a.discipline_penalty) > 0 ? Number(a.discipline_penalty) : 10000;
+              autoLateFee += 10000;
             }
           });
         }
@@ -781,18 +785,20 @@ export default function AdminFinanceDashboard({ onBack }) {
           const payday = pkg?.payday_date || 1;
           const dr = getCutoffDateRange(salaryMonth, salaryYear, payday);
           if (dr && emp.id) {
-            const { data: attRecords } = await supabase
+            const { data: attRecords, error } = await supabase
               .from('attendance')
-              .select('discipline_penalty, is_late, status')
+              .select('status')
               .eq('employee_id', emp.id)
               .gte('attendance_date', dr.start)
               .lte('attendance_date', dr.end);
+            
+            if (error) console.error('Supabase attendance bulk err:', error);
 
             if (attRecords && attRecords.length > 0) {
               attRecords.forEach((a) => {
-                const isLate = a.is_late || (typeof a.status === 'string' && a.status.includes('Terlambat'));
+                const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
                 if (isLate) {
-                  lateDeduction += Number(a.discipline_penalty) > 0 ? Number(a.discipline_penalty) : 10000;
+                  lateDeduction += 10000;
                 }
               });
             }
