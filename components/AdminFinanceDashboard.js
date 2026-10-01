@@ -466,45 +466,52 @@ export default function AdminFinanceDashboard({ onBack }) {
           const payday = pkg?.payday_date || 1;
             const dr = getCutoffDateRange(targetMonth, targetYear, payday);
             if (dr) {
+              const { data: leavesRecords } = await supabase
+                .from('leaves')
+                .select('start_date, end_date, leave_type')
+                .eq('employee_id', empId)
+                .eq('status', 'Disetujui');
+              
+              let approvedLateDates = new Set();
+              if (leavesRecords && leavesRecords.length > 0) {
+                 const cutStart = new Date(dr.start).getTime();
+                 const cutEnd = new Date(dr.end).getTime();
+                 leavesRecords.forEach(lv => {
+                    if (lv.leave_type === 'Izin Terlambat') {
+                       approvedLateDates.add(lv.start_date);
+                    }
+                    if (['Sakit', 'Izin', 'Cuti'].includes(lv.leave_type)) {
+                      const s = new Date(lv.start_date).getTime();
+                      const e = new Date(lv.end_date).getTime();
+                      for (let d = s; d <= e; d += 86400000) {
+                         if (d >= cutStart && d <= cutEnd) {
+                            workedDays++;
+                         }
+                      }
+                    }
+                 });
+              }
+
               const { data: attRecords, error } = await supabase
                 .from('attendance')
-                .select('status')
+                .select('status, attendance_date')
                 .eq('employee_id', empId)
                 .gte('attendance_date', dr.start)
                 .lte('attendance_date', dr.end);
 
               if (error) console.error('Supabase attendance err:', error);
 
-            if (attRecords && attRecords.length > 0) {
-              workedDays = attRecords.length;
-              attRecords.forEach((a) => {
-                const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
-                if (isLate) {
-                  lateTimes += 1;
-                  autoLateFee += 10000; // Flat 10k per late
-                }
-              });
-            }
-            
-            const { data: leavesRecords } = await supabase
-              .from('leaves')
-              .select('start_date, end_date')
-              .eq('employee_id', empId)
-              .eq('status', 'Disetujui');
-            
-            if (leavesRecords && leavesRecords.length > 0) {
-               const cutStart = new Date(dr.start).getTime();
-               const cutEnd = new Date(dr.end).getTime();
-               leavesRecords.forEach(lv => {
-                  const s = new Date(lv.start_date).getTime();
-                  const e = new Date(lv.end_date).getTime();
-                  for (let d = s; d <= e; d += 86400000) {
-                     if (d >= cutStart && d <= cutEnd) {
-                        workedDays++;
-                     }
+              if (attRecords && attRecords.length > 0) {
+                workedDays += attRecords.length;
+                attRecords.forEach((a) => {
+                  const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
+                  const isExcused = approvedLateDates.has(a.attendance_date);
+                  if (isLate && !isExcused) {
+                    lateTimes += 1;
+                    autoLateFee += 10000; // Flat 10k per late
                   }
-               });
-            }
+                });
+              }
           }
         } catch (e) {
           console.warn('Calculate attendance error:', e);
@@ -677,9 +684,35 @@ export default function AdminFinanceDashboard({ onBack }) {
       const payday = pkg?.payday_date || 1;
       const dr = getCutoffDateRange(targetMonth, targetYear, payday);
       if (dr) {
+        const { data: leavesRecords } = await supabase
+          .from('leaves')
+          .select('start_date, end_date, leave_type')
+          .eq('employee_id', empId)
+          .eq('status', 'Disetujui');
+        
+        let approvedLateDates = new Set();
+        if (leavesRecords && leavesRecords.length > 0) {
+           const cutStart = new Date(dr.start).getTime();
+           const cutEnd = new Date(dr.end).getTime();
+           leavesRecords.forEach(lv => {
+              if (lv.leave_type === 'Izin Terlambat') {
+                 approvedLateDates.add(lv.start_date);
+              }
+              if (['Sakit', 'Izin', 'Cuti'].includes(lv.leave_type)) {
+                const s = new Date(lv.start_date).getTime();
+                const e = new Date(lv.end_date).getTime();
+                for (let d = s; d <= e; d += 86400000) {
+                   if (d >= cutStart && d <= cutEnd) {
+                      workedDays++;
+                   }
+                }
+              }
+           });
+        }
+
         const { data: attRecords, error } = await supabase
           .from('attendance')
-          .select('status')
+          .select('status, attendance_date')
           .eq('employee_id', empId)
           .gte('attendance_date', dr.start)
           .lte('attendance_date', dr.end);
@@ -687,34 +720,15 @@ export default function AdminFinanceDashboard({ onBack }) {
         if (error) console.error('Supabase attendance recalc err:', error);
 
         if (attRecords && attRecords.length > 0) {
-          workedDays = attRecords.length;
+          workedDays += attRecords.length;
           attRecords.forEach((a) => {
             const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
-            if (isLate) {
+            const isExcused = approvedLateDates.has(a.attendance_date);
+            if (isLate && !isExcused) {
               lateTimes += 1;
               autoLateFee += 10000;
             }
           });
-        }
-        
-        const { data: leavesRecords } = await supabase
-          .from('leaves')
-          .select('start_date, end_date')
-          .eq('employee_id', empId)
-          .eq('status', 'Disetujui');
-        
-        if (leavesRecords && leavesRecords.length > 0) {
-           const cutStart = new Date(dr.start).getTime();
-           const cutEnd = new Date(dr.end).getTime();
-           leavesRecords.forEach(lv => {
-              const s = new Date(lv.start_date).getTime();
-              const e = new Date(lv.end_date).getTime();
-              for (let d = s; d <= e; d += 86400000) {
-                 if (d >= cutStart && d <= cutEnd) {
-                    workedDays++;
-                 }
-              }
-           });
         }
       }
     } catch (e) {
@@ -843,9 +857,35 @@ export default function AdminFinanceDashboard({ onBack }) {
           const payday = pkg?.payday_date || 1;
           const dr = getCutoffDateRange(salaryMonth, salaryYear, payday);
           if (dr && emp.id) {
+            const { data: leavesRecords } = await supabase
+              .from('leaves')
+              .select('start_date, end_date, leave_type')
+              .eq('employee_id', emp.id)
+              .eq('status', 'Disetujui');
+            
+            let approvedLateDates = new Set();
+            if (leavesRecords && leavesRecords.length > 0) {
+               const cutStart = new Date(dr.start).getTime();
+               const cutEnd = new Date(dr.end).getTime();
+               leavesRecords.forEach(lv => {
+                  if (lv.leave_type === 'Izin Terlambat') {
+                     approvedLateDates.add(lv.start_date);
+                  }
+                  if (['Sakit', 'Izin', 'Cuti'].includes(lv.leave_type)) {
+                    const s = new Date(lv.start_date).getTime();
+                    const e = new Date(lv.end_date).getTime();
+                    for (let d = s; d <= e; d += 86400000) {
+                       if (d >= cutStart && d <= cutEnd) {
+                          workedDays++;
+                       }
+                    }
+                  }
+               });
+            }
+
             const { data: attRecords, error } = await supabase
               .from('attendance')
-              .select('status')
+              .select('status, attendance_date')
               .eq('employee_id', emp.id)
               .gte('attendance_date', dr.start)
               .lte('attendance_date', dr.end);
@@ -853,33 +893,14 @@ export default function AdminFinanceDashboard({ onBack }) {
             if (error) console.error('Supabase attendance bulk err:', error);
 
             if (attRecords && attRecords.length > 0) {
-              workedDays = attRecords.length;
+              workedDays += attRecords.length;
               attRecords.forEach((a) => {
                 const isLate = typeof a.status === 'string' && a.status.toLowerCase().includes('terlambat');
-                if (isLate) {
+                const isExcused = approvedLateDates.has(a.attendance_date);
+                if (isLate && !isExcused) {
                   lateDeduction += 10000;
                 }
               });
-            }
-            
-            const { data: leavesRecords } = await supabase
-              .from('leaves')
-              .select('start_date, end_date')
-              .eq('employee_id', emp.id)
-              .eq('status', 'Disetujui');
-            
-            if (leavesRecords && leavesRecords.length > 0) {
-               const cutStart = new Date(dr.start).getTime();
-               const cutEnd = new Date(dr.end).getTime();
-               leavesRecords.forEach(lv => {
-                  const s = new Date(lv.start_date).getTime();
-                  const e = new Date(lv.end_date).getTime();
-                  for (let d = s; d <= e; d += 86400000) {
-                     if (d >= cutStart && d <= cutEnd) {
-                        workedDays++;
-                     }
-                  }
-               });
             }
           }
         } catch (e) {}
