@@ -801,10 +801,16 @@ export default function AdminFinanceDashboard({ onBack }) {
 
         const net = basic + child + spouse + pos + meal + approvedOtSum - lateDeduction;
 
+        const totalAllowances = child + spouse + pos;
+        
         const basePayload = {
           employee_id: emp.id,
           period: targetPeriod,
           basic_salary: basic,
+          attendance_allowance: meal,
+          transport_allowance: totalAllowances,
+          overtime_pay: approvedOtSum,
+          deductions: lateDeduction,
           net_salary: net,
           is_released: false, // Draf agar Finance bisa cek & sesuaikan
         };
@@ -855,6 +861,15 @@ export default function AdminFinanceDashboard({ onBack }) {
           type: 'success',
           text: `⚡ Berhasil membuat ${newSlips.length} draft slip gaji untuk periode ${targetPeriod}!`,
         });
+        
+        // Sync ke cloud admin_settings
+        try {
+          const currentDetails = JSON.parse(localStorage.getItem('pwa_payslips_detail') || '{}');
+          await supabase.from('admin_settings').update({
+            description: JSON.stringify(currentDetails),
+            updated_at: new Date().toISOString(),
+          }).eq('role', 'payslips_detail');
+        } catch(e) {}
       }
     } catch (err) {
       console.error('Bulk generate error:', err);
