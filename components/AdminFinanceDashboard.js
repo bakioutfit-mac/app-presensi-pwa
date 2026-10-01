@@ -2233,6 +2233,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                         const meal = Number(pkg.meal_allowance || 0);
                         const child = Number(pkg.child_allowance || 0);
                         const spouse = Number(pkg.spouse_allowance || 0);
+                        const paydayDate = Number(pkg.payday_date || 1);
                         const totalTetap = basic + pos + meal + child + spouse;
                         const isConfigured = basic > 0 || totalTetap > 0;
 
@@ -2274,6 +2275,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                                     meal_allowance: meal,
                                     child_allowance: child,
                                     spouse_allowance: spouse,
+                                    payday_date: paydayDate,
                                   })
                                 }
                                 className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-[10px] font-black rounded-xl border border-blue-200 flex items-center gap-1 transition cursor-pointer"
@@ -2317,11 +2319,19 @@ export default function AdminFinanceDashboard({ onBack }) {
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[10px]">
-                              <span className="text-slate-500 font-medium">Total Paket Tetap Bulanan:</span>
-                              <span className="font-black text-[#2563EB]">
-                                Rp {totalTetap.toLocaleString('id-ID')}
-                              </span>
+                            <div className="flex flex-col gap-1 pt-2 border-t border-slate-100 text-[10px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-500 font-medium">Total Paket Tetap Bulanan:</span>
+                                <span className="font-black text-[#2563EB]">
+                                  Rp {totalTetap.toLocaleString('id-ID')}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-500 font-medium">Periode Cut-Off:</span>
+                                <span className={`font-bold px-1.5 rounded-sm ${paydayDate === 1 ? 'bg-slate-100 text-slate-600' : 'bg-indigo-50 text-indigo-700'}`}>
+                                  Tanggal {paydayDate}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         );
