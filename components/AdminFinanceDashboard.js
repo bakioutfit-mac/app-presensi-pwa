@@ -485,6 +485,26 @@ export default function AdminFinanceDashboard({ onBack }) {
                 }
               });
             }
+            
+            const { data: leavesRecords } = await supabase
+              .from('leaves')
+              .select('start_date, end_date')
+              .eq('employee_id', empId)
+              .eq('status', 'Disetujui');
+            
+            if (leavesRecords && leavesRecords.length > 0) {
+               const cutStart = new Date(dr.start).getTime();
+               const cutEnd = new Date(dr.end).getTime();
+               leavesRecords.forEach(lv => {
+                  const s = new Date(lv.start_date).getTime();
+                  const e = new Date(lv.end_date).getTime();
+                  for (let d = s; d <= e; d += 86400000) {
+                     if (d >= cutStart && d <= cutEnd) {
+                        workedDays++;
+                     }
+                  }
+               });
+            }
           }
         } catch (e) {
           console.warn('Calculate attendance error:', e);
@@ -676,6 +696,26 @@ export default function AdminFinanceDashboard({ onBack }) {
             }
           });
         }
+        
+        const { data: leavesRecords } = await supabase
+          .from('leaves')
+          .select('start_date, end_date')
+          .eq('employee_id', empId)
+          .eq('status', 'Disetujui');
+        
+        if (leavesRecords && leavesRecords.length > 0) {
+           const cutStart = new Date(dr.start).getTime();
+           const cutEnd = new Date(dr.end).getTime();
+           leavesRecords.forEach(lv => {
+              const s = new Date(lv.start_date).getTime();
+              const e = new Date(lv.end_date).getTime();
+              for (let d = s; d <= e; d += 86400000) {
+                 if (d >= cutStart && d <= cutEnd) {
+                    workedDays++;
+                 }
+              }
+           });
+        }
       }
     } catch (e) {
       console.warn('Calculate attendance error:', e);
@@ -820,6 +860,26 @@ export default function AdminFinanceDashboard({ onBack }) {
                   lateDeduction += 10000;
                 }
               });
+            }
+            
+            const { data: leavesRecords } = await supabase
+              .from('leaves')
+              .select('start_date, end_date')
+              .eq('employee_id', emp.id)
+              .eq('status', 'Disetujui');
+            
+            if (leavesRecords && leavesRecords.length > 0) {
+               const cutStart = new Date(dr.start).getTime();
+               const cutEnd = new Date(dr.end).getTime();
+               leavesRecords.forEach(lv => {
+                  const s = new Date(lv.start_date).getTime();
+                  const e = new Date(lv.end_date).getTime();
+                  for (let d = s; d <= e; d += 86400000) {
+                     if (d >= cutStart && d <= cutEnd) {
+                        workedDays++;
+                     }
+                  }
+               });
             }
           }
         } catch (e) {}
