@@ -312,6 +312,40 @@ export default function AdminOwnerDashboard({ onBack }) {
     }
   };
 
+  const handleRestoreReport = async (report) => {
+    if (!report?.id) return;
+    if (!window.confirm(`Yakin ingin memulihkan laporan dari ${report.branch} (${report.report_date}) ini? Laporan akan kembali aktif dan dihitung di total omset.`)) return;
+    
+    try {
+      const { error } = await supabase
+        .from('outlet_cash_reports')
+        .update({ is_archived: false })
+        .eq('id', report.id);
+
+      if (error) console.warn('Supabase restore report warning:', error);
+
+      setCashierReports((prev) =>
+        prev.map((r) => (r.id === report.id ? { ...r, is_archived: false } : r))
+      );
+      
+      fetchMonthlyOmset();
+
+      try {
+        const local = JSON.parse(localStorage.getItem('pwa_outlet_cash_reports') || '[]');
+        const updated = local.map((r) => (r.id === report.id ? { ...r, is_archived: false } : r));
+        localStorage.setItem('pwa_outlet_cash_reports', JSON.stringify(updated));
+      } catch (e) {}
+
+      if (selectedReportDetail?.id === report.id) {
+        setSelectedReportDetail((prev) => ({ ...prev, is_archived: false }));
+      }
+
+      showToast('success', `Laporan berhasil dipulihkan dan kembali dihitung di omset.`);
+    } catch (e) {
+      showToast('error', 'Gagal memulihkan laporan.');
+    }
+  };
+
 
 
   // ================= 2. APPROVALS STATE =================
@@ -760,8 +794,9 @@ export default function AdminOwnerDashboard({ onBack }) {
       const { error } = await supabase
         .from('employees')
         .update({
-          full_name: modalEditStaff.full_name,
-          phone: modalEditStaff.phone,
+          full_name: modalEditStaff.full_name.trim(),
+          phone: modalEditStaff.phone.trim(),
+          branch: modalEditStaff.branch,
           is_active: modalEditStaff.is_active,
           status: modalEditStaff.is_active ? 'active' : 'inactive',
           role: modalEditStaff.role,
@@ -769,7 +804,7 @@ export default function AdminOwnerDashboard({ onBack }) {
         .eq('id', modalEditStaff.id);
 
       if (error) throw error;
-      showToast('success', 'Profil staf berhasil diperbarui');
+      showToast('success', `Profil & outlet staf ${modalEditStaff.full_name} berhasil diperbarui!`);
       setModalEditStaff(null);
       fetchStaffList(); // refresh
     } catch (err) {
@@ -1345,7 +1380,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                             </div>
                           )}
 
-                          {/* Action Toolbar: Verifikasi, Kirim WA, dan Modal Detail */}
+                          {/* Action Toolbar: Verifikasi dan Modal Detail */}
                           <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between gap-2 flex-wrap">
                             <button
                               type="button"
@@ -1357,20 +1392,6 @@ export default function AdminOwnerDashboard({ onBack }) {
                             </button>
 
                             <div className="flex items-center gap-2">
-                              {/* Kirim WA */}
-                              <a
-                                href={`https://wa.me/?text=${encodeURIComponent(
-                                  `*LAPORAN KASIR 3 PILLAR*\nOutlet: ${report.branch}\nShift: ${report.shift_name}\nTanggal: ${report.report_date}\nKasir: ${report.cashier_name}\n-----------------------------\nModal Awal: ${formatRupiah(report.starting_cash || 0)}\nPenjualan Cash: ${formatRupiah(report.income_cash || 0)}\nPenjualan QRIS: ${formatRupiah(report.income_qris || 0)}\n*Total Omzet:* ${formatRupiah(report.total_income || 0)}\nTotal Pengeluaran: ${formatRupiah(report.expense_amount || 0)}\nKas Fisik Laci: ${formatRupiah(report.actual_cash_counted || 0)}\n*Selisih Kas:* ${diff === 0 ? 'PAS (Rp 0)' : diff < 0 ? `KURANG (${formatRupiah(diff)})` : `LEBIH (+${formatRupiah(diff)})`}\n-----------------------------\nStatus: ${report.status}`
-                                )}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                                title="Bagikan ringkasan ke WhatsApp"
-                              >
-                                <MessageCircle className="w-3.5 h-3.5" />
-                                <span>Kirim WA</span>
-                              </a>
-
                               {/* Verifikasi Button */}
                               {!report.is_archived && !isVerified ? (
                                 <button
@@ -1389,8 +1410,8 @@ export default function AdminOwnerDashboard({ onBack }) {
                                 </span>
                               ) : null}
 
-                              {/* Arsipkan Button */}
-                              {!report.is_archived && (
+                              {/* Arsipkan / Pulihkan Button */}
+                              {!report.is_archived ? (
                                 <button
                                   type="button"
                                   onClick={() => handleArchiveReport(report)}
@@ -1399,6 +1420,16 @@ export default function AdminOwnerDashboard({ onBack }) {
                                 >
                                   <Archive className="w-3.5 h-3.5" />
                                   <span>Arsip</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreReport(report)}
+                                  className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                                  title="Pulihkan laporan yang diarsipkan agar kembali aktif di omset"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>Pulihkan Laporan</span>
                                 </button>
                               )}
 
@@ -2122,6 +2153,8 @@ export default function AdminOwnerDashboard({ onBack }) {
                                   id: staff.id,
                                   full_name: staff.full_name,
                                   phone: staff.phone,
+                                  branch: staff.branch || safeOutlets[0]?.name || 'LazyBloom',
+                                  role: staff.role || 'staff',
                                   is_active: !(staff.is_active === false || staff.status === 'inactive' || staff.status === 'nonaktif')
                                 })}
                                 className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold transition flex items-center justify-center cursor-pointer shadow-xs border border-slate-200"
@@ -3217,6 +3250,22 @@ export default function AdminOwnerDashboard({ onBack }) {
                   onChange={(e) => setModalEditStaff((prev) => ({ ...prev, phone: e.target.value }))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-slate-500"
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Penempatan Outlet / Cabang</label>
+                <select
+                  value={modalEditStaff.branch || safeOutlets[0]?.name || 'LazyBloom'}
+                  onChange={(e) => setModalEditStaff((prev) => ({ ...prev, branch: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-slate-500 cursor-pointer"
+                >
+                  {safeOutlets.map((o) => (
+                    <option key={o.id} value={o.name}>
+                      {o.name}
+                    </option>
+                  ))}
+                  <option value="3 Pillar All Outlets">3 Pillar All Outlets (Semua Cabang)</option>
+                </select>
               </div>
 
               <div className="space-y-1">

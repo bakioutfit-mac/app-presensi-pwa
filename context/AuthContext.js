@@ -233,6 +233,64 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Helper konversi role string ke adminRole aktif
+  const mapRoleToAdminRole = (roleStr) => {
+    const r = (roleStr || '').toLowerCase();
+    if (r === 'admin_owner' || r === 'owner') return 'owner';
+    if (r === 'admin_finance' || r === 'finance') return 'finance';
+    if (r.includes('gudang') || r === 'admin_gudang') return 'gudang';
+    if (r.includes('purchasing') || r === 'admin_purchasing') return 'purchasing';
+    return '';
+  };
+
+  // Sinkronisasi data profil & role terbaru dari Supabase ke state & localStorage
+  const syncUserProfile = async (targetUser = null) => {
+    const activeUser = targetUser || user;
+    if (!activeUser) return;
+
+    // Lewati akun demo default
+    if (
+      ['admin-owner-default', 'admin-leader-default', 'admin-finance-default', 'demo-cashier-lazybloom'].includes(
+        activeUser.id
+      )
+    ) {
+      return;
+    }
+
+    try {
+      let query = supabase.from('employees').select('*');
+      if (activeUser.id && isValidUUID(activeUser.id)) {
+        query = query.eq('id', activeUser.id);
+      } else if (activeUser.phone) {
+        query = query.eq('phone', activeUser.phone);
+      } else {
+        return;
+      }
+
+      const { data: latest, error } = await query.maybeSingle();
+      if (!error && latest) {
+        // Jika akun dinonaktifkan / resign oleh Owner, otomatis logout
+        if (latest.status === 'inactive' || latest.status === 'nonaktif' || latest.is_active === false) {
+          logout();
+          return;
+        }
+
+        const currentRole = (activeUser.role || '').toLowerCase();
+        const newRole = (latest.role || '').toLowerCase();
+
+        setUser(latest);
+        localStorage.setItem('pwa_presensi_user', JSON.stringify(latest));
+
+        // Jika role di Supabase berubah, update adminRole seketika
+        if (currentRole !== newRole || targetUser) {
+          setAdminRole(mapRoleToAdminRole(latest.role));
+        }
+      }
+    } catch (err) {
+      console.warn('Auto-refresh user profile error:', err);
+    }
+  };
+
   // Initialize session and admin PINs on mount
   useEffect(() => {
     try {
@@ -245,18 +303,7 @@ export function AuthProvider({ children }) {
           setUser(null);
         } else {
           setUser(parsed);
-          const r = (parsed.role || '').toLowerCase();
-          if (r === 'admin_owner' || r === 'owner') {
-            setAdminRole('owner');
-          } else if (r === 'admin_finance' || r === 'finance') {
-            setAdminRole('finance');
-          } else if (r.includes('gudang') || r === 'admin_gudang') {
-            setAdminRole('gudang');
-          } else if (r.includes('purchasing') || r === 'admin_purchasing') {
-            setAdminRole('purchasing');
-          } else {
-            setAdminRole('');
-          }
+          setAdminRole(mapRoleToAdminRole(parsed.role));
         }
       }
 
@@ -321,6 +368,14 @@ export function AuthProvider({ children }) {
 
       // Sync data admin PIN, outlets & pengajuan lembur/koreksi dari Supabase jika ada
       (async () => {
+        // Revalidasi profil & role pengguna terkini dari Supabase
+        const currentStored = localStorage.getItem('pwa_presensi_user');
+        if (currentStored) {
+          try {
+            await syncUserProfile(JSON.parse(currentStored));
+          } catch (e) {}
+        }
+
         try {
           await loadOvertimeRequests();
         } catch (e) {}
@@ -501,6 +556,31 @@ export function AuthProvider({ children }) {
     };
     window.addEventListener('pwa_leave_status_changed', handleLeaveStatusChanged);
     return () => window.removeEventListener('pwa_leave_status_changed', handleLeaveStatusChanged);
+  }, [user]);
+
+  // Auto-refresh sesi saat pengguna kembali membuka tab / aplikasi PWA aktif
+  useEffect(() => {
+    let lastSync = 0;
+    const handleActive = () => {
+      const now = Date.now();
+      // Throttle minimal 10 detik agar tidak membebani Supabase
+      if (now - lastSync > 10000 && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        lastSync = now;
+        syncUserProfile();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('visibilitychange', handleActive);
+      window.addEventListener('focus', handleActive);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('visibilitychange', handleActive);
+        window.removeEventListener('focus', handleActive);
+      }
+    };
   }, [user]);
 
   // Verifikasi PIN Admin (Owner, Leader, Finance, atau Tab Monitoring)
@@ -754,18 +834,7 @@ export function AuthProvider({ children }) {
         }
 
         setUser(data);
-        const userRole = (data.role || '').toLowerCase();
-        if (userRole === 'admin_owner' || userRole === 'owner') {
-          setAdminRole('owner');
-        } else if (userRole === 'admin_finance' || userRole === 'finance') {
-          setAdminRole('finance');
-        } else if (userRole.includes('gudang') || userRole === 'admin_gudang') {
-          setAdminRole('gudang');
-        } else if (userRole.includes('purchasing') || userRole === 'admin_purchasing') {
-          setAdminRole('purchasing');
-        } else {
-          setAdminRole('');
-        }
+        setAdminRole(mapRoleToAdminRole(data.role));
         localStorage.setItem('pwa_presensi_user', JSON.stringify(data));
         await loadAttendanceAndLeave(data);
         return { success: true, user: data };
@@ -1528,6 +1597,7 @@ export function AuthProvider({ children }) {
         outlets: outletsList,
         currentOutlet: userOutletConfig,
         refreshAttendance: () => loadAttendanceAndLeave(user),
+        refreshSession: () => syncUserProfile(),
       }}
     >
       {children}

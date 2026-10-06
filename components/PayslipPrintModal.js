@@ -37,6 +37,7 @@ export default function PayslipPrintModal({
   const spouseAllowance = Number(slip.spouse_allowance) || 0;
   const positionAllowance = Number(slip.position_allowance) || 0;
   const mealAllowance = Number(slip.meal_allowance) || 0;
+  const disciplineAllowance = Number(slip.discipline_allowance) || 0;
   const overtimePay = Number(slip.overtime_pay) || 0;
   const plusDayPay = Number(slip.plus_day_pay) || 0;
   const plusDayCount = Number(slip.plus_day_count) || 0;
@@ -48,6 +49,7 @@ export default function PayslipPrintModal({
     spouseAllowance +
     positionAllowance +
     mealAllowance +
+    disciplineAllowance +
     overtimePay +
     plusDayPay;
 
@@ -234,6 +236,12 @@ export default function PayslipPrintModal({
                     <span>Tunjangan Makan</span>
                     <span className="font-semibold">{formatRupiah(mealAllowance)}</span>
                   </div>
+                  {disciplineAllowance > 0 && (
+                    <div className="flex justify-between text-slate-700">
+                      <span>Tunjangan Kedisiplinan</span>
+                      <span className="font-semibold">{formatRupiah(disciplineAllowance)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-slate-700">
                     <div>
                       <span>Uang Lembur</span>

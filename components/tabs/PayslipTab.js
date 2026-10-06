@@ -110,6 +110,7 @@ export default function PayslipTab() {
                 spouse_allowance: item.spouse_allowance ?? 0,
                 position_allowance: item.position_allowance ?? 0,
                 meal_allowance: item.meal_allowance ?? 0,
+                discipline_allowance: item.discipline_allowance ?? 0,
                 overtime_pay: item.overtime_pay ?? 0,
                 plus_day_count: item.plus_day_count ?? 0,
                 plus_day_pay: item.plus_day_pay ?? 0,
@@ -227,6 +228,7 @@ export default function PayslipTab() {
             (Number(slip.spouse_allowance) || 0) +
             (Number(slip.position_allowance) || 0) +
             (Number(slip.meal_allowance) || 0) +
+            (Number(slip.discipline_allowance) || 0) +
             (Number(slip.overtime_pay) || 0) +
             (Number(slip.plus_day_pay) || 0);
 
@@ -359,6 +361,12 @@ export default function PayslipTab() {
                       <span>Tunjangan Makan</span>
                       <span className="font-semibold">{formatRupiah(slip.meal_allowance)}</span>
                     </div>
+                    {Number(slip.discipline_allowance || 0) > 0 && (
+                      <div className="flex justify-between text-xs text-slate-700">
+                        <span>Tunjangan Kedisiplinan</span>
+                        <span className="font-semibold">{formatRupiah(slip.discipline_allowance)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-xs text-slate-700">
                       <div>
                         <span>Uang Lembur</span>

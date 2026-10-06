@@ -97,7 +97,7 @@ export default function MainPage() {
   // Jika Akun Admin Finance aktif
   if (adminRole === 'finance') {
     return (
-      <div className="min-h-screen max-w-[430px] mx-auto px-4 py-6 bg-slate-50">
+      <div className="min-h-screen w-full max-w-[430px] md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 bg-slate-50 transition-all duration-200">
         <AdminFinanceDashboard onBack={logout} />
       </div>
     );

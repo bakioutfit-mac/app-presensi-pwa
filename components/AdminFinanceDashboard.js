@@ -35,6 +35,7 @@ import {
   Sliders,
   Sparkles,
   Calendar,
+  CalendarCheck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -42,6 +43,7 @@ import { formatRupiah, CurrencyInput, fetchEmployeeSalaries, saveEmployeeSalarie
 import { getPeriodFromDate, formatIndonesianDate } from '@/lib/date';
 import PayslipPrintModal from './PayslipPrintModal';
 import { getOvertimeRateByPosition } from '@/lib/overtimeRates';
+import FinanceAttendanceAuditTab from './tabs/finance/FinanceAttendanceAuditTab';
 
 const MONTHS = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -144,6 +146,7 @@ export default function AdminFinanceDashboard({ onBack }) {
     spouse_allowance: 0,
     position_allowance: 0,
     meal_allowance: 0,
+    discipline_allowance: 0,
     overtime_pay: 0,
     plus_day_count: 0,
     plus_day_pay: 0,
@@ -423,6 +426,7 @@ export default function AdminFinanceDashboard({ onBack }) {
         spouse_allowance: existingSlip.spouse_allowance ?? 0,
         position_allowance: existingSlip.position_allowance ?? 0,
         meal_allowance: existingSlip.meal_allowance ?? 0,
+        discipline_allowance: existingSlip.discipline_allowance ?? 0,
         overtime_pay: existingSlip.overtime_pay ?? 0,
         plus_day_count: existingSlip.plus_day_count ?? 0,
         plus_day_pay: existingSlip.plus_day_pay ?? 0,
@@ -546,6 +550,7 @@ export default function AdminFinanceDashboard({ onBack }) {
         spouse_allowance: (pkg && pkg.spouse_allowance !== undefined) ? pkg.spouse_allowance : (prevSlip?.spouse_allowance ?? 0),
         position_allowance: (pkg && pkg.position_allowance !== undefined) ? pkg.position_allowance : (prevSlip?.position_allowance ?? 0),
         meal_allowance: (pkg && pkg.meal_allowance !== undefined) ? pkg.meal_allowance : (prevSlip?.meal_allowance ?? 0),
+        discipline_allowance: (pkg && pkg.discipline_allowance !== undefined) ? pkg.discipline_allowance : (prevSlip?.discipline_allowance ?? 0),
         overtime_pay: approvedOtSum,
         plus_day_count: 0,
         plus_day_pay: 0,
@@ -603,7 +608,7 @@ export default function AdminFinanceDashboard({ onBack }) {
     // Prepare CSV data
     const headers = [
       "Nama Pegawai", "Cabang/Outlet", "Periode", "Cut-Off (Tgl Gajian)",
-      "Gaji Pokok", "Tj. Jabatan", "Tj. Anak", "Tj. Istri", "Uang Makan", "Uang Lembur", "Insentif Tambahan",
+      "Gaji Pokok", "Tj. Jabatan", "Tj. Anak", "Tj. Istri", "Uang Makan", "Tj. Kedisiplinan", "Uang Lembur", "Insentif Tambahan",
       "Potongan Kehadiran", "Potongan Disiplin/Lain", "Potongan Uang Makan", "Cash Bon",
       "TAKE HOME PAY"
     ];
@@ -612,7 +617,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       const pkg = employeeSalaries[slip.employee_id] || employeeSalaries[slip.employee_name] || {};
       const payday = pkg.payday_date || 1;
       
-      const totalPendapatan = (slip.basic_salary||0) + (slip.position_allowance||0) + (slip.child_allowance||0) + (slip.spouse_allowance||0) + (slip.meal_allowance||0) + (slip.overtime_pay||0) + (slip.plus_day_pay||0);
+      const totalPendapatan = (slip.basic_salary||0) + (slip.position_allowance||0) + (slip.child_allowance||0) + (slip.spouse_allowance||0) + (slip.meal_allowance||0) + (slip.discipline_allowance||0) + (slip.overtime_pay||0) + (slip.plus_day_pay||0);
       const totalPotongan = (slip.attendance_deduction||0) + (slip.discipline_deduction||0) + (slip.meal_deduction||0) + (slip.cash_bon||0);
       const thp = totalPendapatan - totalPotongan;
       
@@ -626,6 +631,7 @@ export default function AdminFinanceDashboard({ onBack }) {
         slip.child_allowance || 0,
         slip.spouse_allowance || 0,
         slip.meal_allowance || 0,
+        slip.discipline_allowance || 0,
         slip.overtime_pay || 0,
         slip.plus_day_pay || 0,
         slip.attendance_deduction || 0,
@@ -784,6 +790,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       spouse_allowance: prevSlip.spouse_allowance ?? prev.spouse_allowance,
       position_allowance: prevSlip.position_allowance ?? prev.position_allowance,
       meal_allowance: prevSlip.meal_allowance ?? prev.meal_allowance,
+      discipline_allowance: prevSlip.discipline_allowance ?? prev.discipline_allowance,
       meal_deduction: prevSlip.meal_deduction ?? prev.meal_deduction,
       attendance_deduction: prevSlip.attendance_deduction ?? prev.attendance_deduction,
       cash_bon: prevSlip.cash_bon ?? 0,
@@ -845,6 +852,7 @@ export default function AdminFinanceDashboard({ onBack }) {
         const spouse = Number(prevSlip?.spouse_allowance ?? pkg?.spouse_allowance ?? 0);
         const pos = Number(prevSlip?.position_allowance ?? pkg?.position_allowance ?? 0);
         const meal = Number(prevSlip?.meal_allowance ?? pkg?.meal_allowance ?? 0);
+        const discAllowance = Number(prevSlip?.discipline_allowance ?? pkg?.discipline_allowance ?? 0);
 
         const approvedOtSum = (overtimeRequests || [])
           .filter((ot) => {
@@ -924,9 +932,9 @@ export default function AdminFinanceDashboard({ onBack }) {
 
         const finalBasic = calculatedBasic;
 
-        const net = finalBasic + child + spouse + pos + meal + approvedOtSum - lateDeduction;
+        const net = finalBasic + child + spouse + pos + meal + discAllowance + approvedOtSum - lateDeduction;
 
-        const totalAllowances = child + spouse + pos;
+        const totalAllowances = child + spouse + pos + discAllowance;
         
         const basePayload = {
           employee_id: emp.id,
@@ -958,6 +966,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           spouse_allowance: spouse,
           position_allowance: pos,
           meal_allowance: meal,
+          discipline_allowance: discAllowance,
           overtime_pay: approvedOtSum,
           plus_day_count: 0,
           plus_day_pay: 0,
@@ -1021,6 +1030,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           meal_allowance: Number(editingStaffSalary.meal_allowance || 0),
           child_allowance: Number(editingStaffSalary.child_allowance || 0),
           spouse_allowance: Number(editingStaffSalary.spouse_allowance || 0),
+          discipline_allowance: Number(editingStaffSalary.discipline_allowance || 0),
           payday_date: Number(editingStaffSalary.payday_date) || 1,
         },
         [empName]: {
@@ -1029,6 +1039,7 @@ export default function AdminFinanceDashboard({ onBack }) {
           meal_allowance: Number(editingStaffSalary.meal_allowance || 0),
           child_allowance: Number(editingStaffSalary.child_allowance || 0),
           spouse_allowance: Number(editingStaffSalary.spouse_allowance || 0),
+          discipline_allowance: Number(editingStaffSalary.discipline_allowance || 0),
           payday_date: Number(editingStaffSalary.payday_date) || 1,
         },
       };
@@ -1069,6 +1080,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       spouse_allowance: slip.spouse_allowance ?? 0,
       position_allowance: slip.position_allowance ?? 0,
       meal_allowance: slip.meal_allowance ?? 0,
+      discipline_allowance: slip.discipline_allowance ?? 0,
       overtime_pay: slip.overtime_pay ?? 0,
       plus_day_count: slip.plus_day_count ?? 0,
       plus_day_pay: slip.plus_day_pay ?? 0,
@@ -1085,7 +1097,7 @@ export default function AdminFinanceDashboard({ onBack }) {
     }
   };
 
-  // Kalkulasi total pendapatan (6 Komponen Tetap + Lembur + Perbantuan +Day)
+  // Kalkulasi total pendapatan (7 Komponen Tetap + Lembur + Perbantuan +Day)
   const calculateTotalIncome = (s) => {
     return (
       (Number(s.basic_salary) || 0) +
@@ -1093,6 +1105,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       (Number(s.spouse_allowance) || 0) +
       (Number(s.position_allowance) || 0) +
       (Number(s.meal_allowance) || 0) +
+      (Number(s.discipline_allowance) || 0) +
       (Number(s.overtime_pay) || 0) +
       (Number(s.plus_day_pay) || 0)
     );
@@ -1131,7 +1144,8 @@ export default function AdminFinanceDashboard({ onBack }) {
     const totalAllowances =
       Number(newSalary.child_allowance || 0) +
       Number(newSalary.spouse_allowance || 0) +
-      Number(newSalary.position_allowance || 0);
+      Number(newSalary.position_allowance || 0) +
+      Number(newSalary.discipline_allowance || 0);
 
     // Cek apakah mode edit/update atau buat baru (Opsi A: Mencegah Slip Ganda)
     const existingSlip = newSalary.existing_slip_id
@@ -1205,6 +1219,7 @@ export default function AdminFinanceDashboard({ onBack }) {
       spouse_allowance: Number(newSalary.spouse_allowance || 0),
       position_allowance: Number(newSalary.position_allowance || 0),
       meal_allowance: Number(newSalary.meal_allowance || 0),
+      discipline_allowance: Number(newSalary.discipline_allowance || 0),
       overtime_pay: Number(newSalary.overtime_pay || 0),
       plus_day_count: Number(newSalary.plus_day_count || 0),
       plus_day_pay: Number(newSalary.plus_day_pay || 0),
@@ -1580,15 +1595,15 @@ export default function AdminFinanceDashboard({ onBack }) {
 
             <button
               type="button"
-              onClick={() => setPayrollSubTab('supplier')}
+              onClick={() => setPayrollSubTab('attendance')}
               className={`px-3 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer ${
-                payrollSubTab === 'supplier'
+                payrollSubTab === 'attendance'
                   ? 'bg-white text-[#2563EB] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <ClipboardCheck className="w-4 h-4 shrink-0" />
-              <span>Bayar Supplier</span>
+              <CalendarCheck className="w-4 h-4 shrink-0" />
+              <span>Daftar Hadir</span>
             </button>
           </div>
 
@@ -1637,21 +1652,9 @@ export default function AdminFinanceDashboard({ onBack }) {
             </div>
           )}
 
-          {/* ================= SUB-TAB: BAYAR SUPPLIER ================= */}
-          {payrollSubTab === 'supplier' && (
-            <div className="space-y-4 animate-in fade-in duration-200">
-              <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center space-y-4">
-                <div className="w-16 h-16 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center">
-                  <Database className="w-8 h-8" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-slate-800">Pembayaran PO / Supplier</h3>
-                  <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
-                    Modul ini (Tahap 4) masih dalam pengembangan. Nantinya di sini Admin Finance dapat melihat daftar tagihan PO yang diteruskan oleh divisi Purchasing untuk dilunasi.
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* ================= SUB-TAB: DAFTAR HADIR (VERIFIKASI CUT-OFF PAYSLIP) ================= */}
+          {payrollSubTab === 'attendance' && (
+            <FinanceAttendanceAuditTab />
           )}
 
           {/* ================= SUB-TAB: PERSETUJUAN LEMBUR ================= */}
@@ -2047,7 +2050,7 @@ export default function AdminFinanceDashboard({ onBack }) {
               {/* Modal / Form Edit Paket Gaji Karyawan */}
               {editingStaffSalary && (
                 <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3">
-                  <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+                  <div className="bg-white rounded-2xl max-w-md md:max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
                     <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-4 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Sliders className="w-4 h-4 text-blue-300" />
@@ -2162,6 +2165,19 @@ export default function AdminFinanceDashboard({ onBack }) {
                             placeholder="Rp 0"
                           />
                         </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-700 mb-1">
+                            6. Tunjangan Kedisiplinan
+                          </label>
+                          <CurrencyInput
+                            value={editingStaffSalary.discipline_allowance}
+                            onChange={(val) =>
+                              setEditingStaffSalary((prev) => ({ ...prev, discipline_allowance: val }))
+                            }
+                            className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-900"
+                            placeholder="Rp 0"
+                          />
+                        </div>
                       </div>
 
                       {/* Summary Box */}
@@ -2171,13 +2187,14 @@ export default function AdminFinanceDashboard({ onBack }) {
                           Number(editingStaffSalary.position_allowance || 0) +
                           Number(editingStaffSalary.meal_allowance || 0) +
                           Number(editingStaffSalary.child_allowance || 0) +
-                          Number(editingStaffSalary.spouse_allowance || 0);
+                          Number(editingStaffSalary.spouse_allowance || 0) +
+                          Number(editingStaffSalary.discipline_allowance || 0);
 
                         return (
                           <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
                             <div>
                               <span className="text-[10px] font-bold text-emerald-900 block">Total Paket Tetap:</span>
-                              <span className="text-[9px] text-emerald-700">Pokok + 4 Tunjangan</span>
+                              <span className="text-[9px] text-emerald-700">Pokok + 5 Tunjangan Tetap</span>
                             </div>
                             <span className="font-black text-sm text-emerald-700">
                               Rp {totalTetap.toLocaleString('id-ID')}
@@ -2236,7 +2253,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-2.5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
                       {filteredStaff.map((emp) => {
                         const pkg = employeeSalaries[emp.id] || employeeSalaries[emp.full_name] || {};
                         const basic = Number(pkg.basic_salary || 0);
@@ -2244,8 +2261,9 @@ export default function AdminFinanceDashboard({ onBack }) {
                         const meal = Number(pkg.meal_allowance || 0);
                         const child = Number(pkg.child_allowance || 0);
                         const spouse = Number(pkg.spouse_allowance || 0);
+                        const disc = Number(pkg.discipline_allowance || 0);
                         const paydayDate = Number(pkg.payday_date || 1);
-                        const totalTetap = basic + pos + meal + child + spouse;
+                        const totalTetap = basic + pos + meal + child + spouse + disc;
                         const isConfigured = basic > 0 || totalTetap > 0;
 
                         return (
@@ -2286,6 +2304,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                                     meal_allowance: meal,
                                     child_allowance: child,
                                     spouse_allowance: spouse,
+                                    discipline_allowance: disc,
                                     payday_date: paydayDate,
                                   })
                                 }
@@ -2296,8 +2315,8 @@ export default function AdminFinanceDashboard({ onBack }) {
                               </button>
                             </div>
 
-                            {/* Rincian 5 Komponen Tetap */}
-                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-2 bg-slate-50 rounded-xl text-[10px]">
+                            {/* Rincian 6 Komponen Tetap */}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 p-2 bg-slate-50 rounded-xl text-[10px]">
                               <div>
                                 <span className="text-[8px] text-slate-400 font-bold block">Gaji Pokok</span>
                                 <span className="font-black text-slate-800">
@@ -2326,6 +2345,12 @@ export default function AdminFinanceDashboard({ onBack }) {
                                 <span className="text-[8px] text-slate-400 font-bold block">Tunj. Keluarga</span>
                                 <span className="font-bold text-slate-700">
                                   Rp {spouse.toLocaleString('id-ID')}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] text-slate-400 font-bold block">Tunj. Disiplin</span>
+                                <span className="font-bold text-slate-700">
+                                  Rp {disc.toLocaleString('id-ID')}
                                 </span>
                               </div>
                             </div>
@@ -2584,292 +2609,317 @@ export default function AdminFinanceDashboard({ onBack }) {
                   </div>
                 )}
 
-                {/* ================= 1. RINGKASAN DATA GAJI TETAP (DARI MASTER) ================= */}
-                {newSalary.employee_name && (
-                  <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-200/80 space-y-2.5">
-                    <div className="flex items-center justify-between pb-1.5 border-b border-blue-200/60">
-                      <div className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                        <span className="text-[11px] font-black uppercase text-blue-900 tracking-wider">
-                          Data Gaji Tetap (Otomatis dari Master)
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setPayrollSubTab('master')}
-                        className="text-[10px] font-black text-[#2563EB] hover:underline flex items-center gap-1 cursor-pointer"
-                        title="Buka tab Master Gaji untuk edit paket tetap staf ini"
-                      >
-                        <Sliders className="w-3 h-3" />
-                        <span>Ubah di Master Gaji</span>
-                      </button>
-                    </div>
+                {/* ================= GRID 2 KOLOM RESPONSIF (DESKTOP / TABLET) ================= */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 items-start">
+                  {/* KOLOM KIRI: PENDAPATAN & DATA TETAP MASTER */}
+                  <div className="space-y-3.5">
+                    {/* 1. RINGKASAN DATA GAJI TETAP (DARI MASTER) */}
+                    {newSalary.employee_name && (
+                      <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-200/80 space-y-2.5">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-blue-200/60">
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                            <span className="text-[11px] font-black uppercase text-blue-900 tracking-wider">
+                              Data Gaji Tetap (Otomatis dari Master)
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPayrollSubTab('master')}
+                            className="text-[10px] font-black text-[#2563EB] hover:underline flex items-center gap-1 cursor-pointer"
+                            title="Buka tab Master Gaji untuk edit paket tetap staf ini"
+                          >
+                            <Sliders className="w-3 h-3" />
+                            <span>Ubah di Master Gaji</span>
+                          </button>
+                        </div>
 
-                    {/* Chips Nilai Tetap & Otomatis */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
-                      <div className="bg-white p-2 rounded-lg border border-blue-100">
-                        <span className="text-[8px] text-slate-400 font-bold block">Gaji Pokok</span>
-                        <span className="font-black text-slate-800">
-                          Rp {Number(newSalary.basic_salary || 0).toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                      <div className="bg-white p-2 rounded-lg border border-blue-100">
-                        <span className="text-[8px] text-slate-400 font-bold block">Tunj. Jabatan</span>
-                        <span className="font-bold text-slate-700">
-                          Rp {Number(newSalary.position_allowance || 0).toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                      <div className="bg-white p-2 rounded-lg border border-blue-100">
-                        <span className="text-[8px] text-slate-400 font-bold block">Tunj. Makan</span>
-                        <span className="font-bold text-slate-700">
-                          Rp {Number(newSalary.meal_allowance || 0).toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                      <div className="bg-white p-2 rounded-lg border border-blue-100">
-                        <span className="text-[8px] text-slate-400 font-bold block">Tunj. Anak &amp; Istri</span>
-                        <span className="font-bold text-slate-700">
-                          Rp {(Number(newSalary.child_allowance || 0) + Number(newSalary.spouse_allowance || 0)).toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    {attendanceSummaryText && (
-                      <div className="mt-1 mb-1 p-2 bg-blue-100/60 border border-blue-200/80 rounded-lg text-[10px] text-blue-900 flex items-center gap-1.5 shadow-[inset_0_1px_2px_rgba(255,255,255,0.5)]">
-                        <Clock className="w-3.5 h-3.5 text-blue-600" />
-                        <span className="font-bold">{attendanceSummaryText}</span>
-                      </div>
-                    )}
-
-                    <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 text-[10px] text-slate-600">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                          Lembur: Rp {Number(newSalary.overtime_pay || 0).toLocaleString('id-ID')}
-                        </span>
-                        <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
-                          Denda Presensi: Rp {Number(newSalary.discipline_deduction || 0).toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                      <div className="font-black text-blue-900">
-                        Total Tetap: Rp {(
-                          Number(newSalary.basic_salary || 0) +
-                          Number(newSalary.position_allowance || 0) +
-                          Number(newSalary.meal_allowance || 0) +
-                          Number(newSalary.child_allowance || 0) +
-                          Number(newSalary.spouse_allowance || 0)
-                        ).toLocaleString('id-ID')}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* ================= 2. FOKUS INPUT FINANCE: 3 POTONGAN VARIABEL ================= */}
-                <div className="p-3.5 bg-white rounded-xl border-2 border-amber-300/80 shadow-xs space-y-3">
-                  <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/60">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                      <span className="text-[11px] font-black uppercase text-amber-900 tracking-wider">
-                        Input Potongan Bulan Ini (Wajib Diisi Finance)
-                      </span>
-                    </div>
-                    <span className="text-[9px] bg-amber-100 text-amber-900 font-extrabold px-2 py-0.5 rounded-full">
-                      3 Kolom Potongan
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-slate-500">
-                    Finance hanya perlu mengisi potongan berikut untuk periode <strong>{newSalary.period}</strong> (biarkan Rp 0 jika tidak ada):
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {/* 1. Potongan Cash Bon */}
-                    <div className="p-2.5 rounded-xl bg-amber-50/50 border border-amber-200 space-y-1">
-                      <label className="block text-[10px] font-black text-amber-900">
-                        1. Potongan Cash Bon (Kasbon)
-                      </label>
-                      <CurrencyInput
-                        value={newSalary.cash_bon}
-                        onChange={(val) => setNewSalary({ ...newSalary, cash_bon: val })}
-                        className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-amber-500"
-                        placeholder="Rp 0"
-                      />
-                      <span className="text-[8px] text-slate-500 block">Pinjaman staf bulan ini</span>
-                    </div>
-
-                    {/* 2. Potongan Makan */}
-                    <div className="p-2.5 rounded-xl bg-rose-50/40 border border-rose-200 space-y-1">
-                      <label className="block text-[10px] font-black text-rose-900">
-                        2. Potongan Makan
-                      </label>
-                      <CurrencyInput
-                        value={newSalary.meal_deduction}
-                        onChange={(val) => setNewSalary({ ...newSalary, meal_deduction: val })}
-                        className="w-full bg-white border border-rose-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-rose-500"
-                        placeholder="Rp 0"
-                      />
-                      <span className="text-[8px] text-slate-500 block">Biaya makan di outlet</span>
-                    </div>
-
-                    {/* 3. Potongan Kehadiran */}
-                    <div className="p-2.5 rounded-xl bg-rose-50/40 border border-rose-200 space-y-1">
-                      <label className="block text-[10px] font-black text-rose-900">
-                        3. Potongan Kehadiran
-                      </label>
-                      <CurrencyInput
-                        value={newSalary.attendance_deduction}
-                        onChange={(val) => setNewSalary({ ...newSalary, attendance_deduction: val })}
-                        className="w-full bg-white border border-rose-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-rose-500"
-                        placeholder="Rp 0"
-                      />
-                      <span className="text-[8px] text-slate-500 block">Absen tanpa keterangan / izin</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Komponen Khusus: Perbantuan Hari Libur / Event (+Day) */}
-                <div className="bg-slate-50/70 p-2.5 rounded-xl border border-slate-200/80 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-slate-800 flex items-center gap-1">
-                      <Plus className="w-3 h-3 text-[#2563EB]" />
-                      <span>Perbantuan Event / Hari Libur (+Day)</span>
-                    </span>
-                    <span className="text-[8px] text-slate-400">Opsional (isi jika ada tugas)</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div>
-                      <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Jumlah Hari (+Day)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={newSalary.plus_day_count || 0}
-                        onChange={(e) =>
-                          setNewSalary({
-                            ...newSalary,
-                            plus_day_count: Math.max(0, parseInt(e.target.value) || 0),
-                          })
-                        }
-                        className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-900"
-                        placeholder="0 Hari"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Total Uang Perbantuan (Rp)</label>
-                      <CurrencyInput
-                        value={newSalary.plus_day_pay}
-                        onChange={(val) => setNewSalary({ ...newSalary, plus_day_pay: val })}
-                        className="w-full bg-white border border-emerald-300 rounded-lg px-2 py-1 text-xs font-black text-emerald-700"
-                        placeholder="Rp 0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Keterangan Event (Opsional)</label>
-                      <input
-                        type="text"
-                        value={newSalary.plus_day_note || ''}
-                        onChange={(e) => setNewSalary({ ...newSalary, plus_day_note: e.target.value })}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-slate-800"
-                        placeholder="Contoh: Event Musik Weekend"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* ================= 3. ACCORDION: SESUAIKAN NILAI TETAP BULAN INI (JIKA ADA PENYESUAIAN) ================= */}
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowDetailedComponents(!showDetailedComponents)}
-                    className="w-full py-2 px-3 rounded-xl border border-dashed border-slate-300 hover:border-blue-400 bg-white hover:bg-blue-50/30 text-xs font-bold text-slate-600 flex items-center justify-between transition cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Sliders className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Sesuaikan Rincian Gaji Pokok / Tunjangan / Denda Bulan Ini (Opsional)</span>
-                    </div>
-                    <ChevronDown
-                      className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
-                        showDetailedComponents ? 'rotate-180 text-blue-600' : ''
-                      }`}
-                    />
-                  </button>
-
-                  {showDetailedComponents && (
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-3 animate-in fade-in duration-150">
-                      <div>
-                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 block mb-1.5">
-                          Penyesuaian Pendapatan Khusus Bulan Ini:
-                        </span>
+                        {/* Chips Nilai Tetap & Otomatis */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px]">
+                          <div className="bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-[8px] text-slate-400 font-bold block">Gaji Pokok</span>
+                            <span className="font-black text-slate-800">
+                              Rp {Number(newSalary.basic_salary || 0).toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-[8px] text-slate-400 font-bold block">Tunj. Jabatan</span>
+                            <span className="font-bold text-slate-700">
+                              Rp {Number(newSalary.position_allowance || 0).toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-[8px] text-slate-400 font-bold block">Tunj. Makan</span>
+                            <span className="font-bold text-slate-700">
+                              Rp {Number(newSalary.meal_allowance || 0).toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-[8px] text-slate-400 font-bold block">Tunj. Disiplin</span>
+                            <span className="font-bold text-slate-700">
+                              Rp {Number(newSalary.discipline_allowance || 0).toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-blue-100 col-span-2 sm:col-span-2">
+                            <span className="text-[8px] text-slate-400 font-bold block">Tunj. Anak &amp; Istri</span>
+                            <span className="font-bold text-slate-700">
+                              Rp {(Number(newSalary.child_allowance || 0) + Number(newSalary.spouse_allowance || 0)).toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                        </div>
+                        
                         {attendanceSummaryText && (
-                          <div className="mb-2 p-1.5 bg-blue-50/50 border border-blue-100 rounded text-[10px] text-blue-700 flex items-center gap-1.5">
-                            <Clock className="w-3 h-3 text-blue-500" />
-                            <span className="font-semibold">{attendanceSummaryText}</span>
+                          <div className="mt-1 mb-1 p-2 bg-blue-100/60 border border-blue-200/80 rounded-lg text-[10px] text-blue-900 flex items-center gap-1.5 shadow-[inset_0_1px_2px_rgba(255,255,255,0.5)]">
+                            <Clock className="w-3.5 h-3.5 text-blue-600" />
+                            <span className="font-bold">{attendanceSummaryText}</span>
                           </div>
                         )}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          <div>
-                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Gaji Pokok</label>
-                            <CurrencyInput
-                              value={newSalary.basic_salary}
-                              onChange={(val) => setNewSalary({ ...newSalary, basic_salary: val })}
-                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-900"
-                              placeholder="Rp 0"
-                            />
+
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 text-[10px] text-slate-600">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                              Lembur: Rp {Number(newSalary.overtime_pay || 0).toLocaleString('id-ID')}
+                            </span>
+                            <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                              Denda Presensi: Rp {Number(newSalary.discipline_deduction || 0).toLocaleString('id-ID')}
+                            </span>
                           </div>
-                          <div>
-                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Jabatan</label>
-                            <CurrencyInput
-                              value={newSalary.position_allowance}
-                              onChange={(val) => setNewSalary({ ...newSalary, position_allowance: val })}
-                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                              placeholder="Rp 0"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Makan</label>
-                            <CurrencyInput
-                              value={newSalary.meal_allowance}
-                              onChange={(val) => setNewSalary({ ...newSalary, meal_allowance: val })}
-                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                              placeholder="Rp 0"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Anak</label>
-                            <CurrencyInput
-                              value={newSalary.child_allowance}
-                              onChange={(val) => setNewSalary({ ...newSalary, child_allowance: val })}
-                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                              placeholder="Rp 0"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Istri</label>
-                            <CurrencyInput
-                              value={newSalary.spouse_allowance}
-                              onChange={(val) => setNewSalary({ ...newSalary, spouse_allowance: val })}
-                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
-                              placeholder="Rp 0"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Uang Lembur (Jam)</label>
-                            <CurrencyInput
-                              value={newSalary.overtime_pay}
-                              onChange={(val) => setNewSalary({ ...newSalary, overtime_pay: val })}
-                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700"
-                              placeholder="Rp 0"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Denda Presensi</label>
-                            <CurrencyInput
-                              value={newSalary.discipline_deduction}
-                              onChange={(val) => setNewSalary({ ...newSalary, discipline_deduction: val })}
-                              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
-                              placeholder="Rp 0"
-                            />
+                          <div className="font-black text-blue-900">
+                            Total Tetap: Rp {(
+                              Number(newSalary.basic_salary || 0) +
+                              Number(newSalary.position_allowance || 0) +
+                              Number(newSalary.meal_allowance || 0) +
+                              Number(newSalary.child_allowance || 0) +
+                              Number(newSalary.spouse_allowance || 0) +
+                              Number(newSalary.discipline_allowance || 0)
+                            ).toLocaleString('id-ID')}
                           </div>
                         </div>
                       </div>
+                    )}
+
+                    {/* 3. ACCORDION: SESUAIKAN NILAI TETAP BULAN INI */}
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowDetailedComponents(!showDetailedComponents)}
+                        className="w-full py-2 px-3 rounded-xl border border-dashed border-slate-300 hover:border-blue-400 bg-white hover:bg-blue-50/30 text-xs font-bold text-slate-600 flex items-center justify-between transition cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Sesuaikan Rincian Gaji Pokok / Tunjangan Bulan Ini (Opsional)</span>
+                        </div>
+                        <ChevronDown
+                          className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                            showDetailedComponents ? 'rotate-180 text-blue-600' : ''
+                          }`}
+                        />
+                      </button>
+
+                      {showDetailedComponents && (
+                        <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-3 animate-in fade-in duration-150">
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 block mb-1.5">
+                              Penyesuaian Pendapatan Khusus Bulan Ini:
+                            </span>
+                            {attendanceSummaryText && (
+                              <div className="mb-2 p-1.5 bg-blue-50/50 border border-blue-100 rounded text-[10px] text-blue-700 flex items-center gap-1.5">
+                                <Clock className="w-3 h-3 text-blue-500" />
+                                <span className="font-semibold">{attendanceSummaryText}</span>
+                              </div>
+                            )}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              <div>
+                                <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Gaji Pokok</label>
+                                <CurrencyInput
+                                  value={newSalary.basic_salary}
+                                  onChange={(val) => setNewSalary({ ...newSalary, basic_salary: val })}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-900"
+                                  placeholder="Rp 0"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Jabatan</label>
+                                <CurrencyInput
+                                  value={newSalary.position_allowance}
+                                  onChange={(val) => setNewSalary({ ...newSalary, position_allowance: val })}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                                  placeholder="Rp 0"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Makan</label>
+                                <CurrencyInput
+                                  value={newSalary.meal_allowance}
+                                  onChange={(val) => setNewSalary({ ...newSalary, meal_allowance: val })}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                                  placeholder="Rp 0"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Kedisiplinan</label>
+                                <CurrencyInput
+                                  value={newSalary.discipline_allowance}
+                                  onChange={(val) => setNewSalary({ ...newSalary, discipline_allowance: val })}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                                  placeholder="Rp 0"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Anak</label>
+                                <CurrencyInput
+                                  value={newSalary.child_allowance}
+                                  onChange={(val) => setNewSalary({ ...newSalary, child_allowance: val })}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                                  placeholder="Rp 0"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Tunjangan Istri</label>
+                                <CurrencyInput
+                                  value={newSalary.spouse_allowance}
+                                  onChange={(val) => setNewSalary({ ...newSalary, spouse_allowance: val })}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900"
+                                  placeholder="Rp 0"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Uang Lembur (Jam)</label>
+                                <CurrencyInput
+                                  value={newSalary.overtime_pay}
+                                  onChange={(val) => setNewSalary({ ...newSalary, overtime_pay: val })}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700"
+                                  placeholder="Rp 0"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Denda Presensi</label>
+                                <CurrencyInput
+                                  value={newSalary.discipline_deduction}
+                                  onChange={(val) => setNewSalary({ ...newSalary, discipline_deduction: val })}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600"
+                                  placeholder="Rp 0"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
+
+                  {/* KOLOM KANAN: POTONGAN BULAN INI & PERBANTUAN */}
+                  <div className="space-y-3.5">
+                    {/* 2. FOKUS INPUT FINANCE: 3 POTONGAN VARIABEL */}
+                    <div className="p-3.5 bg-white rounded-xl border-2 border-amber-300/80 shadow-xs space-y-3">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/60">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                          <span className="text-[11px] font-black uppercase text-amber-900 tracking-wider">
+                            Input Potongan Bulan Ini (Wajib Diisi Finance)
+                          </span>
+                        </div>
+                        <span className="text-[9px] bg-amber-100 text-amber-900 font-extrabold px-2 py-0.5 rounded-full">
+                          3 Kolom Potongan
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Finance hanya perlu mengisi potongan berikut untuk periode <strong>{newSalary.period}</strong> (biarkan Rp 0 jika tidak ada):
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {/* 1. Potongan Cash Bon */}
+                        <div className="p-2.5 rounded-xl bg-amber-50/50 border border-amber-200 space-y-1">
+                          <label className="block text-[10px] font-black text-amber-900">
+                            1. Potongan Cash Bon (Kasbon)
+                          </label>
+                          <CurrencyInput
+                            value={newSalary.cash_bon}
+                            onChange={(val) => setNewSalary({ ...newSalary, cash_bon: val })}
+                            className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-amber-500"
+                            placeholder="Rp 0"
+                          />
+                          <span className="text-[8px] text-slate-500 block">Pinjaman staf bulan ini</span>
+                        </div>
+
+                        {/* 2. Potongan Makan */}
+                        <div className="p-2.5 rounded-xl bg-rose-50/40 border border-rose-200 space-y-1">
+                          <label className="block text-[10px] font-black text-rose-900">
+                            2. Potongan Makan
+                          </label>
+                          <CurrencyInput
+                            value={newSalary.meal_deduction}
+                            onChange={(val) => setNewSalary({ ...newSalary, meal_deduction: val })}
+                            className="w-full bg-white border border-rose-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-rose-500"
+                            placeholder="Rp 0"
+                          />
+                          <span className="text-[8px] text-slate-500 block">Biaya makan di outlet</span>
+                        </div>
+
+                        {/* 3. Potongan Kehadiran */}
+                        <div className="p-2.5 rounded-xl bg-rose-50/40 border border-rose-200 space-y-1">
+                          <label className="block text-[10px] font-black text-rose-900">
+                            3. Potongan Kehadiran
+                          </label>
+                          <CurrencyInput
+                            value={newSalary.attendance_deduction}
+                            onChange={(val) => setNewSalary({ ...newSalary, attendance_deduction: val })}
+                            className="w-full bg-white border border-rose-300 rounded-lg px-2.5 py-1.5 text-xs font-black text-rose-700 focus:outline-hidden focus:border-rose-500"
+                            placeholder="Rp 0"
+                          />
+                          <span className="text-[8px] text-slate-500 block">Absen tanpa keterangan / izin</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Komponen Khusus: Perbantuan Hari Libur / Event (+Day) */}
+                    <div className="bg-slate-50/70 p-2.5 rounded-xl border border-slate-200/80 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-slate-800 flex items-center gap-1">
+                          <Plus className="w-3 h-3 text-[#2563EB]" />
+                          <span>Perbantuan Event / Hari Libur (+Day)</span>
+                        </span>
+                        <span className="text-[8px] text-slate-400">Opsional (isi jika ada tugas)</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Jumlah Hari (+Day)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={newSalary.plus_day_count || 0}
+                            onChange={(e) =>
+                              setNewSalary({
+                                ...newSalary,
+                                plus_day_count: Math.max(0, parseInt(e.target.value) || 0),
+                              })
+                            }
+                            className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-900"
+                            placeholder="0 Hari"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Total Uang Perbantuan (Rp)</label>
+                          <CurrencyInput
+                            value={newSalary.plus_day_pay}
+                            onChange={(val) => setNewSalary({ ...newSalary, plus_day_pay: val })}
+                            className="w-full bg-white border border-emerald-300 rounded-lg px-2 py-1 text-xs font-black text-emerald-700"
+                            placeholder="Rp 0"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[8px] font-bold text-slate-500 mb-0.5">Keterangan Event (Opsional)</label>
+                          <input
+                            type="text"
+                            value={newSalary.plus_day_note || ''}
+                            onChange={(e) => setNewSalary({ ...newSalary, plus_day_note: e.target.value })}
+                            className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-slate-800"
+                            placeholder="Contoh: Event Musik Weekend"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Status Rilis & Total Preview */}
@@ -3007,7 +3057,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                       </button>
                       
                       {isExpanded && (
-                        <div className="p-3 bg-white space-y-2 border-t border-slate-100">
+                        <div className="p-3 bg-white grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 border-t border-slate-100">
                           {slips.map((slip) => (
                             <div
                               key={slip.id}
