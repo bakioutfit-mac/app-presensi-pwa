@@ -548,6 +548,7 @@ export default function AdminOwnerDashboard({ onBack }) {
   const [pinModalAdmin, setPinModalAdmin] = useState(null);
   const [savingAdmin, setSavingAdmin] = useState(false);
   const [revealedMgmtPins, setRevealedMgmtPins] = useState({});
+  const [showInactiveMgmt, setShowInactiveMgmt] = useState(false);
 
   const [newAdminForm, setNewAdminForm] = useState({
     full_name: '',
@@ -634,6 +635,8 @@ export default function AdminOwnerDashboard({ onBack }) {
         branch: newAdminForm.branch,
         birth_date: '01 Januari 1990',
         address: 'Pimpinan 3 Pillar Management',
+        status: 'active',
+        is_active: true,
       };
 
       const { data: inserted, error } = await supabase
@@ -672,6 +675,9 @@ export default function AdminOwnerDashboard({ onBack }) {
     if (!modalEditAdmin) return;
     setSavingAdmin(true);
     try {
+      const isActive = modalEditAdmin.is_active !== false && modalEditAdmin.status !== 'inactive';
+      const newStatus = isActive ? 'active' : 'inactive';
+
       const { error } = await supabase
         .from('employees')
         .update({
@@ -680,13 +686,19 @@ export default function AdminOwnerDashboard({ onBack }) {
           role: modalEditAdmin.role,
           position: modalEditAdmin.position.trim(),
           branch: modalEditAdmin.branch,
+          is_active: isActive,
+          status: newStatus,
         })
         .eq('id', modalEditAdmin.id);
 
       if (error) throw error;
 
       setManagementList((prev) =>
-        prev.map((m) => (m.id === modalEditAdmin.id ? { ...m, ...modalEditAdmin } : m))
+        prev.map((m) =>
+          m.id === modalEditAdmin.id
+            ? { ...m, ...modalEditAdmin, is_active: isActive, status: newStatus }
+            : m
+        )
       );
       setModalEditAdmin(null);
       showToast('success', `Data akun ${modalEditAdmin.full_name} berhasil diperbarui!`);
@@ -695,6 +707,44 @@ export default function AdminOwnerDashboard({ onBack }) {
       showToast('error', 'Gagal memperbarui akun: ' + (err.message || 'Unknown error'));
     } finally {
       setSavingAdmin(false);
+    }
+  };
+
+  const handleToggleAdminStatus = async (adminObj) => {
+    if (adminObj.id === user?.id) {
+      showToast('error', 'Anda tidak dapat menonaktifkan akun Anda sendiri yang sedang aktif.');
+      return;
+    }
+    const isCurrentlyActive = !(adminObj.is_active === false || adminObj.status === 'inactive' || adminObj.status === 'nonaktif');
+    const newStatus = isCurrentlyActive ? 'inactive' : 'active';
+    const newIsActive = !isCurrentlyActive;
+    const actionText = isCurrentlyActive ? 'dinonaktifkan' : 'diaktifkan kembali';
+
+    if (!window.confirm(`${isCurrentlyActive ? 'Nonaktifkan' : 'Aktifkan'} akun "${adminObj.full_name}"?`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({
+          status: newStatus,
+          is_active: newIsActive,
+        })
+        .eq('id', adminObj.id);
+
+      if (error) throw error;
+
+      setManagementList((prev) =>
+        prev.map((m) =>
+          m.id === adminObj.id
+            ? { ...m, status: newStatus, is_active: newIsActive }
+            : m
+        )
+      );
+      showToast('success', `Akun ${adminObj.full_name} berhasil ${actionText}!`);
+    } catch (err) {
+      showToast('error', 'Gagal mengubah status akun: ' + err.message);
     }
   };
 
@@ -1952,6 +2002,10 @@ export default function AdminOwnerDashboard({ onBack }) {
           {/* ================= SUB-TAB 1: RESET PIN KARYAWAN / STAF ================= */}
           {securitySubTab === 'staff' && (() => {
             const filteredStaff = staffList.filter((s) => {
+              // Jika status staf tidak aktif (keluar/resign), jangan tampilkan di PIN manajemen
+              const isStaffActive = !(s.is_active === false || s.status === 'inactive' || s.status === 'nonaktif');
+              if (!isStaffActive) return false;
+
               const matchOutlet =
                 selectedStaffOutlet === 'all' ||
                 (s.branch || '').toLowerCase() === selectedStaffOutlet.toLowerCase();
@@ -2176,6 +2230,10 @@ export default function AdminOwnerDashboard({ onBack }) {
           {/* ================= SUB-TAB 2: MULTI-ADMIN & PIN MANAJEMEN ================= */}
           {securitySubTab === 'management' && (() => {
             const filteredMgmt = managementList.filter((m) => {
+              // Jika status tidak aktif, jangan tampilkan kecuali filter showInactiveMgmt diaktifkan
+              const isMgmtActive = !(m.is_active === false || m.status === 'inactive' || m.status === 'nonaktif');
+              if (!showInactiveMgmt && !isMgmtActive) return false;
+
               if (selectedMgmtRole === 'owner' && !['owner', 'admin_owner'].includes(m.role)) return false;
               if (selectedMgmtRole === 'leader' && !['leader', 'admin_leader'].includes(m.role)) return false;
               if (selectedMgmtRole === 'finance' && !['finance', 'admin_finance'].includes(m.role)) return false;
@@ -2203,7 +2261,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                         Manajemen Role
                       </h4>
                       <p className="text-[10px] font-semibold text-slate-500 mt-0.5">
-                        {managementList.length} Akun Terdaftar
+                        {managementList.filter(m => !(m.is_active === false || m.status === 'inactive' || m.status === 'nonaktif')).length} Akun Aktif
                       </p>
                     </div>
                   </div>
@@ -2251,6 +2309,23 @@ export default function AdminOwnerDashboard({ onBack }) {
                     )}
                   </div>
 
+                  {/* Toggle Tampilkan Akun Nonaktif jika ada */}
+                  {managementList.some(m => m.is_active === false || m.status === 'inactive' || m.status === 'nonaktif') && (
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px] text-slate-500">
+                      <span className="font-medium">Filter akun nonaktif:</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowInactiveMgmt((prev) => !prev)}
+                        className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
+                          showInactiveMgmt
+                            ? 'bg-purple-100 text-purple-800 border-purple-200'
+                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                        }`}
+                      >
+                        {showInactiveMgmt ? 'Sembunyikan Nonaktif' : 'Tampilkan Nonaktif'}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Management Full-Width Card List (No Overlapping, Responsive) */}
@@ -2323,6 +2398,15 @@ export default function AdminOwnerDashboard({ onBack }) {
                                   >
                                     <span>{roleBadgeConfig.label}</span>
                                   </span>
+                                  {admin.is_active === false || admin.status === 'inactive' || admin.status === 'nonaktif' ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200 shrink-0">
+                                      Nonaktif
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                      Aktif
+                                    </span>
+                                  )}
                                 </div>
 
                                 <div className="flex items-center gap-1.5 mt-1 flex-wrap text-[10px]">
@@ -2384,12 +2468,42 @@ export default function AdminOwnerDashboard({ onBack }) {
                               {/* Edit Profil */}
                               <button
                                 type="button"
-                                onClick={() => setModalEditAdmin({ ...admin })}
+                                onClick={() =>
+                                  setModalEditAdmin({
+                                    ...admin,
+                                    is_active: !(admin.is_active === false || admin.status === 'inactive' || admin.status === 'nonaktif'),
+                                    status: admin.status || 'active',
+                                  })
+                                }
                                 className="px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
                               >
                                 <Edit3 className="w-3 h-3 text-slate-500" />
                                 <span>Edit</span>
                               </button>
+
+                              {/* Toggle Status Aktif / Nonaktif */}
+                              {!isSelf && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleAdminStatus(admin)}
+                                  className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shrink-0 ${
+                                    admin.is_active === false || admin.status === 'inactive' || admin.status === 'nonaktif'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                      : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                  }`}
+                                  title={
+                                    admin.is_active === false || admin.status === 'inactive' || admin.status === 'nonaktif'
+                                      ? 'Aktifkan kembali akun ini'
+                                      : 'Nonaktifkan akun ini'
+                                  }
+                                >
+                                  {admin.is_active === false || admin.status === 'inactive' || admin.status === 'nonaktif' ? (
+                                    <span>Aktifkan</span>
+                                  ) : (
+                                    <span>Nonaktifkan</span>
+                                  )}
+                                </button>
+                              )}
 
                               {/* WhatsApp Share */}
                               {waPhone && (
@@ -2957,6 +3071,19 @@ export default function AdminOwnerDashboard({ onBack }) {
                       {o.name}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              {/* Status Akun */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Status Akun Login</label>
+                <select
+                  value={modalEditAdmin.is_active !== false && modalEditAdmin.status !== 'inactive' ? 'active' : 'inactive'}
+                  onChange={(e) => setModalEditAdmin((prev) => ({ ...prev, is_active: e.target.value === 'active', status: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-purple-500 cursor-pointer"
+                >
+                  <option value="active">✅ Aktif (Dapat Login)</option>
+                  <option value="inactive">⛔ Nonaktif (Akses Diblokir)</option>
                 </select>
               </div>
 
