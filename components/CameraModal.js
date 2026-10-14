@@ -193,15 +193,7 @@ export default function CameraModal({ isOpen, onClose, type = 'checkin', coords,
         type
       );
 
-      const isMobileStaff =
-        user?.branch === 'Mobile / Lapangan' ||
-        user?.position?.toLowerCase().includes('belanja') ||
-        user?.position?.toLowerCase().includes('marketing') ||
-        user?.position?.toLowerCase().includes('purchasing');
-
-      const attendanceBranch = isMobileStaff
-        ? 'Mobile / Lapangan'
-        : activeOutlet?.name || 'LazyBloom';
+      const attendanceBranch = activeOutlet?.name || user?.branch || '3 Pillar';
 
       // Catat ke tabel database attendance
       const res = await recordAttendance({

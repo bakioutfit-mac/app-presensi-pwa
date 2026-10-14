@@ -109,6 +109,8 @@ export default function AdminOwnerDashboard({ onBack }) {
     loadLateCorrections,
     approveLeaveRequest,
     rejectLeaveRequest,
+    fieldStaffIds,
+    updateFieldStaffAccess,
   } = useAuth();
 
   // Active Tab: 'home' | 'monitoring' | 'approvals' | 'gps' | 'security' | 'cashier'
@@ -556,7 +558,7 @@ export default function AdminOwnerDashboard({ onBack }) {
     pin: '123456',
     role: 'owner',
     position: '',
-    branch: '3 Pillar All Outlets',
+    branch: '3 Pillar',
   });
 
   const fetchStaffList = async () => {
@@ -660,7 +662,7 @@ export default function AdminOwnerDashboard({ onBack }) {
         pin: '123456',
         role: 'owner',
         position: '',
-        branch: '3 Pillar All Outlets',
+        branch: '3 Pillar',
       });
       showToast('success', `Berhasil mendaftarkan akun ${payload.full_name}!`);
     } catch (err) {
@@ -847,6 +849,7 @@ export default function AdminOwnerDashboard({ onBack }) {
           full_name: modalEditStaff.full_name.trim(),
           phone: modalEditStaff.phone.trim(),
           branch: modalEditStaff.branch,
+          position: (modalEditStaff.position || 'Staff').trim(),
           is_active: modalEditStaff.is_active,
           status: modalEditStaff.is_active ? 'active' : 'inactive',
           role: modalEditStaff.role,
@@ -854,7 +857,12 @@ export default function AdminOwnerDashboard({ onBack }) {
         .eq('id', modalEditStaff.id);
 
       if (error) throw error;
-      showToast('success', `Profil & outlet staf ${modalEditStaff.full_name} berhasil diperbarui!`);
+
+      if (updateFieldStaffAccess) {
+        await updateFieldStaffAccess(modalEditStaff.id, !!modalEditStaff.is_field_staff);
+      }
+
+      showToast('success', `Profil & penempatan staf ${modalEditStaff.full_name} berhasil diperbarui!`);
       setModalEditStaff(null);
       fetchStaffList(); // refresh
     } catch (err) {
@@ -2208,7 +2216,9 @@ export default function AdminOwnerDashboard({ onBack }) {
                                   full_name: staff.full_name,
                                   phone: staff.phone,
                                   branch: staff.branch || safeOutlets[0]?.name || 'LazyBloom',
+                                  position: staff.position || staff.role || 'Staff',
                                   role: staff.role || 'staff',
+                                  is_field_staff: (fieldStaffIds && fieldStaffIds.includes(staff.id)) || (staff.branch && staff.branch.toLowerCase().includes('mobile')),
                                   is_active: !(staff.is_active === false || staff.status === 'inactive' || staff.status === 'nonaktif')
                                 })}
                                 className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold transition flex items-center justify-center cursor-pointer shadow-xs border border-slate-200"
@@ -2275,7 +2285,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                         pin: '123456',
                         role: 'owner',
                         position: '',
-                        branch: '3 Pillar All Outlets',
+                        branch: '3 Pillar',
                       });
                       setModalNewAdmin(true);
                     }}
@@ -2347,19 +2357,12 @@ export default function AdminOwnerDashboard({ onBack }) {
                       const isOwnerRole = ['owner', 'admin_owner'].includes(admin.role);
                       const isLeaderRole = ['leader', 'admin_leader'].includes(admin.role);
                       const isFinanceRole = ['finance', 'admin_finance'].includes(admin.role);
-                      const isPurchasingRole = ['purchasing', 'admin_purchasing'].includes(admin.role);
-                      const isGudangRole = ['gudang', 'admin_gudang'].includes(admin.role);
-
                       const roleBadgeConfig = isOwnerRole
                         ? { label: 'Owner', bg: 'bg-purple-50 text-purple-700 border-purple-200', icon: Crown }
                         : isLeaderRole
                         ? { label: 'Leader', bg: 'bg-orange-50 text-orange-700 border-orange-200', icon: Briefcase }
                         : isFinanceRole
                         ? { label: 'Finance', bg: 'bg-blue-50 text-blue-700 border-blue-200', icon: DollarSign }
-                        : isPurchasingRole
-                        ? { label: 'Purchasing', bg: 'bg-teal-50 text-teal-700 border-teal-200', icon: ShoppingCart }
-                        : isGudangRole
-                        ? { label: 'Gudang', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: Package }
                         : { label: 'Staf', bg: 'bg-slate-50 text-slate-700 border-slate-200', icon: Users };
 
                       const RoleIcon = roleBadgeConfig.icon;
@@ -2816,13 +2819,11 @@ export default function AdminOwnerDashboard({ onBack }) {
                   onChange={(e) => {
                     const r = e.target.value;
                     let pos = '';
-                    let br = '3 Pillar All Outlets';
+                    let br = '3 Pillar';
                     
-                    if (r === 'owner') { pos = ''; br = '3 Pillar All Outlets'; }
+                    if (r === 'owner') { pos = ''; br = '3 Pillar'; }
                     else if (r === 'admin_leader') { pos = 'Leader Outlet'; br = safeOutlets[0]?.name || 'Outlet Riau'; }
-                    else if (r === 'admin_finance') { pos = 'Finance & Payroll'; br = '3 Pillar All Outlets'; }
-                    else if (r === 'admin_purchasing') { pos = 'Purchasing Staff'; br = '3 Pillar All Outlets'; }
-                    else if (r === 'admin_gudang') { pos = 'Admin Gudang Pusat'; br = '3 Pillar All Outlets'; }
+                    else if (r === 'admin_finance') { pos = 'Finance & Payroll'; br = '3 Pillar'; }
 
                     setNewAdminForm((prev) => ({
                       ...prev,
@@ -2836,8 +2837,6 @@ export default function AdminOwnerDashboard({ onBack }) {
                   <option value="owner">👑 Owner</option>
                   <option value="admin_leader">📋 Leader Outlet</option>
                   <option value="admin_finance">💼 Finance Staff</option>
-                  <option value="admin_purchasing">🛒 Purchasing Staff</option>
-                  <option value="admin_gudang">📦 Admin Gudang</option>
                 </select>
               </div>
 
@@ -2930,7 +2929,7 @@ export default function AdminOwnerDashboard({ onBack }) {
                   onChange={(e) => setNewAdminForm((prev) => ({ ...prev, branch: e.target.value }))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-purple-500 focus:bg-white cursor-pointer"
                 >
-                  <option value="3 Pillar All Outlets">3 Pillar All Outlets (Semua Cabang)</option>
+                  <option value="3 Pillar">3 Pillar</option>
                   {safeOutlets.map((o) => (
                     <option key={o.id} value={o.name}>
                       {o.name}
@@ -3004,11 +3003,9 @@ export default function AdminOwnerDashboard({ onBack }) {
                     let pos = modalEditAdmin.position;
                     let br = modalEditAdmin.branch;
                     
-                    if (r === 'owner') { pos = 'Owner'; br = '3 Pillar All Outlets'; }
+                    if (r === 'owner') { pos = 'Owner'; br = '3 Pillar'; }
                     else if (r === 'admin_leader') { pos = 'Leader Outlet'; }
-                    else if (r === 'admin_finance') { pos = 'Finance & Payroll'; br = '3 Pillar All Outlets'; }
-                    else if (r === 'admin_purchasing') { pos = 'Purchasing Staff'; br = '3 Pillar All Outlets'; }
-                    else if (r === 'admin_gudang') { pos = 'Admin Gudang Pusat'; br = '3 Pillar All Outlets'; }
+                    else if (r === 'admin_finance') { pos = 'Finance & Payroll'; br = '3 Pillar'; }
 
                     setModalEditAdmin((prev) => ({ ...prev, role: r, position: pos, branch: br }));
                   }}
@@ -3017,8 +3014,6 @@ export default function AdminOwnerDashboard({ onBack }) {
                   <option value="owner">👑 Owner</option>
                   <option value="admin_leader">📋 Leader Outlet</option>
                   <option value="admin_finance">💼 Finance &amp; Payroll</option>
-                  <option value="admin_purchasing">🛒 Purchasing Staff</option>
-                  <option value="admin_gudang">📦 Admin Gudang</option>
                 </select>
               </div>
 
@@ -3061,11 +3056,11 @@ export default function AdminOwnerDashboard({ onBack }) {
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-700">Penugasan Cabang / Outlet</label>
                 <select
-                  value={modalEditAdmin.branch || '3 Pillar All Outlets'}
+                  value={modalEditAdmin.branch || '3 Pillar'}
                   onChange={(e) => setModalEditAdmin((prev) => ({ ...prev, branch: e.target.value }))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-purple-500 cursor-pointer"
                 >
-                  <option value="3 Pillar All Outlets">3 Pillar All Outlets (Semua Cabang)</option>
+                  <option value="3 Pillar">3 Pillar</option>
                   {safeOutlets.map((o) => (
                     <option key={o.id} value={o.name}>
                       {o.name}
@@ -3391,8 +3386,44 @@ export default function AdminOwnerDashboard({ onBack }) {
                       {o.name}
                     </option>
                   ))}
-                  <option value="3 Pillar All Outlets">3 Pillar All Outlets (Semua Cabang)</option>
+                  <option value="3 Pillar">3 Pillar</option>
                 </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Posisi / Jabatan</label>
+                <input
+                  type="text"
+                  value={modalEditStaff.position || ''}
+                  onChange={(e) => setModalEditStaff((prev) => ({ ...prev, position: e.target.value }))}
+                  placeholder="Contoh: Finance / Purchasing / Content Creator / Head / Barista / Kasir"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-slate-500"
+                />
+              </div>
+
+              {/* Toggle Izin Bebas Radius (Tugas Lapangan / Mobile) */}
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="pr-3">
+                    <label className="text-[11px] font-extrabold text-amber-950 block">
+                      Akses Presensi Bebas Radius
+                    </label>
+                    <p className="text-[10px] text-amber-800 leading-tight">
+                      Aktifkan untuk staf tugas mobile/lapangan (misal: Purchasing belanja pasar, Content Creator foto antar outlet). GPS &amp; kamera tetap aktif.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!modalEditStaff.is_field_staff}
+                    onChange={(e) =>
+                      setModalEditStaff((prev) => ({
+                        ...prev,
+                        is_field_staff: e.target.checked,
+                      }))
+                    }
+                    className="w-5 h-5 text-[#F97316] accent-[#F97316] rounded-md cursor-pointer shrink-0"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -3417,8 +3448,6 @@ export default function AdminOwnerDashboard({ onBack }) {
                   <option value="staff">Karyawan Outlet (Staff)</option>
                   <option value="admin_leader">Leader Outlet</option>
                   <option value="admin_finance">Admin Finance</option>
-                  <option value="admin_purchasing">Admin Purchasing</option>
-                  <option value="admin_gudang">Admin Gudang</option>
                   <option value="owner">Owner</option>
                 </select>
               </div>

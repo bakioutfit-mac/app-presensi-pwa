@@ -26,6 +26,7 @@ import { useAuth } from '@/context/AuthContext';
 import ProfileModal from './ProfileModal';
 import CameraModal from './CameraModal';
 import LeaveModal from './LeaveModal';
+import OvertimeModal from './OvertimeModal';
 import ShiftScheduleTab from './tabs/ShiftScheduleTab';
 import PayslipTab from './tabs/PayslipTab';
 import AttendanceHistoryTab from './tabs/AttendanceHistoryTab';
@@ -51,6 +52,7 @@ export default function HomeDashboard() {
     todayAttendance,
     activeLeave,
     outlets,
+    fieldStaffIds,
   } = useAuth();
 
   // Outlet aktif karyawan dengan fallback yang aman
@@ -63,6 +65,7 @@ export default function HomeDashboard() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [cameraModal, setCameraModal] = useState({ open: false, type: 'checkin' });
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
+  const [overtimeModalOpen, setOvertimeModalOpen] = useState(false);
 
   // Live Timer
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -72,14 +75,21 @@ export default function HomeDashboard() {
   const [currentDistance, setCurrentDistance] = useState(15); // in meters
   const [userCoords, setUserCoords] = useState({ lat: -6.2088, lng: 106.8456 });
 
-  // Deteksi apakah staf bertugas di luar outlet / lapangan (Tim Belanja & Tim Marketing)
+  // Deteksi izin bebas radius: Hak prerogatif Owner via toggle Edit Karyawan
   const isFieldStaff =
-    user?.branch === 'Mobile / Lapangan' ||
-    user?.branch?.toLowerCase().includes('mobile') ||
-    user?.branch?.toLowerCase().includes('lapangan') ||
-    user?.position?.toLowerCase().includes('belanja') ||
-    user?.position?.toLowerCase().includes('marketing') ||
-    user?.position?.toLowerCase().includes('purchasing');
+    (fieldStaffIds && fieldStaffIds.includes(user?.id)) ||
+    user?.is_field_staff === true;
+
+  // Deteksi staf non-shift (3 Pillar, Head, Finance, Purchasing, Content Creator)
+  const isNonShiftStaff =
+    user?.branch === '3 Pillar' ||
+    user?.branch === '3 Pillar All Outlets' ||
+    user?.branch === '3 Pillar HQ' ||
+    user?.branch?.toLowerCase().includes('3 pillar') ||
+    user?.position?.toLowerCase().includes('head') ||
+    user?.position?.toLowerCase().includes('finance') ||
+    user?.position?.toLowerCase().includes('purchasing') ||
+    user?.position?.toLowerCase().includes('creator');
 
   // Deteksi apakah staf memiliki tugas / jabatan sebagai Kasir
   const isCashier =
@@ -320,22 +330,7 @@ export default function HomeDashboard() {
           </div>
         </div>
 
-        {/* Button Minta Barang (Leader - Pojok Kiri Bawah) */}
-        {user?.role?.includes('leader') && (
-          <div className="absolute left-6 -bottom-5">
-            <button
-              type="button"
-              onClick={() => setAdminRole('leader_req')}
-              className="px-3 py-2 rounded-full text-white bg-amber-500 hover:bg-amber-600 shadow-md border-2 border-white transition text-[10px] font-black flex items-center gap-1.5"
-              title="Form Permintaan Barang ke Purchasing"
-            >
-              <ShoppingCart className="w-3.5 h-3.5" />
-              MINTA BARANG
-            </button>
-          </div>
-        )}
-
-        {/* Mode Leader / Purchasing / Gudang Buttons (Pojok Kanan Bawah Dekat Avatar) */}
+        {/* Mode Leader Button (Pojok Kanan Bawah Dekat Avatar) */}
         <div className="absolute right-6 -bottom-5 flex flex-col gap-2">
           {user?.role?.includes('leader') && (
             <button
@@ -516,11 +511,13 @@ export default function HomeDashboard() {
               </div>
               <div>
                 <span className="text-[10px] font-bold text-orange-900 uppercase tracking-wider block">
-                  Jadwal Shift Hari Ini
+                  {isNonShiftStaff ? 'Penugasan Jam Kerja' : 'Jadwal Shift Hari Ini'}
                 </span>
                 <span className="text-xs font-black text-slate-900">
                   {todayShiftInfo?.start_time
                     ? `${todayShiftInfo.start_time.slice(0, 5)} - ${todayShiftInfo.end_time?.slice(0, 5) || 'Selesai'} WIB`
+                    : isNonShiftStaff
+                    ? 'Jam Kerja Fleksibel / Office'
                     : 'Shift Standar (12:00 - 21:00 WIB)'}
                 </span>
               </div>
@@ -666,8 +663,8 @@ export default function HomeDashboard() {
             )}
           </div>
 
-          {/* Bottom Action Button: Ajukan Izin */}
-          <div className="pt-2">
+          {/* Bottom Action Button: Ajukan Izin & Ajukan Lembur */}
+          <div className="pt-2 space-y-2">
             {/* Ajukan Izin / Sakit */}
             <button
               type="button"
@@ -676,6 +673,16 @@ export default function HomeDashboard() {
             >
               <FileCheck className="w-4 h-4 text-[#2563EB]" />
               <span>Ajukan Izin / Cuti / Sakit</span>
+            </button>
+
+            {/* Ajukan Lembur Kerja */}
+            <button
+              type="button"
+              onClick={() => setOvertimeModalOpen(true)}
+              className="w-full py-3.5 bg-white hover:bg-orange-50/50 active:scale-98 border border-orange-200/80 rounded-2xl text-xs font-bold text-slate-800 shadow-sm transition flex items-center justify-center gap-2 cursor-pointer group"
+            >
+              <Clock className="w-4 h-4 text-[#F97316] group-hover:rotate-12 transition-transform" />
+              <span>Ajukan Lembur Kerja</span>
             </button>
           </div>
         </div>
@@ -715,6 +722,11 @@ export default function HomeDashboard() {
       <LeaveModal
         isOpen={leaveModalOpen}
         onClose={() => setLeaveModalOpen(false)}
+      />
+
+      <OvertimeModal
+        isOpen={overtimeModalOpen}
+        onClose={() => setOvertimeModalOpen(false)}
       />
     </div>
   );

@@ -2008,7 +2008,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                     { id: 'LazyBloom', label: 'LazyBloom' },
                     { id: 'Deru Ombak', label: 'Deru Ombak' },
                     { id: 'Sea Cafe', label: 'Sea Cafe' },
-                    { id: 'Mobile / Lapangan', label: 'Mobile / Lapangan' },
+                    { id: '3 Pillar', label: '3 Pillar' },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -2480,7 +2480,7 @@ export default function AdminFinanceDashboard({ onBack }) {
                       <option value="LazyBloom">LazyBloom</option>
                       <option value="Deru Ombak">Deru Ombak</option>
                       <option value="Sea Cafe">Sea Cafe</option>
-                      <option value="Mobile / Lapangan">Mobile / Lapangan</option>
+                      <option value="3 Pillar">3 Pillar</option>
                     </select>
                   </div>
                   <div>
@@ -2985,7 +2985,7 @@ export default function AdminFinanceDashboard({ onBack }) {
             {/* Filter Outlet */}
             <div className="flex items-center gap-1.5 text-[10px] font-bold overflow-x-auto pb-1">
               <span className="text-slate-500">Filter Outlet:</span>
-              {['all', 'LazyBloom', 'Deru Ombak', 'Sea Cafe', 'Mobile / Lapangan'].map((b) => (
+              {['all', 'LazyBloom', 'Deru Ombak', 'Sea Cafe', '3 Pillar'].map((b) => (
                 <button
                   key={b}
                   type="button"

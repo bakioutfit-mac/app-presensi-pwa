@@ -30,7 +30,7 @@ const MONTHS = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ];
 
-const OUTLETS = ['all', 'LazyBloom', 'Deru Ombak', 'Sea Cafe', 'Mobile / Lapangan'];
+const OUTLETS = ['all', 'LazyBloom', 'Deru Ombak', 'Sea Cafe', '3 Pillar'];
 
 export default function FinanceAttendanceAuditTab() {
   // Preset Periode (Default: Cut-Off 25 Ags 2026 s.d. 25 Sep 2026)

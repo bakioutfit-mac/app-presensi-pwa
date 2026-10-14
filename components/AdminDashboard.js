@@ -638,7 +638,7 @@ export default function AdminDashboard({ onBack }) {
                   <option value="Kasir">Kasir</option>
                   <option value="Kitchen Crew">Kitchen Crew</option>
                   <option value="Floor Staff">Floor Staff</option>
-                  <option value="Tim Belanja">Tim Belanja (Purchasing)</option>
+                  <option value="Tim Belanja">Tim Belanja</option>
                   <option value="Tim Marketing">Tim Marketing</option>
                   <option value="Supervisor">Supervisor</option>
                 </select>

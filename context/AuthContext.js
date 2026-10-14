@@ -70,6 +70,9 @@ export function AuthProvider({ children }) {
   // State pengajuan koreksi keterlambatan dari Staf ke Admin Leader
   const [lateCorrections, setLateCorrections] = useState([]);
 
+  // State daftar ID staf yang diberi izin bebas radius (tugas lapangan / mobile) oleh Owner
+  const [fieldStaffIds, setFieldStaffIds] = useState([]);
+
   // 1. Sinkronisasi daftar pengajuan lembur dari Cloud (Supabase overtimes / admin_settings)
   const loadOvertimeRequests = async () => {
     let allRequests = [];
@@ -233,13 +236,73 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // 3. Load & sync daftar staf bebas radius dari admin_settings
+  const loadFieldStaffIds = async () => {
+    try {
+      const { data } = await supabase
+        .from('admin_settings')
+        .select('description')
+        .eq('role', 'field_staff_ids')
+        .maybeSingle();
+
+      if (data?.description) {
+        const ids = JSON.parse(data.description);
+        if (Array.isArray(ids)) {
+          setFieldStaffIds(ids);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('pwa_field_staff_ids', JSON.stringify(ids));
+          }
+          return ids;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load field_staff_ids from admin_settings:', e);
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = JSON.parse(localStorage.getItem('pwa_field_staff_ids') || '[]');
+        if (Array.isArray(cached) && cached.length > 0) {
+          setFieldStaffIds(cached);
+          return cached;
+        }
+      } catch (e) {}
+    }
+    return [];
+  };
+
+  const updateFieldStaffAccess = async (staffId, isAllowed) => {
+    let updated = [];
+    if (isAllowed) {
+      updated = Array.from(new Set([...fieldStaffIds, staffId]));
+    } else {
+      updated = fieldStaffIds.filter((id) => id !== staffId);
+    }
+    setFieldStaffIds(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pwa_field_staff_ids', JSON.stringify(updated));
+    }
+    try {
+      await supabase.from('admin_settings').upsert(
+        {
+          role: 'field_staff_ids',
+          pin: '000000',
+          name: 'Daftar ID Staf Bebas Radius',
+          description: JSON.stringify(updated),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'role' }
+      );
+    } catch (e) {
+      console.warn('Sync field_staff_ids error:', e);
+    }
+    return { success: true, data: updated };
+  };
+
   // Helper konversi role string ke adminRole aktif
   const mapRoleToAdminRole = (roleStr) => {
     const r = (roleStr || '').toLowerCase();
     if (r === 'admin_owner' || r === 'owner') return 'owner';
     if (r === 'admin_finance' || r === 'finance') return 'finance';
-    if (r.includes('gudang') || r === 'admin_gudang') return 'gudang';
-    if (r.includes('purchasing') || r === 'admin_purchasing') return 'purchasing';
     return '';
   };
 
@@ -382,6 +445,7 @@ export function AuthProvider({ children }) {
 
         try {
           await loadLateCorrections();
+          await loadFieldStaffIds();
         } catch (e) {}
 
         try {
@@ -746,7 +810,7 @@ export function AuthProvider({ children }) {
           pin: cleanPin,
           role: 'admin_owner',
           position: 'Owner & Executive Director',
-          branch: '3 Pillar All Outlets',
+          branch: '3 Pillar',
         };
         setUser(ownerData);
         setAdminRole('owner');
@@ -1361,14 +1425,42 @@ export function AuthProvider({ children }) {
         console.warn('Query assigned shift error:', err);
       }
 
+      // Deteksi staf non-shift (3 Pillar, Head, Finance, Purchasing, Content Creator)
+      const isNonShift =
+        user?.branch === '3 Pillar' ||
+        user?.branch === '3 Pillar All Outlets' ||
+        user?.branch === '3 Pillar HQ' ||
+        user?.branch?.toLowerCase().includes('3 pillar') ||
+        user?.position?.toLowerCase().includes('head') ||
+        user?.position?.toLowerCase().includes('finance') ||
+        user?.position?.toLowerCase().includes('purchasing') ||
+        user?.position?.toLowerCase().includes('creator');
+
       if (leaderAssignedShift && leaderAssignedShift.start_time) {
         // Menggunakan jam kerja riil yang diatur Leader (misal: 04:00 - 12:00)
         const parts = leaderAssignedShift.start_time.split(':');
         shiftStartHour = parseInt(parts[0], 10);
         shiftStartMin = parseInt(parts[1] || '0', 10);
         shiftLabel = leaderAssignedShift.shift_name || `Shift ${leaderAssignedShift.start_time.substring(0, 5)}`;
+
+        const scheduledTime = new Date();
+        scheduledTime.setHours(shiftStartHour, shiftStartMin, 0, 0);
+        const graceTime = new Date(scheduledTime.getTime() + 10 * 60 * 1000);
+
+        if (now > graceTime) {
+          isLate = true;
+          lateMins = Math.max(11, Math.round((now.getTime() - scheduledTime.getTime()) / (60 * 1000)));
+          disciplinePenalty = 10000;
+        }
+      } else if (isNonShift) {
+        // Staf Non-Shift 3 Pillar All Outlets / Office / Head / Finance / Purchasing / Content Creator
+        // Jam kerja fleksibel kantor tanpa denda keterlambatan shift toko
+        shiftLabel = 'Jam Kerja Fleksibel / Office';
+        isLate = false;
+        lateMins = 0;
+        disciplinePenalty = 0;
       } else {
-        // 2. JIKA BELUM DISET LEADER: Gunakan aturan shift standar
+        // 2. JIKA BELUM DISET LEADER (KHUSUS STAF TOKO/OUTLET): Gunakan aturan shift standar
         const dayOfWeek = now.getDay(); // 0 = Minggu, 1 = Senin, ..., 4 = Kamis, 5 = Jumat, 6 = Sabtu
         const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 4; // Senin s/d Kamis
         const shiftStr = (scheduledShift || '').toLowerCase();
@@ -1406,18 +1498,18 @@ export function AuthProvider({ children }) {
             }
           }
         }
-      }
 
-      const scheduledTime = new Date();
-      scheduledTime.setHours(shiftStartHour, shiftStartMin, 0, 0);
+        const scheduledTime = new Date();
+        scheduledTime.setHours(shiftStartHour, shiftStartMin, 0, 0);
 
-      // Toleransi 10 menit
-      const graceTime = new Date(scheduledTime.getTime() + 10 * 60 * 1000);
+        // Toleransi 10 menit
+        const graceTime = new Date(scheduledTime.getTime() + 10 * 60 * 1000);
 
-      if (now > graceTime) {
-        isLate = true;
-        lateMins = Math.max(11, Math.round((now.getTime() - scheduledTime.getTime()) / (60 * 1000)));
-        disciplinePenalty = 10000; // Flat Rp 10.000 sesuai kebijakan outlet
+        if (now > graceTime) {
+          isLate = true;
+          lateMins = Math.max(11, Math.round((now.getTime() - scheduledTime.getTime()) / (60 * 1000)));
+          disciplinePenalty = 10000; // Flat Rp 10.000 sesuai kebijakan outlet
+        }
       }
 
       updatedRecord = {
@@ -1620,6 +1712,9 @@ export function AuthProvider({ children }) {
         updateOutletCoords,
         outlets: outletsList,
         currentOutlet: userOutletConfig,
+        fieldStaffIds,
+        loadFieldStaffIds,
+        updateFieldStaffAccess,
         refreshAttendance: () => loadAttendanceAndLeave(user),
         refreshSession: () => syncUserProfile(),
       }}
